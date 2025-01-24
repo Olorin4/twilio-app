@@ -122,3 +122,20 @@ div#volume-indicators > div {
 button:disabled {
   cursor: not-allowed;
 }
+
+.sms-column {
+  padding: 10px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  margin-top: 20px;
+}
+
+.sms-column ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sms-column ul li {
+  padding: 5px;
+  border-bottom: 1px solid #ddd;
+}

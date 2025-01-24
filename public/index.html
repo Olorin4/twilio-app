@@ -1,14 +1,16 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <title>Twilio Voice JavaScript SDK Quickstart</title>
     <link rel="stylesheet" href="site.css" />
   </head>
+
   <body>
     <header>
       <h1>Twilio Voice JavaScript SDK Quickstart</h1>
       <button id="startup-button">Start up the Device</button>
     </header>
+
     <main id="controls">
       <section class="left-column" id="info">
         <h2>Your Device Info</h2>
@@ -22,6 +24,7 @@
           <button id="get-devices">Seeing "Unknown" devices?</button>
         </div>
       </section>
+
       <section class="center-column">
         <h2 class="instructions">Make a Call</h2>
         <div id="call-controls" class="hide">
@@ -51,9 +54,17 @@
           </div>
         </div>
       </section>
+
       <section class="right-column">
         <h2>Event Log</h2>
         <div class="hide" id="log"></div>
+
+        <div class="sms-column">
+          <h2>Incoming SMS</h2>
+          <ul id="sms-log">
+            <!-- Incoming SMS messages will be appended here -->
+          </ul>
+        </div>
       </section>
     </main>
 
