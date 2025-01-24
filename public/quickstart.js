@@ -5,20 +5,22 @@
   const inputVolumeBar = document.getElementById("input-volume");
   const volumeIndicators = document.getElementById("volume-indicators");
   const callButton = document.getElementById("button-call");
-  const outgoingCallHangupButton = document.getElementById("button-hangup-outgoing");
+  const outgoingCallHangupButton = document.getElementById(
+    "button-hangup-outgoing",
+  );
   const callControlsDiv = document.getElementById("call-controls");
   const audioSelectionDiv = document.getElementById("output-selection");
   const getAudioDevicesButton = document.getElementById("get-devices");
   const logDiv = document.getElementById("log");
   const incomingCallDiv = document.getElementById("incoming-call");
   const incomingCallHangupButton = document.getElementById(
-    "button-hangup-incoming"
+    "button-hangup-incoming",
   );
   const incomingCallAcceptButton = document.getElementById(
-    "button-accept-incoming"
+    "button-accept-incoming",
   );
   const incomingCallRejectButton = document.getElementById(
-    "button-reject-incoming"
+    "button-reject-incoming",
   );
   const phoneNumberInput = document.getElementById("phone-number");
   const incomingPhoneNumberEl = document.getElementById("incoming-number");
@@ -36,7 +38,6 @@
   getAudioDevicesButton.onclick = getAudioDevices;
   speakerDevices.addEventListener("change", updateOutputDevice);
   ringtoneDevices.addEventListener("change", updateRingtoneDevice);
-  
 
   // SETUP STEP 1:
   // Browser client should be started after a user gesture
@@ -65,7 +66,7 @@
     logDiv.classList.remove("hide");
     log("Initializing device");
     device = new Twilio.Device(token, {
-      logLevel:1,
+      logLevel: 1,
       // Set Opus as our preferred codec. Opus generally performs better, requiring less bandwidth and
       // providing better audio quality in restrained network conditions.
       codecPreferences: ["opus", "pcmu"],
@@ -123,7 +124,6 @@
         log("Hanging up ...");
         call.disconnect();
       };
-
     } else {
       log("Unable to make call.");
     }
@@ -206,6 +206,32 @@
     log("Incoming call ended.");
     resetIncomingCallUI();
   }
+
+  async function fetchIncomingMessages() {
+    try {
+      const response = await fetch("/messages");
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const messages = await response.json();
+
+      // Update the SMS section in the browser
+      const smsLog = document.getElementById("sms-log");
+      smsLog.innerHTML = ""; // Clear the previous messages
+
+      messages.forEach((message) => {
+        const li = document.createElement("li");
+        li.textContent = `From: ${message.from}, Message: ${message.body}`;
+        smsLog.appendChild(li);
+      });
+    } catch (err) {
+      console.error("Failed to fetch incoming messages:", err);
+    }
+  }
+
+  // Periodically fetch messages (every 15 seconds)
+  setInterval(fetchIncomingMessages, 15000);
 
   // MISC USER INTERFACE
 
