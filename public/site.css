@@ -123,6 +123,7 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* SMS LOG */
 .sms-column {
   padding: 10px;
   background-color: #f9f9f9;
@@ -138,4 +139,29 @@ button:disabled {
 .sms-column ul li {
   padding: 5px;
   border-bottom: 1px solid #ddd;
+}
+
+/* DIAL PAD */
+#dtmf-controls {
+  margin-top: 20px;
+}
+
+#dtmf-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 50px);
+  gap: 10px;
+}
+
+.dtmf-button {
+  padding: 10px;
+  font-size: 18px;
+  text-align: center;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #f0f0f0;
+  cursor: pointer;
+}
+
+.dtmf-button:hover {
+  background-color: #e0e0e0;
 }

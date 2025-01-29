@@ -25,9 +25,12 @@
   const phoneNumberInput = document.getElementById("phone-number");
   const incomingPhoneNumberEl = document.getElementById("incoming-number");
   const startupButton = document.getElementById("startup-button");
+  const dtmfControlsDiv = document.getElementById("dtmf-controls");
+  const dtmfButtons = document.querySelectorAll(".dtmf-button");
 
   let device;
   let token;
+  let activeCall = null; // Track the currently active call
 
   // Event Listeners
 
@@ -38,6 +41,15 @@
   getAudioDevicesButton.onclick = getAudioDevices;
   speakerDevices.addEventListener("change", updateOutputDevice);
   ringtoneDevices.addEventListener("change", updateRingtoneDevice);
+  dtmfButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const digit = button.getAttribute("data-digit");
+      if (activeCall) {
+        log(`Sending DTMF: ${digit}`);
+        activeCall.sendDigits(digit); // Send the DTMF tone
+      } else log("No active call to send DTMF.");
+    });
+  });
 
   // SETUP STEP 1:
   // Browser client should be started after a user gesture
@@ -47,7 +59,6 @@
   // SETUP STEP 2: Request an Access Token
   async function startupClient() {
     log("Requesting Access Token...");
-
     try {
       const data = await $.getJSON("/token");
       log("Got a token.");
@@ -113,6 +124,7 @@
 
       // Twilio.Device.connect() returns a Call object
       const call = await device.connect({ params });
+      activeCall = call;
 
       // add listeners to the Call
       // "accepted" means the call has finished connecting and the state is now "open"
@@ -124,9 +136,7 @@
         log("Hanging up ...");
         call.disconnect();
       };
-    } else {
-      log("Unable to make call.");
-    }
+    } else log("Unable to make call.");
   }
 
   function updateUIAcceptedOutgoingCall(call) {
@@ -134,6 +144,7 @@
     callButton.disabled = true;
     outgoingCallHangupButton.classList.remove("hide");
     volumeIndicators.classList.remove("hide");
+    dtmfControlsDiv.classList.remove("hide"); // Show DTMF controls
     bindVolumeIndicators(call);
   }
 
@@ -142,6 +153,7 @@
     callButton.disabled = false;
     outgoingCallHangupButton.classList.add("hide");
     volumeIndicators.classList.add("hide");
+    dtmfControlsDiv.classList.add("hide"); // Hide DTMF controls
   }
 
   // HANDLE INCOMING CALL
@@ -176,8 +188,6 @@
 
   function acceptIncomingCall(call) {
     call.accept();
-
-    //update UI
     log("Accepted incoming call.");
     incomingCallAcceptButton.classList.add("hide");
     incomingCallRejectButton.classList.add("hide");
