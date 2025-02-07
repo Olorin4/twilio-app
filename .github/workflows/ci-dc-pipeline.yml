@@ -72,7 +72,7 @@ jobs:
             else
               echo "✅ No dependency changes detected, skipping npm install."
             fi
-            pm2 restart twilio-voip || pm2 start server.js --name twilio-voip
+            pm2 restart twilio-voip || pm2 start public/quickstart.js --name twilio-voip
             pm2 save
             echo "✅ Deployment completed successfully."
           EOF
