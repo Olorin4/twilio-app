@@ -1,5 +1,5 @@
 const jwt = require("jsonwebtoken");
-const { tokenGenerator, voiceResponse } = require("../src/handler");
+const { tokenGenerator, voiceResponse } = require("./src/handler");
 
 const when = describe;
 
