@@ -74,5 +74,5 @@ jobs:
             fi
             pm2 restart twilio-voip || pm2 start index.js --name twilio-voip
             pm2 save
-            echo "✅ Deployment completed successfully!"
+            echo "✅ Deployment completed successfully."
           EOF
