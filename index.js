@@ -15,7 +15,7 @@ app.use(router);
 
 // Create http server and run it
 const server = http.createServer(app);
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 
 server.listen(port, function () {
   console.log("Express server running on *:" + port);
