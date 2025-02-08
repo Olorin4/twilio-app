@@ -4,7 +4,7 @@ const path = require("path");
 
 exports.smsResponse = (req, res) => {
   const twiml = new MessagingResponse();
-  // Extract SMS details from request body
+  // Extract SMS details from the request body
   const from = req.body.From; // The sender's phone number
   const body = req.body.Body; // The message text
 
