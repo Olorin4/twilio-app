@@ -4,6 +4,10 @@ const { smsResponse } = require("./smsResponse");
 
 const router = new Router();
 
+router.get("/", (req, res) => {
+  res.send("Twilio VoIP API is running!");
+});
+
 // Route for generating an Access Token
 router.get("/token", (req, res) => {
   res.send(tokenGenerator());

@@ -219,16 +219,15 @@
 
   async function fetchIncomingMessages() {
     try {
-      const response = await fetch("/messages");
+      const response = await fetch("/messages", { redirect: "follow" });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const messages = await response.json();
 
-      // Update the SMS section in the browser
       const smsLog = document.getElementById("sms-log");
-      smsLog.innerHTML = ""; // Clear the previous messages
+      smsLog.innerHTML = "";
 
       messages.forEach((message) => {
         const li = document.createElement("li");
