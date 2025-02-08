@@ -8,13 +8,22 @@ const config = require("../config");
 
 let identity;
 
+console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID);
+console.log("TWILIO_API_KEY:", process.env.TWILIO_API_KEY);
+console.log("TWILIO_API_SECRET:", process.env.TWILIO_API_SECRET);
+
 exports.tokenGenerator = function tokenGenerator() {
   identity = nameGenerator();
 
+  if (!process.env.TWILIO_ACCOUNT_SID) {
+    console.error("❌ ERROR: Missing TWILIO_ACCOUNT_SID");
+    return res.status(500).json({ error: "Missing TWILIO_ACCOUNT_SID" });
+  }
+
   const accessToken = new AccessToken(
-    config.accountSid,
-    config.apiKey,
-    config.apiSecret,
+    process.env.TWILIO_ACCOUNT_SID,
+    process.env.TWILIO_API_KEY,
+    process.env.TWILIO_API_SECRET,
   );
   accessToken.identity = identity;
   const grant = new VoiceGrant({
