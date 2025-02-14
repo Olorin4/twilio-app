@@ -5,6 +5,7 @@ for voice calls. The client object is exported for use in other modules. */
 
 require("dotenv").config();
 const twilio = require("twilio");
+const nameGenerator = require("../name_generator");
 const AccessToken = require("twilio").jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
 
@@ -45,7 +46,7 @@ const client = twilio(accountSid, authToken);
 
 // Generate Twilio Token for Browser client
 function tokenGenerator() {
-  const identity = `user_${Math.floor(Math.random() * 10000)}`;
+  const identity = nameGenerator();
   const accessToken = new AccessToken(accountSid, apiKey, apiSecret, {
     ttl: 14400,
   });
@@ -55,6 +56,7 @@ function tokenGenerator() {
     new VoiceGrant({ outgoingApplicationSid: appSid, incomingAllow: true }),
   );
 
+  // Include identity and token in a JSON response
   return { identity, token: accessToken.toJwt() };
 }
 
