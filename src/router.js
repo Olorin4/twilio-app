@@ -4,6 +4,7 @@ The router.js file exports an instance of the Express Router that is used in
 the main index.js file to define the routes for the server. */
 
 const Router = require("express").Router;
+const fs = require("fs");
 const {
   tokenGenerator,
   voiceResponse,
