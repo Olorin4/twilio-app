@@ -5,7 +5,15 @@ const VoiceResponse = require("twilio").twiml.VoiceResponse;
 const MessagingResponse = require("twilio").twiml.MessagingResponse;
 const fs = require("fs");
 const path = require("path");
-const tokenGenerator = require("./token");
+const {
+  accountSid,
+  authToken,
+  appSid,
+  apiKey,
+  apiSecret,
+  callerId,
+  tokenGenerator,
+} = require("./token");
 
 // Debug Twilio credentials
 console.log("TWILIO_ACCOUNT_SID:", accountSid);
