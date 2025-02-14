@@ -37,7 +37,7 @@ router.get("/", (req, res) => {
 router.get("/token", (req, res) => {
   try {
     const token = tokenGenerator();
-    console.log("EToken generated successfully");
+    console.log("Token generated successfully");
     res.json(token);
   } catch (error) {
     console.error("Error generating token:", error);
@@ -48,7 +48,7 @@ router.get("/token", (req, res) => {
 // Webhook for handling voice calls
 router.post("/voice", (req, res) => {
   try {
-    console.log("📞 Received webhook event:", req.body);
+    console.log("📞 Received call webhook event:", req.body);
     logCall(req.body);
     res.set("Content-Type", "text/xml");
     res.send(voiceResponse(req.body));

@@ -61,7 +61,6 @@
   let activeCall = null; // Track the currently active call
 
   // Event Listeners
-
   callButton.onclick = (e) => {
     e.preventDefault();
     makeOutgoingCall();
@@ -95,7 +94,6 @@
       } else throw new Error("No token received from server.");
     } catch (err) {
       console.error("❌ Error fetching token:", err);
-      log("An error occurred. See your browser console for more information.");
       return null;
     }
   }
@@ -123,7 +121,7 @@
       // Set token refresh interval only once
       if (!tokenRefreshInterval) {
         tokenRefreshInterval = setInterval(refreshToken, 3540 * 1000);
-        console.log("🔄 Token refresh scheduled.");
+        log("🔄 Token refresh scheduled.");
       }
     }
   }
@@ -134,18 +132,21 @@
 
     device = new Twilio.Device(token, {
       logLevel: 1,
+      // Set Opus as our preferred codec. Opus generally performs better, requiring less bandwidth and
+      // providing better audio quality in restrained network conditions.
       codecPreferences: ["opus", "pcmu"],
     });
 
     addDeviceListeners(device);
 
-    device.on("ready", () => console.log("✅ Twilio Device is READY!"));
-    device.on("error", (error) =>
-      console.error("❌ Twilio Device error:", error.message),
-    );
-    device.on("incoming", (call) =>
-      console.log("📞 Incoming call from:", call.parameters.From),
-    );
+    // device.on("ready", () => console.log("✅ Twilio Device is READY!"));
+    // device.on("error", (error) =>
+    //   console.error("❌ Twilio Device error:", error.message),
+    // );
+    // device.on("incoming", (call) =>
+    //   console.log("📞 Incoming call from:", call.parameters.From),
+    // );
+    // Device must be registered in order to receive incoming calls
     device.register();
   }
 

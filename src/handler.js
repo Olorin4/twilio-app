@@ -5,11 +5,7 @@ const VoiceResponse = require("twilio").twiml.VoiceResponse;
 const AccessToken = require("twilio").jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
 const nameGenerator = require("../name_generator");
-const fs = require("fs");
-const path = require("path");
-const { callLogPath, smsLogPath } = require("./logManager");
-const statusFile = path.join(__dirname, "client-status.json");
-
+// const statusFile = path.join(__dirname, "client-status.json");
 const {
   accountSid,
   authToken,
@@ -24,9 +20,7 @@ console.log("✔ Debugging handler.js credentials:");
 console.log("accountSid:", accountSid);
 console.log("authToken:", authToken);
 console.log("appSid:", appSid);
-if (!callerId) {
-  throw new Error("Caller ID is missing in Twilio configuration.");
-}
+if (!callerId) throw new Error("Caller ID is missing in Twilio configuration.");
 console.log("✔ Twilio credentials correctly imported into handler.js");
 
 let identity;

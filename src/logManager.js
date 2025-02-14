@@ -9,8 +9,8 @@ const smsLogPath = path.join(__dirname, "messages.log");
 
 exports.logCall = (callData) => {
   try {
-    console.log("📞 [DEBUG] Logging call:", callData); //  Debugging call data
-    if (!fs.existsSync(callLogPath)) fs.writeFileSync(callLogPath, ""); // Create file if missing
+    console.log("📞 [DEBUG] Logging call:", callData);
+    if (!fs.existsSync(callLogPath)) fs.writeFileSync(callLogPath, "");
     const logMessage = `[${new Date().toISOString()}] Call from: ${callData.From}, To: ${callData.To || "Unknown"}, Status: ${callData.CallStatus || "Unknown"}\n`;
     fs.appendFileSync(callLogPath, logMessage);
     console.log("✅ [DEBUG] Call logged:", logMessage);
@@ -22,11 +22,10 @@ exports.logCall = (callData) => {
 // Retrieve call logs as JSON
 exports.getCallLogs = (req, res) => {
   try {
-    console.log("📥 [DEBUG] /call-logs API called!"); //  Log when API is hit
     const callLogPath = path.join(__dirname, "calls.log");
-
-    console.log("📁 [DEBUG] Checking log file at:", callLogPath); // Logs path
-    console.log("📂 [DEBUG] Current directory:", __dirname); // Logs working directory
+    console.log("📥 [DEBUG] /call-logs API called!");
+    console.log("📁 [DEBUG] Checking log file at:", callLogPath);
+    console.log("📂 [DEBUG] Current directory:", __dirname);
 
     if (!fs.existsSync(callLogPath)) {
       console.warn("⚠️ [WARN] Log file does not exist at:", callLogPath);
