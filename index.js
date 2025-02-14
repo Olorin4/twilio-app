@@ -1,3 +1,5 @@
+/* index.js is responsible for creating the Express server and running it. */
+
 const http = require("http");
 const path = require("path");
 const express = require("express");

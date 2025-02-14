@@ -30,6 +30,7 @@
 
   let device;
   let token;
+  let tokenRefreshInterval; // Variable to store interval reference
   let activeCall = null; // Track the currently active call
 
   // Event Listeners
@@ -60,14 +61,36 @@
   async function startupClient() {
     log("Requesting Access Token...");
     try {
-      const data = await $.getJSON("/token");
+      const response = await fetch("/token"); // Get a new token
+      const data = await response.json();
       log("Got a token.");
       token = data.token;
       setClientNameUI(data.identity);
       intitializeDevice();
+
+      // Automatically refresh token every 235 minutes (14100 seconds)
+      clearInterval(tokenRefreshInterval); // Clear any existing intervals
+      tokenRefreshInterval = setInterval(refreshToken, 14100 * 1000);
     } catch (err) {
-      console.log(err);
+      console.log("Error fetching token:", err);
       log("An error occurred. See your browser console for more information.");
+    }
+  }
+
+  // Function to refresh Twilio Token
+  async function refreshToken() {
+    log("Refreshing Twilio token...");
+    try {
+      const response = await fetch("/token");
+      const data = await response.json();
+
+      token = data.token;
+      device.updateToken(token); // Update the token in the Twilio Device
+
+      log("Token refreshed successfully.");
+    } catch (err) {
+      console.error("Failed to refresh token:", err);
+      log("Failed to refresh token. Try restarting the client.");
     }
   }
 
