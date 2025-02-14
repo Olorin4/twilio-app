@@ -3,10 +3,10 @@ It also initializes the Twilio client and exports it for reuse. The tokenGenerat
 generates a new token with a unique identity and grants the necessary permission
 for voice calls. The client object is exported for use in other modules. */
 
+require("dotenv").config();
 const twilio = require("twilio");
 const AccessToken = require("twilio").jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
-require("dotenv").config();
 
 // Twilio credentials from .env
 const accountSid = process.env.TWILIO_ACCOUNT_SID;

@@ -34,12 +34,13 @@ jobs:
       # Step 5: Generate .env file from GitHub Secrets
       - name: Generate .env file
         run: |
-          echo "PORT=${{ secrets.PORT }}" > .env
-          echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" > .env
-          echo "TWILIO_TWIML_APP_SID=${{ secrets.TWILIO_TWIML_APP_SID }}" > .env
-          echo "TWILIO_CALLER_ID=${{ secrets.TWILIO_CALLER_ID }}" > .env
-          echo "TWILIO_API_KEY=${{ secrets.TWILIO_API_KEY }}" > .env
-          echo "TWILIO_API_SECRET=${{ secrets.TWILIO_API_SECRET }}" > .env
+          echo "PORT=${{ secrets.PORT }}" >> .env
+          echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" >> .env
+          echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" >> .env
+          echo "TWILIO_TWIML_APP_SID=${{ secrets.TWILIO_TWIML_APP_SID }}" >> .env
+          echo "TWILIO_CALLER_ID=${{ secrets.TWILIO_CALLER_ID }}" >> .env
+          echo "TWILIO_API_KEY=${{ secrets.TWILIO_API_KEY }}" >> .env
+          echo "TWILIO_API_SECRET=${{ secrets.TWILIO_API_SECRET }}" >> .env
           echo "DB_NAME=${{ secrets.DB_NAME }}" >> .env
           echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
           echo "DB_USER=${{ secrets.DB_USER }}" >> .env
