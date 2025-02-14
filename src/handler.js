@@ -85,51 +85,41 @@ exports.updateClientStatus = function updateClientStatus(status) {
 };
 
 // Handle Incoming Calls
+// Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
   console.log("📞 Incoming call to:", requestBody.To);
   let twiml = new VoiceResponse();
-  const isClientConnected = getClientStatus();
 
-  // If the request to the /voice endpoint is TO your Twilio Number,
-  // then it is an incoming call towards your Twilio.Device.
+  // If the request is to our Twilio Number, route to browser
   if (toNumberOrClientName == callerId) {
-    let dial = twiml.dial();
-    if (isClientConnected) {
-      console.log("🟢 [DEBUG] Browser client is online. Routing call...");
-      dial.client("browser-client");
-    } else {
-      console.log(
-        "🔴 [DEBUG] No browser client connected. Sending auto-message...",
-      );
-      twiml.say(
-        "Hello, our office is currently closed. Please call back during business hours.",
-      );
-    }
-  } else if (requestBody.To) {
-    // This is an outgoing call
-
-    // set the callerId
-    let dial = twiml.dial({ callerId });
-
-    // Check if the 'To' parameter is a Phone Number or Client Name
-    // in order to use the appropriate TwiML noun
-    const attr = isAValidPhoneNumber(toNumberOrClientName)
-      ? "number"
-      : "client";
-    dial[attr]({}, toNumberOrClientName);
-  } else {
+    console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
+    let dial = twiml.dial({ timeout: 20 }); // Wait for 20 seconds before failing over
+    dial.client("browser-client");
+    // If no answer, Twilio will play this message
     twiml.say(
       "Hello, our office is currently closed. Please call back during business hours.",
     );
-  }
-  console.log("📞 Generated TwiML:", twiml.toString()); // ✅ Log the response for debugging
+  } else if (requestBody.To) {
+    // This is an outgoing call
+    let dial = twiml.dial({ callerId });
+    // Determine if dialing a number or client
+    const attr = /^[\d\+\-\(\) ]+$/.test(toNumberOrClientName)
+      ? "number"
+      : "client";
+    dial[attr]({}, toNumberOrClientName);
+  } else
+    twiml.say(
+      "Hello, our office is currently closed. Please call back during business hours.",
+    );
+
+  console.log("📞 Generated TwiML:", twiml.toString()); //  Log for debugging
   return twiml.toString();
 };
 
 exports.logCall = (callData) => {
   try {
-    console.log("📞 [DEBUG] Logging call:", callData); // ✅ Debugging call data
+    console.log("📞 [DEBUG] Logging call:", callData); //  Debugging call data
     if (!fs.existsSync(logFilePath)) fs.writeFileSync(logFilePath, ""); // Create file if missing
     const logMessage = `[${new Date().toISOString()}] Call from: ${callData.From}, To: ${callData.To || "Unknown"}, Status: ${callData.CallStatus || "Unknown"}\n`;
     fs.appendFileSync(logFilePath, logMessage);
@@ -142,7 +132,7 @@ exports.logCall = (callData) => {
 // Retrieve call logs as JSON
 exports.getCallLogs = (req, res) => {
   try {
-    console.log("📥 [DEBUG] /call-logs API called!"); // ✅ Log when API is hit
+    console.log("📥 [DEBUG] /call-logs API called!"); //  Log when API is hit
     const logFilePath = path.join(__dirname, "calls.log");
 
     console.log("📁 [DEBUG] Checking log file at:", logFilePath); // Logs path

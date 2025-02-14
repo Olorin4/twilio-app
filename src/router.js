@@ -29,16 +29,16 @@ router.get("/", (req, res) => {
 });
 
 // Checks if Browser App is open
-router.post("/client-status", (req, res) => {
-  const status = req.body.connected;
-  global.browserClientConnected = status; // Keep in memory
-  console.log(`🟢 [DEBUG] Browser client status updated: ${status}`);
+// router.post("/client-status", (req, res) => {
+//   const status = req.body.connected;
+//   // global.browserClientConnected = status;
+//   // console.log(`🟢 [DEBUG] Browser client status updated: ${status}`);
 
-  // ✅ Call function in handler.js to persist status
-  updateClientStatus(status);
+//   // ✅ Call function in handler.js to persist status
+//   // updateClientStatus(status);
 
-  res.json({ status: "updated", connected: status });
-});
+//   res.json({ status: "updated", connected: status });
+// });
 
 // Webhook for generating an Access Token
 router.get("/token", (req, res) => {
