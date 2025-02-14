@@ -15,6 +15,14 @@ const {
   tokenGenerator,
 } = require("./token");
 
+console.log("✔ Debugging handler.js credentials:");
+console.log("accountSid:", accountSid);
+console.log("authToken:", authToken);
+console.log("appSid:", appSid);
+if (!callerId) {
+  throw new Error("Caller ID is missing in Twilio configuration.");
+}
+
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
