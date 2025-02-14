@@ -99,8 +99,12 @@ exports.logCall = (callData) => {
 // Retrieve call logs as JSON
 exports.getCallLogs = (req, res) => {
   try {
+    console.log("📁 Checking log file:", logFilePath);
     if (!fs.existsSync(logFilePath)) return res.json([]); // Return empty if no logs exist
+    console.log("📖 Reading log file...");
     const logData = fs.readFileSync(logFilePath, "utf8");
+
+    console.log("✅ Log file read successfully!");
     const logs = logData
       .trim()
       .split("\n")
