@@ -7,7 +7,6 @@ const VoiceGrant = AccessToken.VoiceGrant;
 const nameGenerator = require("../name_generator");
 const fs = require("fs");
 const path = require("path");
-const logFilePath = path.join(__dirname, "calls.log");
 const {
   accountSid,
   authToken,
@@ -98,12 +97,12 @@ exports.logCall = (callData) => {
 
 // Retrieve call logs as JSON
 exports.getCallLogs = (req, res) => {
+  const logFilePath = path.join(__dirname, "calls.log");
   try {
     console.log("📁 Checking log file:", logFilePath);
     if (!fs.existsSync(logFilePath)) return res.json([]); // Return empty if no logs exist
     console.log("📖 Reading log file...");
     const logData = fs.readFileSync(logFilePath, "utf8");
-
     console.log("✅ Log file read successfully!");
     const logs = logData
       .trim()
@@ -165,7 +164,6 @@ exports.smsResponse = (req, res) => {
 
 exports.getLogsAsJSON = (req, res) => {
   const logFilePath = path.join(__dirname, "messages.log");
-
   try {
     if (!fs.existsSync(logFilePath)) {
       console.warn("Log file does not exist. Returning empty array.");
