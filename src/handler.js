@@ -7,6 +7,7 @@ const VoiceGrant = AccessToken.VoiceGrant;
 const nameGenerator = require("../name_generator");
 const fs = require("fs");
 const path = require("path");
+const logFilePath = path.join(__dirname, "calls.log");
 const {
   accountSid,
   authToken,
@@ -16,6 +17,7 @@ const {
   callerId,
 } = require("./token");
 
+// Debugging twilio credentials imports
 console.log("✔ Debugging handler.js credentials:");
 console.log("accountSid:", accountSid);
 console.log("authToken:", authToken);
@@ -25,7 +27,7 @@ if (!callerId) {
 }
 console.log("✔ Twilio credentials correctly imported into handler.js");
 
-var identity;
+let identity;
 
 exports.tokenGenerator = function tokenGenerator() {
   identity = nameGenerator();
@@ -75,6 +77,39 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   }
   console.log("📞 Generated TwiML:", twiml.toString()); // ✅ Log the response for debugging
   return twiml.toString();
+};
+
+exports.logCall = (callData) => {
+  try {
+    if (!fs.existsSync(logFilePath)) fs.writeFileSync(logFilePath, ""); // Create an empty file
+
+    const logMessage = `[${new Date().toISOString()}] Call from: ${callData.From}, To: ${callData.To}, Status: ${callData.CallStatus}\n`;
+    fs.appendFileSync(logFilePath, logMessage);
+    console.log("✅ Call logged:", logMessage);
+  } catch (error) {
+    console.error("❌ Error writing call log:", error);
+  }
+};
+
+// Retrieve call logs as JSON
+exports.getCallLogs = (req, res) => {
+  try {
+    if (!fs.existsSync(logFilePath)) return res.json([]); // Return empty if no logs exist
+
+    const logData = fs.readFileSync(logFilePath, "utf8");
+    const logs = logData
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const [timestamp, details] = line.split("] ");
+        return { timestamp: timestamp.replace("[", ""), details };
+      });
+
+    res.json(logs);
+  } catch (err) {
+    console.error("❌ Error reading call logs:", err);
+    res.status(500).json({ error: "Failed to retrieve logs" });
+  }
 };
 
 // Handle Incoming SMS
