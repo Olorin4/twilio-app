@@ -3,7 +3,7 @@ It is a collection of routes that are defined using the Express Router.
 The router.js file exports an instance of the Express Router that is used in 
 the main index.js file to define the routes for the server. */
 
-const { tokenGenerator } = require("./token");
+const { tokenGenerator } = require("./handler");
 const {
   voiceResponse,
   smsResponse,
