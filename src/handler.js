@@ -2,7 +2,9 @@
 and then exporting them for use in router.js. */
 
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
-const MessagingResponse = require("twilio").twiml.MessagingResponse;
+const AccessToken = require("twilio").jwt.AccessToken;
+const VoiceGrant = AccessToken.VoiceGrant;
+const nameGenerator = require("../name_generator");
 const fs = require("fs");
 const path = require("path");
 const {
