@@ -4,6 +4,8 @@ The router.js file exports an instance of the Express Router that is used in
 the main index.js file to define the routes for the server. */
 
 const Router = require("express").Router;
+const path = require("path");
+const logFilePath = path.join(__dirname, "calls.log");
 const fs = require("fs");
 const {
   tokenGenerator,
@@ -64,10 +66,14 @@ router.post("/voice", (req, res) => {
 // Webhook for fetching logged calls
 router.get("/call-logs", (req, res) => {
   try {
-    if (!fs.existsSync("calls.log")) return res.json([]);
+    console.log("📂 [DEBUG] Checking call logs at:", logFilePath);
+    if (!fs.existsSync(logFilePath)) {
+      console.warn("⚠️ [WARN] calls.log file does not exist at:", logFilePath);
+      return res.json([]);
+    }
     res.json(getCallLogs(req, res));
   } catch (error) {
-    console.error("Error fetching call logs:", error);
+    console.error("❌ [ERROR] Error fetching call logs:", error);
     res.status(500).json({ error: "Failed to fetch logs" });
   }
 });
