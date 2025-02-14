@@ -1,6 +1,10 @@
+/* sendFax.js is responsible for sending a fax using 
+the Twilio API. The sendFax function sends a fax to a 
+recipient with a specified media URL. The getFaxStatus 
+function fetches the status of a fax using its SID. */
+
 const twilio = require("twilio");
-// Import Twilio client and credentials from token.js
-const { client, accountSid, callerId } = require("./token");
+const { client } = require("./token");
 
 // Send a fax
 exports.sendFax = async (req, res) => {
@@ -23,8 +27,12 @@ exports.sendFax = async (req, res) => {
     console.log(`Fax sent! SID: ${fax.sid}`);
     res.json({ success: true, faxSid: fax.sid });
   } catch (error) {
-    console.error("Failed to send fax:", error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error("Failed to send fax:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error,
+    });
   }
 };
 

@@ -5,19 +5,12 @@ the main index.js file to define the routes for the server. */
 
 const Router = require("express").Router;
 const path = require("path");
-const logFilePath = path.join(__dirname, "calls.log");
+const callLogPath = require("./logManager").callLogPath;
 const fs = require("fs");
-const {
-  tokenGenerator,
-  updateClientStatus,
-  voiceResponse,
-  logCall,
-  getCallLogs,
-  smsResponse,
-  getLogsAsJSON,
-  sendFax,
-  getFaxStatus,
-} = require("./handler");
+const { tokenGenerator, voiceResponse, smsResponse } = require("./handler");
+const { smsResponse } = require("./smsResponse");
+const { logCall, getCallLogs, getLogsAsJSON } = require("./logManager");
+const { sendFax, getFaxStatus } = require("./faxManager");
 
 // Debugging
 console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
@@ -70,9 +63,9 @@ router.post("/voice", (req, res) => {
 // Webhook for fetching logged calls
 router.get("/call-logs", (req, res) => {
   try {
-    console.log("📂 [DEBUG] Checking call logs at:", logFilePath);
-    if (!fs.existsSync(logFilePath)) {
-      console.warn("⚠️ [WARN] calls.log file does not exist at:", logFilePath);
+    console.log("📂 [DEBUG] Checking call logs at:", callLogPath);
+    if (!fs.existsSync(callLogPath)) {
+      console.warn("⚠️ [WARN] calls.log file does not exist at:", callLogPath);
       return res.json([]);
     }
     res.json(getCallLogs(req, res));
