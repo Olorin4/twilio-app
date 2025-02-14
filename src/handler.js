@@ -73,8 +73,22 @@ function getClientStatus() {
 // Update client status and save it to file
 function updateClientStatus(status) {
   try {
-    fs.writeFileSync(statusFile, JSON.stringify({ connected: status }));
-    console.log(`🟢 [DEBUG] Browser client status updated: ${status}`);
+    console.log(`🟢 [DEBUG] Received status update: ${status}`);
+
+    if (typeof status === "boolean") {
+      console.log(`📝 [DEBUG] Writing status to file: ${statusFile}`);
+
+      // Ensure the write actually happens
+      fs.writeFileSync(
+        statusFile,
+        JSON.stringify({ connected: status }),
+        "utf8",
+      );
+
+      // Double-check the file after writing
+      const confirmWrite = fs.readFileSync(statusFile, "utf8");
+      console.log(`✅ [DEBUG] File updated. Current content: ${confirmWrite}`);
+    } else console.warn("⚠️ [WARNING] Invalid status received:", status);
   } catch (error) {
     console.error("❌ [ERROR] Failed to update client status:", error);
   }
