@@ -108,6 +108,17 @@
 
     addDeviceListeners(device);
 
+    device.on("ready", function (device) {
+      console.log("✅ Twilio Device is READY!");
+    });
+
+    device.on("error", function (error) {
+      console.error("❌ Twilio Device error:", error.message);
+    });
+
+    device.on("incoming", function (call) {
+      console.log("📞 Incoming call from:", call.parameters.From);
+    });
     // Device must be registered in order to receive incoming calls
     device.register();
   }
