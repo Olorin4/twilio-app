@@ -29,27 +29,34 @@
   const dtmfButtons = document.querySelectorAll(".dtmf-button");
 
   // Notify Server When the Browser App is open or closed
-  window.browserClientOnline = async function browserClientOnline(status) {
-    try {
-      const response = await fetch("/client-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connected: status }),
-      });
-      console.log(`🟢 [BROWSER] Sent client status update: ${status}`);
-    } catch (error) {
-      console.error("❌ [BROWSER] Failed to notify server:", error);
-    }
-  };
-  // Notify server when the browser app starts
-  window.addEventListener("load", () => browserClientOnline(true));
-  // Notify server when the browser app closes
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") browserClientOnline(false);
-    else if (document.visibilityState === "visible") browserClientOnline(true);
-  });
-  // Used as a fallback
-  window.addEventListener("beforeunload", () => browserClientOnline(false));
+  (function () {
+    console.log("✅ [DEBUG] quickstart.js is loaded!");
+
+    // ✅ Attach the function to `window` to make it globally accessible
+    window.browserClientOnline = async function (status) {
+      try {
+        await fetch("/client-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connected: status }),
+        });
+        console.log(`🟢 [BROWSER] Sent client status update: ${status}`);
+      } catch (error) {
+        console.error("❌ [BROWSER] Failed to notify server:", error);
+      }
+    };
+
+    // ✅ Notify the server when the browser app starts
+    window.addEventListener("load", () => window.browserClientOnline(true));
+
+    // ✅ Notify the server when the browser tab is closed or minimized
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden")
+        window.browserClientOnline(false);
+      else if (document.visibilityState === "visible")
+        window.browserClientOnline(true);
+    });
+  })();
 
   let device;
   let token;
