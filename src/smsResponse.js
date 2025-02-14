@@ -16,10 +16,7 @@ exports.smsResponse = (req, res) => {
 
   // Ensure the log file exists or create it
   try {
-    if (!fs.existsSync(smsLogPath)) {
-      fs.writeFileSync(smsLogPath, ""); // Create an empty file
-    }
-
+    if (!fs.existsSync(smsLogPath)) fs.writeFileSync(smsLogPath, "");
     // Append the new message to the log file
     const logMessage = `From: ${from}, Message: ${body}\n`;
     fs.appendFileSync(smsLogPath, logMessage);

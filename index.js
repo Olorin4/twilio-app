@@ -4,7 +4,6 @@ const http = require("http");
 const path = require("path");
 const express = require("express");
 const bodyParser = require("body-parser");
-
 const router = require("./src/router");
 
 // Create Express webapp
