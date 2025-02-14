@@ -28,7 +28,7 @@ function getClientStatus() {
 }
 
 // Update client status and save it to file
-exports.updateClientStatus = function updateClientStatus(status) {
+function updateClientStatus(status) {
   try {
     console.log(`🟢 [DEBUG] Writing status to file: ${statusFile}`);
 
@@ -39,4 +39,4 @@ exports.updateClientStatus = function updateClientStatus(status) {
   } catch (error) {
     console.error("❌ [ERROR] Failed to update client status:", error);
   }
-};
+}
