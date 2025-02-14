@@ -22,6 +22,7 @@ console.log("appSid:", appSid);
 if (!callerId) {
   throw new Error("Caller ID is missing in Twilio configuration.");
 }
+console.log("✔ Twilio credentials correctly imported into handler.js");
 
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {

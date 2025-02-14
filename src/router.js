@@ -3,14 +3,17 @@ It is a collection of routes that are defined using the Express Router.
 The router.js file exports an instance of the Express Router that is used in 
 the main index.js file to define the routes for the server. */
 
+const { tokenGenerator } = require("./token");
 const {
-  tokenGenerator,
   voiceResponse,
   smsResponse,
   getLogsAsJSON,
   sendFax,
   getFaxStatus,
 } = require("./handler");
+
+// Debugging
+console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
 
 const Router = require("express").Router;
 const router = new Router();
@@ -21,7 +24,13 @@ router.get("/", (req, res) => {
 
 // Route for generating an Access Token
 router.get("/token", (req, res) => {
-  res.send(tokenGenerator());
+  try {
+    const token = tokenGenerator();
+    res.json(token);
+  } catch (error) {
+    console.error("Error generating token:", error);
+    res.status(500).json({ error: "Failed to generate token" });
+  }
 });
 
 // Route for handling voice calls
