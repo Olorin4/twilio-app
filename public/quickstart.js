@@ -29,7 +29,7 @@
   const dtmfButtons = document.querySelectorAll(".dtmf-button");
 
   // Notify Server When the Browser App is open or closed
-  async function browserClientOnline(status) {
+  window.browserClientOnline = async function browserClientOnline(status) {
     try {
       const response = await fetch("/client-status", {
         method: "POST",
@@ -40,7 +40,7 @@
     } catch (error) {
       console.error("❌ [BROWSER] Failed to notify server:", error);
     }
-  }
+  };
   // Notify server when the browser app starts
   window.addEventListener("load", () => browserClientOnline(true));
   // Notify server when the browser app closes
