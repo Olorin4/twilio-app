@@ -69,7 +69,5 @@ module.exports = {
   apiKey,
   apiSecret,
   callerId,
-  tokenGenerator,
-  identity,
   client,
 };
