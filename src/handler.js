@@ -71,34 +71,17 @@ function getClientStatus() {
 }
 
 // Update client status and save it to file
-function updateClientStatus(status) {
+exports.updateClientStatus = function updateClientStatus(status) {
   try {
-    console.log(`🟢 [DEBUG] Received status update: ${status}`);
+    console.log(`🟢 [DEBUG] Writing status to file: ${statusFile}`);
 
-    if (typeof status === "boolean") {
-      console.log(`📝 [DEBUG] Writing status to file: ${statusFile}`);
+    fs.writeFileSync(statusFile, JSON.stringify({ connected: status }), "utf8");
 
-      // Ensure the write actually happens
-      fs.writeFileSync(
-        statusFile,
-        JSON.stringify({ connected: status }),
-        "utf8",
-      );
-
-      // Double-check the file after writing
-      const confirmWrite = fs.readFileSync(statusFile, "utf8");
-      console.log(`✅ [DEBUG] File updated. Current content: ${confirmWrite}`);
-    } else console.warn("⚠️ [WARNING] Invalid status received:", status);
+    const confirmWrite = fs.readFileSync(statusFile, "utf8");
+    console.log(`✅ [DEBUG] File updated. Current content: ${confirmWrite}`);
   } catch (error) {
     console.error("❌ [ERROR] Failed to update client status:", error);
   }
-}
-
-// API Route: Update Browser Client Status
-exports.updateClientStatus = (req, res) => {
-  const status = req.body.connected;
-  updateClientStatus(status);
-  res.json({ status: "updated", connected: status });
 };
 
 // Handle Incoming Calls

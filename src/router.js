@@ -9,6 +9,7 @@ const logFilePath = path.join(__dirname, "calls.log");
 const fs = require("fs");
 const {
   tokenGenerator,
+  updateClientStatus,
   voiceResponse,
   logCall,
   getCallLogs,
@@ -29,11 +30,14 @@ router.get("/", (req, res) => {
 
 // Checks if Browser App is open
 router.post("/client-status", (req, res) => {
-  global.browserClientConnected = req.body.connected;
-  console.log(
-    `🟢 [DEBUG] Browser client status updated: ${global.browserClientConnected}`,
-  );
-  res.json({ status: "updated", connected: global.browserClientConnected });
+  const status = req.body.connected;
+  global.browserClientConnected = status; // Keep in memory
+  console.log(`🟢 [DEBUG] Browser client status updated: ${status}`);
+
+  // ✅ Call function in handler.js to persist status
+  updateClientStatus(status);
+
+  res.json({ status: "updated", connected: status });
 });
 
 // Webhook for generating an Access Token
