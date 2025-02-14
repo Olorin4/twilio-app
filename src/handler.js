@@ -12,6 +12,7 @@ const {
   apiKey,
   apiSecret,
   callerId,
+  tokenGenerator,
   identity,
 } = require("./token");
 
