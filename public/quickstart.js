@@ -44,6 +44,11 @@
   // Notify server when the browser app starts
   window.addEventListener("load", () => browserClientOnline(true));
   // Notify server when the browser app closes
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") browserClientOnline(false);
+    else if (document.visibilityState === "visible") browserClientOnline(true);
+  });
+  // Used as a fallback
   window.addEventListener("beforeunload", () => browserClientOnline(false));
 
   let device;

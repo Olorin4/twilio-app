@@ -7,6 +7,7 @@ const VoiceGrant = AccessToken.VoiceGrant;
 const nameGenerator = require("../name_generator");
 const fs = require("fs");
 const path = require("path");
+const statusFile = path.join(__dirname, "client-status.json");
 const logFilePath = path.join(__dirname, "calls.log");
 const {
   accountSid,
@@ -39,7 +40,6 @@ exports.tokenGenerator = function tokenGenerator() {
     incomingAllow: true,
   });
   accessToken.addGrant(grant);
-
   // Include identity and token in a JSON response
   return {
     identity: identity,
@@ -47,28 +47,60 @@ exports.tokenGenerator = function tokenGenerator() {
   };
 };
 
-// Endpoint to update browser connection status
-// exports.updateClientStatus = (req, res) => {
-//   clientConnected = req.body.connected;
-//   console.log(`🟢 [DEBUG] Browser client status updated: ${clientConnected}`);
-//   res.json({ status: "updated", connected: clientConnected });
-// };
+// Ensure the status file exists at startup
+function initializeClientStatus() {
+  if (!fs.existsSync(statusFile)) {
+    fs.writeFileSync(statusFile, JSON.stringify({ connected: false }));
+    console.log(
+      "🟢 [DEBUG] Created missing client-status.json with `connected: false`",
+    );
+  }
+}
+
+// Read client status from file
+function getClientStatus() {
+  try {
+    if (fs.existsSync(statusFile)) {
+      const data = fs.readFileSync(statusFile, "utf8");
+      return JSON.parse(data).connected;
+    }
+  } catch (error) {
+    console.error("❌ [ERROR] Failed to read client status:", error);
+  }
+  return false;
+}
+
+// Update client status and save it to file
+function updateClientStatus(status) {
+  try {
+    fs.writeFileSync(statusFile, JSON.stringify({ connected: status }));
+    console.log(`🟢 [DEBUG] Browser client status updated: ${status}`);
+  } catch (error) {
+    console.error("❌ [ERROR] Failed to update client status:", error);
+  }
+}
+
+// API Route: Update Browser Client Status
+exports.updateClientStatus = (req, res) => {
+  const status = req.body.connected;
+  updateClientStatus(status);
+  res.json({ status: "updated", connected: status });
+};
 
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
   console.log("📞 Incoming call to:", requestBody.To);
   let twiml = new VoiceResponse();
+  const isClientConnected = getClientStatus();
 
   // If the request to the /voice endpoint is TO your Twilio Number,
   // then it is an incoming call towards your Twilio.Device.
   if (toNumberOrClientName == callerId) {
     let dial = twiml.dial();
-    if (global.browserClientConnected) {
-      console.log(
-        "🟢 [DEBUG] Browser client is online. Routing call to client...",
-      );
-      dial.client("browser-client"); // Ensure this matches the client name in your Twilio setup
+    if (isClientConnected) {
+      console.log("🟢 [DEBUG] Browser client is online. Routing call...");
+      dial.client("browser-client");
     } else {
       console.log(
         "🔴 [DEBUG] No browser client connected. Sending auto-message...",
@@ -282,6 +314,9 @@ exports.getFaxStatus = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+// Initialize status file at startup
+initializeClientStatus();
 
 /**
  * Checks if the given value is valid as phone number
