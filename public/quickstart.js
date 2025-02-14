@@ -57,6 +57,19 @@
   // to avoid errors in the browser console re: AudioContext
   startupButton.addEventListener("click", startupClient);
 
+  // Notify Server When the Browser App is open or closed
+  async function browserClientOnline(status) {
+    await fetch("/client-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connected: status }),
+    });
+  }
+  // Notify server when the browser app starts
+  window.addEventListener("load", () => browserClientOnline(true));
+  // Notify server when the browser app closes
+  window.addEventListener("beforeunload", () => browserClientOnline(false));
+
   // SETUP STEP 2: Request an Access Token
   async function fetchToken() {
     try {

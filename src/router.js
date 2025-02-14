@@ -24,6 +24,15 @@ router.get("/", (req, res) => {
   res.send("Twilio VoIP API is running!");
 });
 
+// Checks if Browser App is open
+router.post("/client-status", (req, res) => {
+  global.browserClientConnected = req.body.connected;
+  console.log(
+    `🔄 Browser client connection status: ${global.browserClientConnected}`,
+  );
+  res.json({ status: "updated" });
+});
+
 // Webhook for generating an Access Token
 router.get("/token", (req, res) => {
   try {
