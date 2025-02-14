@@ -67,5 +67,6 @@ module.exports = {
   apiSecret,
   callerId,
   tokenGenerator,
+  identity,
   client,
 };

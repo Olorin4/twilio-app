@@ -24,8 +24,6 @@ if (!callerId) {
 }
 console.log("✔ Twilio credentials correctly imported into handler.js");
 
-let identity;
-
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
