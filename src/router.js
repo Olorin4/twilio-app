@@ -26,6 +26,7 @@ router.get("/", (req, res) => {
 router.get("/token", (req, res) => {
   try {
     const token = tokenGenerator();
+    console.error("EToken generated successfully");
     res.json(token);
   } catch (error) {
     console.error("Error generating token:", error);
