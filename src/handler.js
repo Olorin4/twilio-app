@@ -24,6 +24,8 @@ if (!callerId) {
 }
 console.log("✔ Twilio credentials correctly imported into handler.js");
 
+let identity;
+
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
@@ -33,9 +35,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   // then it is an incoming call towards your Twilio.Device.
   if (toNumberOrClientName == callerId) {
     let dial = twiml.dial();
-
-    // This will connect the caller with your Twilio.Device/client
-    dial.client(identity);
+    dial.client(identity); // Connects to a twilio number
   } else if (requestBody.To) {
     // This is an outgoing call
 
