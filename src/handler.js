@@ -52,7 +52,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
       "Hello, our office is currently closed. Please call back during business hours.",
     );
   }
-
+  console.log("📞 Generated TwiML:", twiml.toString()); // ✅ Log the response for debugging
   return twiml.toString();
 };
 
