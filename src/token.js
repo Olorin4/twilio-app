@@ -12,7 +12,7 @@ const VoiceGrant = AccessToken.VoiceGrant;
 console.log("🔍 Debugging ENV Variables:");
 console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID);
 console.log("TWILIO_AUTH_TOKEN:", process.env.TWILIO_AUTH_TOKEN);
-console.log("TWILIO_TWIML_APP_SID:", process.env.TWILIO_APP_SID);
+console.log("TWILIO_TWIML_APP_SID:", process.env.TWILIO_TWIML_APP_SID);
 console.log("TWILIO_API_KEY:", process.env.TWILIO_API_KEY);
 console.log("TWILIO_API_SECRET:", process.env.TWILIO_API_SECRET);
 console.log("TWILIO_CALLER_ID:", process.env.TWILIO_CALLER_ID);
