@@ -15,14 +15,6 @@ const {
   tokenGenerator,
 } = require("./token");
 
-// Debug Twilio credentials
-console.log("TWILIO_ACCOUNT_SID:", accountSid);
-console.log("TWILIO_AUTH_TOKEN:", authToken);
-console.log("TWILIO_APP_SID:", appSid);
-console.log("TWILIO_API_KEY:", apiKey);
-console.log("TWILIO_API_SECRET:", apiSecret);
-console.log("TWILIO_CALLER_ID:", callerId);
-
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
