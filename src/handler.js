@@ -12,7 +12,7 @@ const {
   apiKey,
   apiSecret,
   callerId,
-  tokenGenerator,
+  identity,
 } = require("./token");
 
 console.log("✔ Debugging handler.js credentials:");
