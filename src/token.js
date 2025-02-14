@@ -43,10 +43,11 @@ console.log("✅ Twilio credentials loaded successfully.");
 
 // Initialize Twilio client once and export it for reuse
 const client = twilio(accountSid, authToken);
+let identity;
 
 // Generate Twilio Token for Browser client
 function tokenGenerator() {
-  const identity = nameGenerator();
+  identity = nameGenerator();
   const accessToken = new AccessToken(accountSid, apiKey, apiSecret, {
     ttl: 14400,
   });
