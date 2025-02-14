@@ -100,27 +100,50 @@ exports.getCallLogs = (req, res) => {
   const logFilePath = path.join(__dirname, "calls.log");
   console.log("📁 Checking log file at:", logFilePath);
   try {
-    console.log("📁 Checking log file:", logFilePath);
-    if (!fs.existsSync(logFilePath)) return res.json([]); // Return empty if no logs exist
+    console.log("📁 Checking log file at:", logFilePath); // Debugging
+
+    if (!fs.existsSync(logFilePath)) {
+      console.warn("⚠️ Log file does not exist at:", logFilePath);
+      return res.json([]); // Return an empty array
+    }
+
     console.log("📖 Reading log file...");
-    const logData = fs.readFileSync(logFilePath, "utf8");
-    if (!logData.trim()) {
+    const logData = fs.readFileSync(logFilePath, "utf8").trim();
+
+    if (!logData) {
       console.warn("⚠️ Log file is empty.");
       return res.json([]);
     }
-    console.log("✅ Log file read successfully!");
+
+    console.log("✅ Raw log file content:\n", logData);
+
     const logs = logData
-      .trim()
       .split("\n")
       .map((line) => {
-        const [timestamp, details] = line.split("] ");
-        return { timestamp: timestamp.replace("[", ""), details };
-      });
+        const match = line.match(
+          /^\[(.*?)\] Call from: (.*?), To: (.*?), Status: (.*?)$/,
+        );
+        if (!match) {
+          console.warn("⚠️ Skipping malformed log line:", line);
+          return null;
+        }
+
+        return {
+          timestamp: match[1],
+          from: match[2],
+          to: match[3],
+          status: match[4],
+        };
+      })
+      .filter(Boolean); // Remove null values
+
     console.log("📜 Parsed logs:", logs);
     res.json(logs);
   } catch (err) {
-    console.error("❌ Error reading call logs:", err);
-    res.status(500).json({ error: "Failed to retrieve logs" });
+    console.error("❌ Error reading call logs:", err.message);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch logs", details: err.message });
   }
 };
 
