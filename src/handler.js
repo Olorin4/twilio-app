@@ -12,8 +12,6 @@ const {
   apiKey,
   apiSecret,
   callerId,
-  tokenGenerator,
-  identity,
 } = require("./token");
 
 console.log("✔ Debugging handler.js credentials:");
@@ -24,6 +22,26 @@ if (!callerId) {
   throw new Error("Caller ID is missing in Twilio configuration.");
 }
 console.log("✔ Twilio credentials correctly imported into handler.js");
+
+var identity;
+
+exports.tokenGenerator = function tokenGenerator() {
+  identity = nameGenerator();
+
+  const accessToken = new AccessToken(accountSid, apiKey, apiSecret);
+  accessToken.identity = identity;
+  const grant = new VoiceGrant({
+    outgoingApplicationSid: config.twimlAppSid,
+    incomingAllow: true,
+  });
+  accessToken.addGrant(grant);
+
+  // Include identity and token in a JSON response
+  return {
+    identity: identity,
+    token: accessToken.toJwt(),
+  };
+};
 
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
