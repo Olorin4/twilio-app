@@ -28,6 +28,24 @@
   const dtmfControlsDiv = document.getElementById("dtmf-controls");
   const dtmfButtons = document.querySelectorAll(".dtmf-button");
 
+  // Notify Server When the Browser App is open or closed
+  async function browserClientOnline(status) {
+    try {
+      const response = await fetch("/client-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connected: status }),
+      });
+      console.log(`🟢 [BROWSER] Sent client status update: ${status}`);
+    } catch (error) {
+      console.error("❌ [BROWSER] Failed to notify server:", error);
+    }
+  }
+  // Notify server when the browser app starts
+  window.addEventListener("load", () => browserClientOnline(true));
+  // Notify server when the browser app closes
+  window.addEventListener("beforeunload", () => browserClientOnline(false));
+
   let device;
   let token;
   let tokenRefreshInterval; // Variable to store interval reference
@@ -57,7 +75,7 @@
   // to avoid errors in the browser console re: AudioContext
   startupButton.addEventListener("click", startupClient);
 
-  // SETUP STEP 2: Request an Access Token
+  // SETUP STEP 2: Request a Twilio Access Token
   async function fetchToken() {
     try {
       const response = await fetch("/token");
@@ -83,29 +101,6 @@
     } else log("❌ Token refresh failed. Try restarting the client.");
   }
 
-  // Notify Server When the Browser App is open or closed
-  async function browserClientOnline(status) {
-    try {
-      await fetch("/client-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connected: status }),
-      });
-      console.log(
-        `🟢 [BROWSER] Notified server: Client is ${status ? "online" : "offline"}`,
-      );
-    } catch (error) {
-      console.error(
-        "❌ [BROWSER] Failed to notify server of client status:",
-        error,
-      );
-    }
-  }
-  // Notify server when the browser app starts
-  window.addEventListener("load", () => browserClientOnline(true));
-  // Notify server when the browser app closes
-  window.addEventListener("beforeunload", () => browserClientOnline(false));
-
   // SETUP STEP 3:
   // Instantiate a new Twilio.Device
   async function startupClient() {
@@ -118,7 +113,7 @@
 
       // Set token refresh interval only once
       if (!tokenRefreshInterval) {
-        tokenRefreshInterval = setInterval(refreshToken, 14100 * 1000);
+        tokenRefreshInterval = setInterval(refreshToken, 3540 * 1000);
         console.log("🔄 Token refresh scheduled.");
       }
     }
