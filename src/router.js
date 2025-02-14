@@ -31,9 +31,9 @@ router.get("/", (req, res) => {
 router.post("/client-status", (req, res) => {
   global.browserClientConnected = req.body.connected;
   console.log(
-    `🔄 Browser client connection status: ${global.browserClientConnected}`,
+    `🟢 [DEBUG] Browser client status updated: ${global.browserClientConnected}`,
   );
-  res.json({ status: "updated" });
+  res.json({ status: "updated", connected: global.browserClientConnected });
 });
 
 // Webhook for generating an Access Token

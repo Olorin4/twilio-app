@@ -47,6 +47,13 @@ exports.tokenGenerator = function tokenGenerator() {
   };
 };
 
+// Endpoint to update browser connection status
+// exports.updateClientStatus = (req, res) => {
+//   clientConnected = req.body.connected;
+//   console.log(`🟢 [DEBUG] Browser client status updated: ${clientConnected}`);
+//   res.json({ status: "updated", connected: clientConnected });
+// };
+
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
@@ -58,8 +65,14 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   if (toNumberOrClientName == callerId) {
     let dial = twiml.dial();
     if (global.browserClientConnected) {
-      dial.client(identity);
+      console.log(
+        "🟢 [DEBUG] Browser client is online. Routing call to client...",
+      );
+      dial.client("browser-client"); // Ensure this matches the client name in your Twilio setup
     } else {
+      console.log(
+        "🔴 [DEBUG] No browser client connected. Sending auto-message...",
+      );
       twiml.say(
         "Hello, our office is currently closed. Please call back during business hours.",
       );
