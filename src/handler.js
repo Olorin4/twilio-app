@@ -57,7 +57,13 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   // then it is an incoming call towards your Twilio.Device.
   if (toNumberOrClientName == callerId) {
     let dial = twiml.dial();
-    dial.client(identity); // Connects to a twilio number
+    if (global.browserClientConnected) {
+      dial.client(identity);
+    } else {
+      twiml.say(
+        "Hello, our office is currently closed. Please call back during business hours.",
+      );
+    }
   } else if (requestBody.To) {
     // This is an outgoing call
 
@@ -82,7 +88,6 @@ exports.voiceResponse = function voiceResponse(requestBody) {
 exports.logCall = (callData) => {
   try {
     if (!fs.existsSync(logFilePath)) fs.writeFileSync(logFilePath, ""); // Create an empty file
-
     const logMessage = `[${new Date().toISOString()}] Call from: ${callData.From}, To: ${callData.To}, Status: ${callData.CallStatus}\n`;
     fs.appendFileSync(logFilePath, logMessage);
     console.log("✅ Call logged:", logMessage);
@@ -95,7 +100,6 @@ exports.logCall = (callData) => {
 exports.getCallLogs = (req, res) => {
   try {
     if (!fs.existsSync(logFilePath)) return res.json([]); // Return empty if no logs exist
-
     const logData = fs.readFileSync(logFilePath, "utf8");
     const logs = logData
       .trim()
