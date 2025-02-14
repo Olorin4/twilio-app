@@ -33,7 +33,7 @@ exports.tokenGenerator = function tokenGenerator() {
   const accessToken = new AccessToken(accountSid, apiKey, apiSecret);
   accessToken.identity = identity;
   const grant = new VoiceGrant({
-    outgoingApplicationSid: config.twimlAppSid,
+    outgoingApplicationSid: appSid,
     incomingAllow: true,
   });
   accessToken.addGrant(grant);
