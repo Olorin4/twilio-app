@@ -58,68 +58,67 @@
   startupButton.addEventListener("click", startupClient);
 
   // SETUP STEP 2: Request an Access Token
-  async function startupClient() {
-    log("Requesting Access Token...");
-    try {
-      const response = await fetch("/token"); // Get a new token
-      const data = await response.json();
-      log("Got a token.");
-      token = data.token;
-      setClientNameUI(data.identity);
-      intitializeDevice();
-
-      // Automatically refresh token every 235 minutes (14100 seconds)
-      clearInterval(tokenRefreshInterval); // Clear any existing intervals
-      tokenRefreshInterval = setInterval(refreshToken, 14100 * 1000);
-    } catch (err) {
-      console.log("Error fetching token:", err);
-      log("An error occurred. See your browser console for more information.");
-    }
-  }
-
-  // Function to refresh Twilio Token
-  async function refreshToken() {
-    log("Refreshing Twilio token...");
+  async function fetchToken() {
     try {
       const response = await fetch("/token");
       const data = await response.json();
-
-      token = data.token;
-      device.updateToken(token); // Update the token in the Twilio Device
-
-      log("Token refreshed successfully.");
+      if (data.token) {
+        log("✅ Token received.");
+        return data;
+      } else throw new Error("No token received from server.");
     } catch (err) {
-      console.error("Failed to refresh token:", err);
-      log("Failed to refresh token. Try restarting the client.");
+      console.error("❌ Error fetching token:", err);
+      log("An error occurred. See your browser console for more information.");
+      return null;
     }
+  }
+
+  async function refreshToken() {
+    log("🔄 Refreshing Twilio token...");
+    const data = await fetchToken();
+    if (data) {
+      token = data.token;
+      device.updateToken(token); // Update the Twilio Device with the new token
+      log("✅ Token refreshed successfully.");
+    } else log("❌ Token refresh failed. Try restarting the client.");
   }
 
   // SETUP STEP 3:
   // Instantiate a new Twilio.Device
-  function intitializeDevice() {
+  async function startupClient() {
+    log("Requesting Access Token...");
+    const data = await fetchToken();
+    if (data) {
+      token = data.token;
+      setClientNameUI(data.identity);
+      initializeDevice();
+
+      // Set token refresh interval only once
+      if (!tokenRefreshInterval) {
+        tokenRefreshInterval = setInterval(refreshToken, 14100 * 1000);
+        console.log("🔄 Token refresh scheduled.");
+      }
+    }
+  }
+
+  function initializeDevice() {
     logDiv.classList.remove("hide");
-    log("Initializing device");
+    log("Initializing Twilio Device...");
+
     device = new Twilio.Device(token, {
       logLevel: 1,
-      // Set Opus as our preferred codec. Opus generally performs better, requiring less bandwidth and
-      // providing better audio quality in restrained network conditions.
       codecPreferences: ["opus", "pcmu"],
     });
 
     addDeviceListeners(device);
 
-    device.on("ready", function (device) {
-      console.log("✅ Twilio Device is READY!");
-    });
-
-    device.on("error", function (error) {
-      console.error("❌ Twilio Device error:", error.message);
-    });
-
-    device.on("incoming", function (call) {
-      console.log("📞 Incoming call from:", call.parameters.From);
-    });
-    // Device must be registered in order to receive incoming calls
+    device.on("ready", () => console.log("✅ Twilio Device is READY!"));
+    device.on("error", (error) =>
+      console.error("❌ Twilio Device error:", error.message),
+    );
+    device.on("incoming", (call) =>
+      console.log("📞 Incoming call from:", call.parameters.From),
+    );
     device.register();
   }
 
