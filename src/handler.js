@@ -87,7 +87,6 @@ exports.voiceResponse = function voiceResponse(requestBody) {
 
 exports.logCall = (callData) => {
   try {
-    const logFilePath = path.join(__dirname, "calls.log");
     console.log("📞 [DEBUG] Logging call:", callData); // ✅ Debugging call data
     if (!fs.existsSync(logFilePath)) fs.writeFileSync(logFilePath, ""); // Create file if missing
     const logMessage = `[${new Date().toISOString()}] Call from: ${callData.From}, To: ${callData.To || "Unknown"}, Status: ${callData.CallStatus || "Unknown"}\n`;
@@ -100,24 +99,27 @@ exports.logCall = (callData) => {
 
 // Retrieve call logs as JSON
 exports.getCallLogs = (req, res) => {
-  console.log("📁 Checking log file at:", logFilePath);
   try {
-    console.log("📁 Checking log file at:", logFilePath); // Debugging
+    console.log("📥 [DEBUG] /call-logs API called!"); // ✅ Log when API is hit
+    const logFilePath = path.join(__dirname, "calls.log");
+
+    console.log("📁 [DEBUG] Checking log file at:", logFilePath); // Logs path
+    console.log("📂 [DEBUG] Current directory:", __dirname); // Logs working directory
 
     if (!fs.existsSync(logFilePath)) {
-      console.warn("⚠️ Log file does not exist at:", logFilePath);
-      return res.json([]); // Return an empty array
-    }
-
-    console.log("📖 Reading log file...");
-    const logData = fs.readFileSync(logFilePath, "utf8").trim();
-
-    if (!logData) {
-      console.warn("⚠️ Log file is empty.");
+      console.warn("⚠️ [WARN] Log file does not exist at:", logFilePath);
       return res.json([]);
     }
 
-    console.log("✅ Raw log file content:\n", logData);
+    console.log("📖 [DEBUG] Reading log file...");
+    const logData = fs.readFileSync(logFilePath, "utf8").trim();
+
+    if (!logData) {
+      console.warn("⚠️ [WARN] Log file is empty.");
+      return res.json([]);
+    }
+
+    console.log("✅ [DEBUG] Raw log file content:\n", logData);
 
     const logs = logData
       .split("\n")
@@ -126,7 +128,7 @@ exports.getCallLogs = (req, res) => {
           /^\[(.*?)\] Call from: (.*?), To: (.*?), Status: (.*?)$/,
         );
         if (!match) {
-          console.warn("⚠️ Skipping malformed log line:", line);
+          console.warn("⚠️ [WARN] Skipping malformed log line:", line);
           return null;
         }
 
@@ -139,10 +141,10 @@ exports.getCallLogs = (req, res) => {
       })
       .filter(Boolean); // Remove null values
 
-    console.log("📜 Parsed logs:", logs);
+    console.log("📜 [DEBUG] Parsed logs:", logs);
     res.json(logs);
   } catch (err) {
-    console.error("❌ Error reading call logs:", err.message);
+    console.error("❌ [ERROR] Failed to read call logs:", err.message);
     res
       .status(500)
       .json({ error: "Failed to fetch logs", details: err.message });
