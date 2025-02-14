@@ -1,4 +1,11 @@
-﻿$(function () {
+﻿/* quickstart.js is responsible for the client-side logic of
+   the Twilio VoIP application. It is a JavaScript file that
+   is loaded in the browser and interacts with the 
+   Twilio Device API to make and receive calls. It also handles 
+   the user interface elements and events such as call buttons,
+   volume indicators, and audio device selection. */
+
+$(function () {
   const speakerDevices = document.getElementById("speaker-devices");
   const ringtoneDevices = document.getElementById("ringtone-devices");
   const outputVolumeBar = document.getElementById("output-volume");
