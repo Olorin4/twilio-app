@@ -7,6 +7,7 @@ const VoiceGrant = AccessToken.VoiceGrant;
 const nameGenerator = require("../name_generator");
 const fs = require("fs");
 const path = require("path");
+const logFilePath = path.join(__dirname, "calls.log");
 const {
   accountSid,
   authToken,
@@ -86,18 +87,19 @@ exports.voiceResponse = function voiceResponse(requestBody) {
 
 exports.logCall = (callData) => {
   try {
-    if (!fs.existsSync(logFilePath)) fs.writeFileSync(logFilePath, ""); // Create an empty file
-    const logMessage = `[${new Date().toISOString()}] Call from: ${callData.From}, To: ${callData.To}, Status: ${callData.CallStatus}\n`;
+    const logFilePath = path.join(__dirname, "calls.log");
+    console.log("📞 [DEBUG] Logging call:", callData); // ✅ Debugging call data
+    if (!fs.existsSync(logFilePath)) fs.writeFileSync(logFilePath, ""); // Create file if missing
+    const logMessage = `[${new Date().toISOString()}] Call from: ${callData.From}, To: ${callData.To || "Unknown"}, Status: ${callData.CallStatus || "Unknown"}\n`;
     fs.appendFileSync(logFilePath, logMessage);
-    console.log("✅ Call logged:", logMessage);
+    console.log("✅ [DEBUG] Call logged:", logMessage);
   } catch (error) {
-    console.error("❌ Error writing call log:", error);
+    console.error("❌ [ERROR] Error writing call log:", error);
   }
 };
 
 // Retrieve call logs as JSON
 exports.getCallLogs = (req, res) => {
-  const logFilePath = path.join(__dirname, "calls.log");
   console.log("📁 Checking log file at:", logFilePath);
   try {
     console.log("📁 Checking log file at:", logFilePath); // Debugging
