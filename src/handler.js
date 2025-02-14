@@ -28,6 +28,7 @@ console.log("✔ Twilio credentials correctly imported into handler.js");
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
+  console.log("📞 Incoming call to:", requestBody.To);
   let twiml = new VoiceResponse();
 
   // If the request to the /voice endpoint is TO your Twilio Number,
