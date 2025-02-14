@@ -98,6 +98,7 @@ exports.logCall = (callData) => {
 // Retrieve call logs as JSON
 exports.getCallLogs = (req, res) => {
   const logFilePath = path.join(__dirname, "calls.log");
+  console.log("📁 Checking log file at:", logFilePath);
   try {
     console.log("📁 Checking log file:", logFilePath);
     if (!fs.existsSync(logFilePath)) return res.json([]); // Return empty if no logs exist
