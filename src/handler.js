@@ -74,9 +74,6 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   return twiml.toString();
 };
 
-// Initialize status file at startup
-initializeClientStatus();
-
 /**
  * Checks if the given value is valid as phone number
  * @param {Number|String} number
