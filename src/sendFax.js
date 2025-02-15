@@ -4,7 +4,7 @@ recipient with a specified media URL. The getFaxStatus
 function fetches the status of a fax using its SID. */
 
 const twilio = require("twilio");
-const { client } = require("./token");
+const { callerID, client } = require("./token");
 
 // Send a fax
 exports.sendFax = async (req, res) => {
@@ -18,7 +18,7 @@ exports.sendFax = async (req, res) => {
     }
 
     const fax = await client.fax.faxes.create({
-      from: process.env.TWILIO_CALLER_ID, // Load from environment variable
+      from: callerID,
       to,
       mediaUrl,
       statusCallback: `https://${process.env.SERVER_IP}/fax-status`,
@@ -41,9 +41,8 @@ exports.getFaxStatus = async (req, res) => {
   try {
     const { faxSid } = req.params;
 
-    if (!faxSid) {
+    if (!faxSid)
       return res.status(400).json({ success: false, error: "Missing fax SID" });
-    }
 
     const fax = await client.fax.faxes(faxSid).fetch();
     console.log(`Fax status: ${fax.status}`);

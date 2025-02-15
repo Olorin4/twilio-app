@@ -5,7 +5,7 @@ data to a file and retrieving the logs as JSON.
 const fs = require("fs");
 const path = require("path");
 const callLogPath = path.join(__dirname, "calls.log");
-const smsLogPath = path.join(__dirname, "messages.log");
+const smsLogPath = path.join(__dirname, "sms.log");
 
 exports.logCall = (callData) => {
   try {
