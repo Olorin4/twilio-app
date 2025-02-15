@@ -146,13 +146,13 @@ $(function () {
 
     addDeviceListeners(device);
 
-    // device.on("ready", () => console.log("✅ Twilio Device is READY!"));
-    // device.on("error", (error) =>
-    //   console.error("❌ Twilio Device error:", error.message),
-    // );
-    // device.on("incoming", (call) =>
-    //   console.log("📞 Incoming call from:", call.parameters.From),
-    // );
+    device.on("ready", () => console.log("✅ Twilio Device is READY!"));
+    device.on("error", (error) =>
+      console.error("❌ Twilio Device error:", error.message),
+    );
+    device.on("incoming", (call) =>
+      console.log("📞 Incoming call from:", call.parameters.From),
+    );
     // Device must be registered in order to receive incoming calls
     device.register();
   }
