@@ -1,18 +1,13 @@
-/* handler.js is responsible for handling incoming calls, messages, faxes and logs
+/* callResponse.js is responsible for handling incoming calls, messages, faxes and logs
 and then exporting them for use in router.js. */
 
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
-const AccessToken = require("twilio").jwt.AccessToken;
-const VoiceGrant = AccessToken.VoiceGrant;
-const nameGenerator = require("../name_generator");
-// const statusFile = path.join(__dirname, "client-status.json");
 const {
   accountSid,
   authToken,
   appSid,
-  apiKey,
-  apiSecret,
   callerId,
+  getIdentity,
 } = require("./token");
 
 // Debugging twilio credentials imports
@@ -20,33 +15,19 @@ console.log("✔ Debugging handler.js credentials:");
 console.log("accountSid:", accountSid);
 console.log("authToken:", authToken);
 console.log("appSid:", appSid);
+console.log("callerId:", callerId);
 if (!callerId) throw new Error("Caller ID is missing in Twilio configuration.");
 console.log("✔ Twilio credentials correctly imported into handler.js");
-
-let identity;
-
-exports.tokenGenerator = function tokenGenerator() {
-  identity = nameGenerator();
-
-  const accessToken = new AccessToken(accountSid, apiKey, apiSecret);
-  accessToken.identity = identity;
-  const grant = new VoiceGrant({
-    outgoingApplicationSid: appSid,
-    incomingAllow: true,
-  });
-  accessToken.addGrant(grant);
-  // Include identity and token in a JSON response
-  return {
-    identity: identity,
-    token: accessToken.toJwt(),
-  };
-};
 
 // Handle Incoming Calls
 exports.voiceResponse = function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
   console.log("📞 Incoming call to:", requestBody.To);
   let twiml = new VoiceResponse();
+
+  // Get the latest identity
+  const identity = getIdentity();
+  console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
   // If the request is to our Twilio Number, route to browser
   if (toNumberOrClientName == callerId) {

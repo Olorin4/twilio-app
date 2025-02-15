@@ -5,9 +5,9 @@ for voice calls. The client object is exported for use in other modules. */
 
 require("dotenv").config();
 const twilio = require("twilio");
-const nameGenerator = require("../name_generator");
 const AccessToken = require("twilio").jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
+const nameGenerator = require("../name_generator");
 
 // Load Twilio credentials from .env
 console.log("🔍 Debugging ENV Variables:");
@@ -43,22 +43,24 @@ console.log("✅ Twilio credentials loaded successfully.");
 
 // Initialize Twilio client once and export it for reuse
 const client = twilio(accountSid, authToken);
-let identity;
+let identity = "";
 
 // Generate Twilio Token for Browser client
 function tokenGenerator() {
   identity = nameGenerator();
-  const accessToken = new AccessToken(accountSid, apiKey, apiSecret, {
-    ttl: 14400,
-  });
 
+  const accessToken = new AccessToken(accountSid, apiKey, apiSecret);
   accessToken.identity = identity;
-  accessToken.addGrant(
-    new VoiceGrant({ outgoingApplicationSid: appSid, incomingAllow: true }),
-  );
-
+  const grant = new VoiceGrant({
+    outgoingApplicationSid: appSid,
+    incomingAllow: true,
+  });
+  accessToken.addGrant(grant);
   // Include identity and token in a JSON response
-  return { identity, token: accessToken.toJwt() };
+  return {
+    identity: identity,
+    token: accessToken.toJwt(),
+  };
 }
 
 // Export credentials and tokenGenerator
@@ -70,4 +72,6 @@ module.exports = {
   apiSecret,
   callerId,
   client,
+  tokenGenerator,
+  getIdentity: () => identity,
 };

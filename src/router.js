@@ -4,13 +4,13 @@ The router.js file exports an instance of the Express Router that is used in
 the main index.js file to define the routes for the server. */
 
 const Router = require("express").Router;
-const path = require("path");
 const callLogPath = require("./logManager").callLogPath;
 const fs = require("fs");
-const { tokenGenerator, voiceResponse } = require("./handler");
+const { tokenGenerator } = require("./token");
+const { voiceResponse } = require("./callResponse");
 const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getLogsAsJSON } = require("./logManager");
-const { sendFax, getFaxStatus } = require("./faxManager");
+const { sendFax, getFaxStatus } = require("./sendFax");
 
 // Debugging
 console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
@@ -20,18 +20,6 @@ const router = new Router();
 router.get("/", (req, res) => {
   res.send("Twilio VoIP API is running!");
 });
-
-// Checks if Browser App is open
-// router.post("/client-status", (req, res) => {
-//   const status = req.body.connected;
-//   // global.browserClientConnected = status;
-//   // console.log(`🟢 [DEBUG] Browser client status updated: ${status}`);
-
-//   // ✅ Call function in handler.js to persist status
-//   // updateClientStatus(status);
-
-//   res.json({ status: "updated", connected: status });
-// });
 
 // Webhook for generating an Access Token
 router.get("/token", (req, res) => {
