@@ -55,7 +55,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
     dial.client(identity);
     // If no answer, Twilio will play this message
     twiml.say(
-      "Hello, our office is currently closed. Please call back during business hours.",
+      "Hello, thank you for calling Iron Wing Dispatching. One of our representatives willl call you back soon.",
     );
   } else if (requestBody.To) {
     // This is an outgoing call
@@ -68,7 +68,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
     dial[attr]({}, toNumberOrClientName);
   } else
     twiml.say(
-      "Hello, our office is currently closed. Please call back during business hours.",
+      "Hello, , thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
     );
 
   console.log("📞 Generated TwiML:", twiml.toString()); //  Log for debugging
