@@ -52,7 +52,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   if (toNumberOrClientName == callerId) {
     console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
     let dial = twiml.dial({ timeout: 20 }); // Wait for 20 seconds before failing over
-    dial.client("browser-client");
+    dial.client(identity);
     // If no answer, Twilio will play this message
     twiml.say(
       "Hello, our office is currently closed. Please call back during business hours.",
@@ -60,8 +60,9 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   } else if (requestBody.To) {
     // This is an outgoing call
     let dial = twiml.dial({ callerId });
-    // Determine if dialing a number or client
-    const attr = /^[\d\+\-\(\) ]+$/.test(toNumberOrClientName)
+    // Check if the 'To' parameter is a Phone Number or Client Name
+    // in order to use the appropriate TwiML noun
+    const attr = isAValidPhoneNumber(toNumberOrClientName)
       ? "number"
       : "client";
     dial[attr]({}, toNumberOrClientName);
