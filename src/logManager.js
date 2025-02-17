@@ -1,99 +1,118 @@
-/* logManager.js is responsible for logging call and sms 
-data to a file and retrieving the logs as JSON.
+/* logManager.js is responsible for fetching call logs
+from Twilio
  */
 
-const fs = require("fs");
-const path = require("path");
-const callLogPath = path.join(__dirname, "calls.log");
-const smsLogPath = path.join(__dirname, "sms.log");
+const { Pool } = require("pg");
+const twilio = require("twilio");
+const { accountSid, authToken } = require("./token");
 
-exports.logCall = (callData) => {
+// Configure PostgreSQL connection
+const pool = new Pool({
+  user: process.env.PG_USER,
+  host: process.env.PG_HOST,
+  database: process.env.PG_DATABASE,
+  password: process.env.PG_PASSWORD,
+  port: process.env.PG_PORT || 5432,
+});
+
+const client = twilio(accountSid, authToken);
+
+// Function to Find Driver or Client ID Based on Phone Number
+async function findUserId(phoneNumber) {
   try {
-    console.log("📞 [DEBUG] Logging call:", callData);
-    if (!fs.existsSync(callLogPath)) fs.writeFileSync(callLogPath, "");
-    const logMessage = `[${new Date().toISOString()}] Call from: ${callData.From}, To: ${callData.To || "Unknown"}, Status: ${callData.CallStatus || "Unknown"}\n`;
-    fs.appendFileSync(callLogPath, logMessage);
-    console.log("✅ [DEBUG] Call logged:", logMessage);
-  } catch (error) {
-    console.error("❌ [ERROR] Error writing call log:", error);
+    // Search for driver
+    const driverResult = await pool.query(
+      "SELECT id FROM drivers WHERE phone_number = $1",
+      [phoneNumber],
+    );
+    if (driverResult.rows.length > 0)
+      return { driverId: driverResult.rows[0].id };
+
+    // Search for client
+    const clientResult = await pool.query(
+      "SELECT id FROM clients WHERE phone_number = $1",
+      [phoneNumber],
+    );
+    if (clientResult.rows.length > 0)
+      return { clientId: clientResult.rows[0].id };
+
+    return {}; // No matching user found
+  } catch (err) {
+    console.error("❌ [ERROR] Failed to find user ID:", err.message);
+    return {};
+  }
+}
+
+// Fetch and Save Twilio Call Logs to PostgreSQL
+exports.syncCallLogs = async () => {
+  try {
+    console.log("📥 [DEBUG] Fetching latest call logs from Twilio...");
+    const calls = await client.calls.list({ limit: 50 });
+
+    for (const call of calls) {
+      const { driverId, clientId } = await findUserId(call.from);
+
+      await pool.query(
+        `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, driver_id, client_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (call_sid) DO NOTHING;`,
+        [
+          call.sid,
+          call.startTime,
+          call.from,
+          call.to,
+          call.status,
+          call.duration,
+          call.direction,
+          driverId || null,
+          clientId || null,
+        ],
+      );
+    }
+
+    console.log("✅ [DEBUG] Call logs synced with driver & client data.");
+  } catch (err) {
+    console.error("❌ [ERROR] Failed to sync call logs:", err.message);
   }
 };
 
-// Retrieve call logs as JSON
-exports.getCallLogs = (req, res) => {
+// Fetch Call Logs with Driver & Company Info
+exports.getCallLogs = async (req, res) => {
   try {
-    const callLogPath = path.join(__dirname, "calls.log");
-    console.log("📥 [DEBUG] /call-logs API called!");
-    console.log("📁 [DEBUG] Checking log file at:", callLogPath);
-    console.log("📂 [DEBUG] Current directory:", __dirname);
+    console.log("📥 [DEBUG] Fetching call logs from PostgreSQL...");
+    const result = await pool.query(`
+      SELECT cl.*, 
+             d.name AS driver_name, d.phone_number AS driver_phone, 
+             c.name AS company_name, c.mc_number, c.dot_number, c.phone AS company_phone
+      FROM call_logs cl
+      LEFT JOIN drivers d ON cl.driver_id = d.id
+      LEFT JOIN companies c ON d.company_id = c.id
+      ORDER BY cl.timestamp DESC LIMIT 10;
+    `);
 
-    if (!fs.existsSync(callLogPath)) {
-      console.warn("⚠️ [WARN] Log file does not exist at:", callLogPath);
-      return res.json([]);
+    if (result.rows.length === 0) {
+      console.warn("⚠️ [WARN] No call logs found.");
+      return res.json([]); // ✅ Response sent once
     }
 
-    console.log("📖 [DEBUG] Reading log file...");
-    const logData = fs.readFileSync(callLogPath, "utf8").trim();
-
-    if (!logData) {
-      console.warn("⚠️ [WARN] Log file is empty.");
-      return res.json([]);
-    }
-
-    console.log("✅ [DEBUG] Raw log file content:\n", logData);
-
-    const logs = logData
-      .split("\n")
-      .map((line) => {
-        const match = line.match(
-          /^\[(.*?)\] Call from: (.*?), To: (.*?), Status: (.*?)$/,
-        );
-        if (!match) {
-          console.warn("⚠️ [WARN] Skipping malformed log line:", line);
-          return null;
-        }
-
-        return {
-          timestamp: match[1],
-          from: match[2],
-          to: match[3],
-          status: match[4],
-        };
-      })
-      .filter(Boolean); // Remove null values
-
-    console.log("📜 [DEBUG] Parsed logs:", logs);
-    res.json(logs);
+    console.log("📜 [DEBUG] Retrieved call logs:", result.rows);
+    return res.json(result.rows);
   } catch (err) {
-    console.error("❌ [ERROR] Failed to read call logs:", err.message);
-    res
+    console.error("❌ [ERROR] Failed to fetch call logs:", err.message);
+    return res
       .status(500)
       .json({ error: "Failed to fetch logs", details: err.message });
   }
 };
 
-exports.getLogsAsJSON = (req, res) => {
+exports.cleanupOldLogs = async () => {
   try {
-    if (!fs.existsSync(smsLogPath)) {
-      console.warn("Log file does not exist. Returning empty array.");
-      return res.json([]); // Return an empty array
-    }
-
-    const logData = fs.readFileSync(smsLogPath, "utf8");
-    const messages = logData
-      .trim()
-      .split("\n")
-      .map((line) => {
-        const [from, body] = line.split(", Message: ");
-        return {
-          from: from.replace("From: ", "").trim(),
-          body: body.trim(),
-        };
-      });
-
-    res.json(messages);
+    console.log("🗑 [DEBUG] Deleting call logs older than 2 years...");
+    await pool.query(
+      "DELETE FROM call_logs WHERE timestamp < NOW() - INTERVAL '2 years';",
+    );
+    console.log("✅ [DEBUG] Old call logs deleted.");
   } catch (err) {
-    console.error("Error reading log file:", err);
-    res.status(500).json({ error: "Failed to read log file" });
+    console.error("❌ [ERROR] Failed to delete old logs:", err.message);
   }
 };
