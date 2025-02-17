@@ -49,9 +49,6 @@ router.post("/voice", (req, res) => {
   }
 });
 
-// Sync Call Logs from Twilio API to PostgreSQL Every 5 Minutes
-setInterval(syncCallLogs, 5 * 60 * 1000);
-
 // Webhook to Fetch Latest Call Logs from Database
 router.get("/call-logs", async (req, res) => {
   try {
@@ -63,9 +60,6 @@ router.get("/call-logs", async (req, res) => {
     }
   }
 });
-
-// Run Cleanup Every 365 Days
-setInterval(exports.cleanupOldLogs, 365 * 24 * 60 * 60 * 1000);
 
 // Webhook for handling incoming SMS
 router.post("/sms", smsResponse);
