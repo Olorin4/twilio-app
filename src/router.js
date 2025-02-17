@@ -65,14 +65,7 @@ router.get("/call-logs", async (req, res) => {
 });
 
 // Run Cleanup Every 365 Days
-if (typeof cleanupOldLogs === "function") {
-  setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000);
-  console.log("🗑 [DEBUG] Scheduled cleanup of call logs every 365 days.");
-} else {
-  console.error(
-    "❌ [ERROR] cleanupOldLogs is not defined or is not a function.",
-  );
-}
+setInterval(exports.cleanupOldLogs, 365 * 24 * 60 * 60 * 1000);
 
 // Webhook for handling incoming SMS
 router.post("/sms", smsResponse);
