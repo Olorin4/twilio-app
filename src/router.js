@@ -7,12 +7,7 @@ const Router = require("express").Router;
 const { tokenGenerator } = require("./token");
 const { voiceResponse } = require("./callResponse");
 const { smsResponse } = require("./smsResponse");
-const {
-  getCallLogs,
-  syncCallLogs,
-  cleanupOldLogs,
-  getLogsAsJSON,
-} = require("./logManager");
+const { getCallLogs, getLogsAsJSON } = require("./logManager");
 const { sendFax, getFaxStatus } = require("./sendFax");
 
 // Debugging
