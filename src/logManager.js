@@ -105,11 +105,11 @@ exports.getCallLogs = async (req, res) => {
   }
 };
 
-exports.cleanupOldLogs = async () => {
+exports.cleanupOldLogs = async function cleanupOldLogs() {
   try {
-    console.log("🗑 [DEBUG] Deleting call logs older than 2 years...");
+    console.log("🗑 [DEBUG] Deleting call logs older than 1 year...");
     await pool.query(
-      "DELETE FROM call_logs WHERE timestamp < NOW() - INTERVAL '2 years';",
+      "DELETE FROM call_logs WHERE timestamp < NOW() - INTERVAL '1 year';",
     );
     console.log("✅ [DEBUG] Old call logs deleted.");
   } catch (err) {
