@@ -4,12 +4,15 @@ The router.js file exports an instance of the Express Router that is used in
 the main index.js file to define the routes for the server. */
 
 const Router = require("express").Router;
-const callLogPath = require("./logManager").callLogPath;
-const fs = require("fs");
 const { tokenGenerator } = require("./token");
 const { voiceResponse } = require("./callResponse");
 const { smsResponse } = require("./smsResponse");
-const { logCall, getCallLogs, getLogsAsJSON } = require("./logManager");
+const {
+  getCallLogs,
+  syncCallLogs,
+  cleanupOldLogs,
+  getLogsAsJSON,
+} = require("./logManager");
 const { sendFax, getFaxStatus } = require("./sendFax");
 
 // Debugging
@@ -46,15 +49,23 @@ router.post("/voice", (req, res) => {
   }
 });
 
-// Webhook for fetching logged calls
-router.get("/call-logs", (req, res) => {
+// Sync Call Logs from Twilio API to PostgreSQL Every 5 Minutes
+setInterval(syncCallLogs, 5 * 60 * 1000);
+
+// Webhook to Fetch Latest Call Logs from Database
+router.get("/call-logs", async (req, res) => {
   try {
-    res.json(getCallLogs(req, res));
+    await getCallLogs(req, res); // Ensures a single response
   } catch (error) {
     console.error("❌ [ERROR] Error fetching call logs:", error);
-    res.status(500).json({ error: "Failed to fetch logs" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to fetch logs" });
+    }
   }
 });
+
+// Run Cleanup Every 365 Days
+setInterval(exports.cleanupOldLogs, 24 * 60 * 60 * 1000);
 
 // Webhook for handling incoming SMS
 router.post("/sms", smsResponse);
