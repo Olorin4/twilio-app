@@ -92,7 +92,7 @@ exports.getCallLogs = async (req, res) => {
 
     if (result.rows.length === 0) {
       console.warn("⚠️ [WARN] No call logs found.");
-      return res.json([]); // ✅ Response sent once
+      return res.json([]); // Response sent once
     }
 
     console.log("📜 [DEBUG] Retrieved call logs:", result.rows);
