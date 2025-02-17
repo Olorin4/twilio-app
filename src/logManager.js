@@ -43,39 +43,6 @@ async function findUserId(phoneNumber) {
   }
 }
 
-// Fetch and Save Twilio Call Logs to PostgreSQL
-exports.syncCallLogs = async () => {
-  try {
-    console.log("📥 [DEBUG] Fetching latest call logs from Twilio...");
-    const calls = await client.calls.list({ limit: 50 });
-
-    for (const call of calls) {
-      const { driverId, clientId } = await findUserId(call.from);
-
-      await pool.query(
-        `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, driver_id, client_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (call_sid) DO NOTHING;`,
-        [
-          call.sid,
-          call.startTime,
-          call.from,
-          call.to,
-          call.status,
-          call.duration,
-          call.direction,
-          driverId || null,
-          clientId || null,
-        ],
-      );
-    }
-
-    console.log("✅ [DEBUG] Call logs synced with driver & client data.");
-  } catch (err) {
-    console.error("❌ [ERROR] Failed to sync call logs:", err.message);
-  }
-};
-
 // Fetch Call Logs with Driver & Company Info
 exports.getCallLogs = async (req, res) => {
   try {
@@ -105,7 +72,8 @@ exports.getCallLogs = async (req, res) => {
   }
 };
 
-exports.cleanupOldLogs = async function cleanupOldLogs() {
+// Cleanup Function (Deletes Logs Older Than 1 Year)
+exports.cleanupOldLogs = async () => {
   try {
     console.log("🗑 [DEBUG] Deleting call logs older than 1 year...");
     await pool.query(
@@ -114,5 +82,38 @@ exports.cleanupOldLogs = async function cleanupOldLogs() {
     console.log("✅ [DEBUG] Old call logs deleted.");
   } catch (err) {
     console.error("❌ [ERROR] Failed to delete old logs:", err.message);
+  }
+};
+// Sync Call Logs from Twilio API to PostgreSQL
+exports.syncCallLogs = async () => {
+  try {
+    console.log("📥 [DEBUG] Fetching latest call logs from Twilio...");
+    const calls = await client.calls.list({ limit: 50 });
+
+    for (const call of calls) {
+      // ✅ Find driver or client ID
+      const { driverId, clientId } = await findUserId(call.from);
+
+      await pool.query(
+        `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, driver_id, client_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (call_sid) DO NOTHING;`,
+        [
+          call.sid,
+          call.startTime,
+          call.from,
+          call.to,
+          call.status,
+          call.duration,
+          call.direction,
+          driverId || null,
+          clientId || null,
+        ],
+      );
+    }
+
+    console.log("✅ [DEBUG] Call logs synced with driver & client data.");
+  } catch (err) {
+    console.error("❌ [ERROR] Failed to sync call logs:", err.message);
   }
 };
