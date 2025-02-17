@@ -17,9 +17,7 @@ console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator)
 
 const router = new Router();
 
-router.get("/", (req, res) => {
-  res.send("Twilio VoIP API is running!");
-});
+router.get("/", (req, res) => res.send("Twilio VoIP API is running!"));
 
 // Webhook for generating an Access Token
 router.get("/token", (req, res) => {
@@ -51,11 +49,6 @@ router.post("/voice", (req, res) => {
 // Webhook for fetching logged calls
 router.get("/call-logs", (req, res) => {
   try {
-    console.log("📂 [DEBUG] Checking call logs at:", callLogPath);
-    if (!fs.existsSync(callLogPath)) {
-      console.warn("⚠️ [WARN] calls.log file does not exist at:", callLogPath);
-      return res.json([]);
-    }
     res.json(getCallLogs(req, res));
   } catch (error) {
     console.error("❌ [ERROR] Error fetching call logs:", error);
