@@ -2,21 +2,11 @@
 and then exporting them for use in router.js. */
 
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
-const {
-  accountSid,
-  authToken,
-  appSid,
-  callerId,
-  getIdentity,
-} = require("./token");
+const { callerId, getIdentity } = require("./token");
 
 // Debugging twilio credentials imports
-console.log("✔ Debugging handler.js credentials:");
-console.log("accountSid:", accountSid);
-console.log("authToken:", authToken);
-console.log("appSid:", appSid);
-console.log("callerId:", callerId);
-if (!callerId) throw new Error("Caller ID is missing in Twilio configuration.");
+// console.log("✔ Debugging handler.js credentials:");
+// if (!callerId) throw new Error("Caller ID is missing in Twilio configuration.");
 console.log("✔ Twilio credentials correctly imported into handler.js");
 
 // Handle Incoming Calls
@@ -25,8 +15,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   console.log("📞 Incoming call to:", requestBody.To);
   let twiml = new VoiceResponse();
 
-  // Get the latest identity
-  const identity = getIdentity();
+  const identity = getIdentity(); // Get the latest identity
   console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
   // If the request is to our Twilio Number, route to browser
@@ -36,7 +25,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
     dial.client(identity);
     // If no answer, Twilio will play this message
     twiml.say(
-      "Hello, thank you for calling Iron Wing Dispatching. One of our representatives willl call you back soon.",
+      "Hello! Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon.",
     );
   } else if (requestBody.To) {
     // This is an outgoing call
@@ -49,10 +38,9 @@ exports.voiceResponse = function voiceResponse(requestBody) {
     dial[attr]({}, toNumberOrClientName);
   } else
     twiml.say(
-      "Hello, , thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
+      "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
     );
 
-  console.log("📞 Generated TwiML:", twiml.toString()); //  Log for debugging
   return twiml.toString();
 };
 

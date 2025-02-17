@@ -26,7 +26,7 @@ const apiKey = process.env.TWILIO_API_KEY || "";
 const apiSecret = process.env.TWILIO_API_SECRET || "";
 const callerId = process.env.TWILIO_CALLER_ID || "";
 
-// Ensure required variables are set
+// Ensure required variables are imported from .env
 if (
   !accountSid ||
   !authToken ||
@@ -38,8 +38,7 @@ if (
   throw new Error(
     "❌ Missing required Twilio environment variables. Check your .env file.",
   );
-}
-console.log("✅ Twilio credentials loaded successfully.");
+} else console.log("✅ Twilio credentials loaded successfully from .env.");
 
 // Initialize Twilio client once and export it for reuse
 const client = twilio(accountSid, authToken);
