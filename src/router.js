@@ -65,7 +65,7 @@ router.get("/call-logs", async (req, res) => {
 });
 
 // Run Cleanup Every 365 Days
-setInterval(exports.cleanupOldLogs, 24 * 60 * 60 * 1000);
+setInterval(exports.cleanupOldLogs, 365 * 24 * 60 * 60 * 1000);
 
 // Webhook for handling incoming SMS
 router.post("/sms", smsResponse);
