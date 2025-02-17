@@ -47,26 +47,33 @@ async function findUserId(phoneNumber) {
 exports.getCallLogs = async (req, res) => {
   try {
     console.log("📥 [DEBUG] Fetching call logs from PostgreSQL...");
-    const result = await pool.query(`
-      SELECT cl.*, 
-             d.name AS driver_name, d.phone_number AS driver_phone, 
-             c.name AS company_name, c.mc_number, c.dot_number, c.phone AS company_phone
-      FROM call_logs cl
-      LEFT JOIN drivers d ON cl.driver_id = d.id
-      LEFT JOIN companies c ON d.company_id = c.id
-      ORDER BY cl.timestamp DESC LIMIT 10;
-    `);
+    const { from_number, status, driver_id } = req.query;
+    const values = [];
 
-    if (result.rows.length === 0) {
-      console.warn("⚠️ [WARN] No call logs found.");
-      return res.json([]); // Response sent once
+    if (from_number) {
+      filters.push("from_number = $1");
+      values.push(from_number);
+    }
+    if (status) {
+      filters.push("status = $" + (values.length + 1));
+      values.push(status);
+    }
+    if (driver_id) {
+      filters.push("driver_id = $" + (values.length + 1));
+      values.push(driver_id);
     }
 
-    console.log("📜 [DEBUG] Retrieved call logs:", result.rows);
-    return res.json(result.rows);
+    const query = `
+      SELECT * FROM call_logs
+      ${filters.length ? "WHERE " + filters.join(" AND ") : ""}
+      ORDER BY timestamp DESC LIMIT 10;
+    `;
+
+    const result = await pool.query(query, values);
+    res.json(result.rows);
   } catch (err) {
     console.error("❌ [ERROR] Failed to fetch call logs:", err.message);
-    return res
+    res
       .status(500)
       .json({ error: "Failed to fetch logs", details: err.message });
   }
