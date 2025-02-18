@@ -25,7 +25,7 @@ exports.getCallLogs = async (req, res) => {
     const result = await pool.query(`
       SELECT cl.*, d.name AS driver_name, c.name AS company_name
       FROM call_logs cl
-      LEFT JOIN drivers d ON cl.driver_id = d.id
+      LEFT JOIN drivers d ON CAST(cl.driver_id AS INTEGER) = d.id
       LEFT JOIN companies c ON d.company_id = c.id
       ORDER BY cl.timestamp DESC LIMIT 10;
     `);
@@ -47,7 +47,7 @@ exports.getMessageLogs = async (req, res) => {
     const result = await pool.query(`
       SELECT m.*, d.name AS driver_name, c.name AS company_name
       FROM messages m
-      LEFT JOIN drivers d ON m.driver_id = d.id
+      LEFT JOIN drivers d ON CAST(m.driver_id AS INTEGER) = d.id
       LEFT JOIN companies c ON d.company_id = c.id
       ORDER BY m.timestamp DESC LIMIT 10;
     `);
