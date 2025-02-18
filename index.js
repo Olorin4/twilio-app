@@ -25,13 +25,13 @@ server.listen(port, function () {
 
 // Schedule Automatic Sync and Cleanup
 if (!global.cleanupScheduled) {
-  global.cleanupScheduled = true; // ✅ Prevent multiple intervals
+  global.cleanupScheduled = true; // Prevent multiple intervals
 
   console.log("🔄 [DEBUG] Scheduling auto-sync for call logs...");
-  setInterval(syncCallLogs, 5 * 60 * 1000); // ✅ Sync call logs every 5 minutes
+  setInterval(syncCallLogs, 5 * 60 * 1000); // Sync call logs every 5 minutes
 
   console.log("🔄 [DEBUG] Scheduling auto-sync for SMS logs...");
-  setInterval(syncSmsLogs, 5 * 60 * 1000); // ✅ Sync SMS logs every 5 minutes
+  setInterval(syncSmsLogs, 5 * 60 * 1000); // Sync SMS logs every 5 minutes
 
   console.log(
     "🔄 [DEBUG] Log Manager: Auto-sync for calls & messages scheduled.",
