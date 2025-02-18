@@ -25,6 +25,7 @@ const appSid = process.env.TWILIO_TWIML_APP_SID || "";
 const apiKey = process.env.TWILIO_API_KEY || "";
 const apiSecret = process.env.TWILIO_API_SECRET || "";
 const callerId = process.env.TWILIO_CALLER_ID || "";
+let identity;
 
 // Ensure required variables are imported from .env
 if (
@@ -42,11 +43,10 @@ if (
 
 // Initialize Twilio client once and export it for reuse
 const client = twilio(accountSid, authToken);
-let identity = "";
 
 // Generate Twilio Token for Browser client
 function tokenGenerator() {
-  identity = process.env.TWILIO_IDENTITY;
+  identity = process.env.TWILIO_IDENTITY || nameGenerator();
   if (!identity) {
     throw new Error("❌ [ERROR] identity is undefined in tokenGenerator()");
   }
