@@ -285,6 +285,27 @@ $(function () {
     resetIncomingCallUI();
   }
 
+  async function fetchIncomingCalls() {
+    try {
+      const response = await fetch("/call-logs", { redirect: "follow" }); // ✅ Fetch call logs
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const calls = await response.json();
+      const callLog = document.getElementById("call-log");
+      callLog.innerHTML = "";
+
+      calls.forEach((call) => {
+        const li = document.createElement("li");
+        li.textContent = `From: ${call.from_number}, To: ${call.to_number}, Status: ${call.status}, Duration: ${call.duration}`;
+        callLog.appendChild(li);
+      });
+    } catch (err) {
+      console.error("Failed to fetch incoming calls:", err);
+    }
+  }
+
   async function fetchIncomingMessages() {
     try {
       const response = await fetch("/message-logs", { redirect: "follow" });
@@ -307,7 +328,8 @@ $(function () {
     }
   }
 
-  // Periodically fetch messages (every 60 seconds)
+  // Periodically fetch calls & messages (every 60 seconds)
+  setInterval(fetchIncomingCalls, 60000);
   setInterval(fetchIncomingMessages, 60000);
 
   // MISC USER INTERFACE

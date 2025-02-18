@@ -52,6 +52,23 @@
             <label>Speaker Volume</label>
             <div id="output-volume"></div>
           </div>
+          <div id="dtmf-controls" class="hide">
+            <h2>DTMF Keypad</h2>
+            <div id="dtmf-keypad">
+              <button class="dtmf-button" data-digit="1">1</button>
+              <button class="dtmf-button" data-digit="2">2</button>
+              <button class="dtmf-button" data-digit="3">3</button>
+              <button class="dtmf-button" data-digit="4">4</button>
+              <button class="dtmf-button" data-digit="5">5</button>
+              <button class="dtmf-button" data-digit="6">6</button>
+              <button class="dtmf-button" data-digit="7">7</button>
+              <button class="dtmf-button" data-digit="8">8</button>
+              <button class="dtmf-button" data-digit="9">9</button>
+              <button class="dtmf-button" data-digit="*">*</button>
+              <button class="dtmf-button" data-digit="0">0</button>
+              <button class="dtmf-button" data-digit="#">#</button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -59,29 +76,18 @@
         <h2>Event Log</h2>
         <div class="hide" id="log"></div>
 
+        <div class="calls-column">
+          <h2>Incoming calls</h2>
+          <ul id="call-log">
+            <!-- Incoming calls will be appended here -->
+          </ul>
+        </div>
+
         <div class="sms-column">
           <h2>Incoming SMS</h2>
           <ul id="sms-log">
             <!-- Incoming SMS messages will be appended here -->
           </ul>
-        </div>
-
-        <div id="dtmf-controls" class="hide">
-          <h2>DTMF Keypad</h2>
-          <div id="dtmf-keypad">
-            <button class="dtmf-button" data-digit="1">1</button>
-            <button class="dtmf-button" data-digit="2">2</button>
-            <button class="dtmf-button" data-digit="3">3</button>
-            <button class="dtmf-button" data-digit="4">4</button>
-            <button class="dtmf-button" data-digit="5">5</button>
-            <button class="dtmf-button" data-digit="6">6</button>
-            <button class="dtmf-button" data-digit="7">7</button>
-            <button class="dtmf-button" data-digit="8">8</button>
-            <button class="dtmf-button" data-digit="9">9</button>
-            <button class="dtmf-button" data-digit="*">*</button>
-            <button class="dtmf-button" data-digit="0">0</button>
-            <button class="dtmf-button" data-digit="#">#</button>
-          </div>
         </div>
       </section>
     </main>
