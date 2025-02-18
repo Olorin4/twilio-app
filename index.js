@@ -5,7 +5,7 @@ const path = require("path");
 const express = require("express");
 const bodyParser = require("body-parser");
 const router = require("./src/router");
-const { syncCallLogs, cleanupOldLogs } = require("./src/logManager");
+const { syncCallLogs, syncSmsLogs } = require("./src/logManager");
 
 // Create Express webapp
 const app = express();
@@ -24,5 +24,6 @@ server.listen(port, function () {
 });
 
 // Schedule Automatic Sync and Cleanup
-setInterval(syncCallLogs, 5 * 60 * 1000); // Sync every 5 minutes
+setInterval(syncCallLogs, 5 * 60 * 1000);
+setInterval(syncSmsLogs, 5 * 60 * 1000);
 // setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
