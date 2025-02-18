@@ -10,8 +10,8 @@ const { accountSid, authToken } = require("./token");
 const pool = new Pool({
   user: process.env.DB_USER,
   host: process.env.DB_HOST,
-  database: process.env.DB_DATABASE,
-  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASS,
   port: process.env.DB_PORT,
 });
 
@@ -50,18 +50,18 @@ exports.getCallLogs = async (req, res) => {
     const { from_number, status, driver_id } = req.query;
     const values = [];
 
-    // if (from_number) {
-    //   filters.push("from_number = $1");
-    //   values.push(from_number);
-    // }
-    // if (status) {
-    //   filters.push("status = $" + (values.length + 1));
-    //   values.push(status);
-    // }
-    // if (driver_id) {
-    //   filters.push("driver_id = $" + (values.length + 1));
-    //   values.push(driver_id);
-    // }
+    if (from_number) {
+      filters.push("from_number = $1");
+      values.push(from_number);
+    }
+    if (status) {
+      filters.push("status = $" + (values.length + 1));
+      values.push(status);
+    }
+    if (driver_id) {
+      filters.push("driver_id = $" + (values.length + 1));
+      values.push(driver_id);
+    }
 
     const query = `
       SELECT * FROM call_logs
