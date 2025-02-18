@@ -20,7 +20,7 @@ const client = twilio(accountSid, authToken);
 // Fetch Call Logs with Driver & Company Info
 exports.getCallLogs = async (req, res) => {
   try {
-    console.log("📥 [DEBUG] Fetching call logs from PostgreSQL...");
+    console.log("📥 [DEBUG] Fetching call logs from database...");
 
     const result = await pool.query(`
       SELECT cl.*, d.name AS driver_name, c.name AS company_name
@@ -45,10 +45,11 @@ exports.getMessageLogs = async (req, res) => {
     console.log("📥 [DEBUG] Fetching messages from database...");
 
     const result = await pool.query(`
-      SELECT m.*, from_number, d.name AS to_number,driver_name, c.name AS company_name
+      SELECT m.id, m.from_number AS "from", m.to_number, m.body, m.timestamp,
+             d.name AS driver_name, c.name AS company_name
       FROM messages m
-      LEFT JOIN drivers d ON CAST(m.driver_id AS INTEGER) = d.id
-      LEFT JOIN companies c ON d.company_id = c.id
+      LEFT JOIN drivers d ON m.driver_id = d.id
+      LEFT JOIN companies c ON CAST(d.company_id AS INTEGER) = c.id
       ORDER BY m.timestamp DESC LIMIT 10;
     `);
 
