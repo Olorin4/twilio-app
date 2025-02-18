@@ -65,7 +65,7 @@ exports.getMessageLogs = async (req, res) => {
 // Fetch Call Logs from Twilio API and Store in PostgreSQL
 exports.syncCallLogs = async () => {
   try {
-    console.log("📥 [DEBUG] Fetching latest call logs from Twilio...");
+    console.log("📥 Syncing database with Twilio call logs...");
     const calls = await client.calls.list({ limit: 50 });
 
     for (const call of calls) {
@@ -94,7 +94,7 @@ exports.syncCallLogs = async () => {
 // Fetch SMS Logs from Twilio API and Store in PostgreSQL
 exports.syncSmsLogs = async () => {
   try {
-    console.log("📥 [DEBUG] Fetching latest SMS logs from Twilio...");
+    console.log("📥 [DEBUG] Syncing database with Twilio sms logs..");
     const messages = await client.messages.list({ limit: 50 });
 
     for (const message of messages) {
