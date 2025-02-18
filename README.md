@@ -7,13 +7,21 @@ This app logs incoming/outgoing calls and messages, provides a real-time call lo
 
 ## Features
 
-- Real-time Call Logging – Logs all incoming & outgoing calls.
-- Twilio Webhooks – Automatically updates call logs via Twilio.
-- SMS Logging – Stores and retrieves messages from Twilio.
-- PostgreSQL Database – Stores all call and message logs.
-- REST API – Provides `/call-logs` and `/message-logs` endpoints.
-- Frontend Integration – Displays live logs in the browser.
-- Error Handling & Debugging – Uses `pm2 logs` for server monitoring.
+## 📌 Built on Twilio’s Quickstart
+
+This project was originally based on [Twilio’s Quickstart Voice App](https://github.com/twilio/voice-quickstart-node), which handled basic voice call routing.
+
+### 🔥 Major Enhancements:
+
+✅ **Call & SMS Logging** – Calls and messages are now stored in PostgreSQL.  
+✅ **Custom REST API** – Added `/call-logs` and `/message-logs` for structured data retrieval.  
+✅ **Twilio Webhooks** – Calls & messages log instantly via webhooks.  
+✅ **Frontend Integration** – Built UI to display call & message logs in real-time.  
+✅ **Database Optimization** – Prevents duplicate logs using `ON CONFLICT DO NOTHING`.  
+✅ **Authentication (Planned)** – Working on adding JWT-based authentication.  
+✅ **Error Handling & Debugging** – Uses `pm2 logs` for server monitoring.
+
+> 💡 **What I Learned**: Working on this project deepened my knowledge of **Twilio APIs, Express.js, PostgreSQL, and real-time event handling.**
 
 ---
 
