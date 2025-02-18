@@ -46,7 +46,7 @@ let identity = "";
 
 // Generate Twilio Token for Browser client
 function tokenGenerator() {
-  identity = process.env.TWILIO_IDENTITY || nameGenerator();
+  identity = process.env.TWILIO_IDENTITY;
   if (!identity) {
     throw new Error("❌ [ERROR] identity is undefined in tokenGenerator()");
   }
