@@ -2,9 +2,9 @@
 from Twilio
  */
 
-const { Pool } = require("pg");
 const twilio = require("twilio");
 const { accountSid, authToken } = require("./token");
+const { Pool } = require("pg");
 
 // Configure PostgreSQL connection
 const pool = new Pool({
@@ -44,32 +44,12 @@ async function findUserId(phoneNumber) {
 }
 
 // Fetch Call Logs with Driver & Company Info
-exports.getCallLogs = async (req, res) => {
+async function getCallLogs(req, res) {
   try {
     console.log("📥 [DEBUG] Fetching call logs from PostgreSQL...");
-    const { from_number, status, driver_id } = req.query;
-    const values = [];
-
-    if (from_number) {
-      filters.push("from_number = $1");
-      values.push(from_number);
-    }
-    if (status) {
-      filters.push("status = $" + (values.length + 1));
-      values.push(status);
-    }
-    if (driver_id) {
-      filters.push("driver_id = $" + (values.length + 1));
-      values.push(driver_id);
-    }
-
-    const query = `
-      SELECT * FROM call_logs
-      ${filters.length ? "WHERE " + filters.join(" AND ") : ""}
-      ORDER BY timestamp DESC LIMIT 10;
-    `;
-
-    const result = await pool.query(query, values);
+    const result = await pool.query(
+      "SELECT * FROM call_logs ORDER BY timestamp DESC LIMIT 10;",
+    );
     res.json(result.rows);
   } catch (err) {
     console.error("❌ [ERROR] Failed to fetch call logs:", err.message);
@@ -77,6 +57,10 @@ exports.getCallLogs = async (req, res) => {
       .status(500)
       .json({ error: "Failed to fetch logs", details: err.message });
   }
+}
+
+module.exports = {
+  getCallLogs,
 };
 
 // Cleanup Function (Deletes Logs Older Than 1 Year)
@@ -91,6 +75,7 @@ exports.cleanupOldLogs = async () => {
     console.error("❌ [ERROR] Failed to delete old logs:", err.message);
   }
 };
+
 // Sync Call Logs from Twilio API to PostgreSQL
 exports.syncCallLogs = async () => {
   try {
