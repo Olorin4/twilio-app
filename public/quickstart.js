@@ -287,13 +287,12 @@ $(function () {
 
   async function fetchIncomingCalls() {
     try {
-      const response = await fetch("/call-logs", { redirect: "follow" }); // ✅ Fetch call logs
+      const response = await fetch("/call-logs", { redirect: "follow" });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const calls = await response.json();
-      console.log("✅ [DEBUG] Call logs received:", calls);
       const callLog = document.getElementById("call-log");
       callLog.innerHTML = "";
 
@@ -303,13 +302,14 @@ $(function () {
         const callStatus = call.status || "Unknown";
         const duration =
           call.duration !== null ? `${call.duration} sec` : "N/A";
+        const timestamp = new Date(call.timestamp).toLocaleString();
 
         const li = document.createElement("li");
-        li.textContent = `From: ${fromNumber}, To: ${toNumber}, Status: ${callStatus}, Duration: ${duration}`;
+        li.textContent = `Date: ${timestamp}, From: ${fromNumber}, To: ${toNumber}, Status: ${callStatus}, Duration: ${duration}`;
         callLog.appendChild(li);
       });
     } catch (err) {
-      console.error("Failed to fetch incoming calls:", err);
+      console.error("❌ [ERROR] Failed to fetch incoming calls:", err);
     }
   }
 
@@ -321,13 +321,16 @@ $(function () {
       }
 
       const messages = await response.json();
-      console.log("✅ [DEBUG] SMS logs received:", calls);
       const smsLog = document.getElementById("sms-log");
       smsLog.innerHTML = "";
 
       messages.forEach((message) => {
+        const fromNumber = message.from || "Unknown";
+        const messageBody = message.body || "[No content]";
+        const timestamp = new Date(message.timestamp).toLocaleString(); // ✅ Convert timestamp to readable format
+
         const li = document.createElement("li");
-        li.textContent = `From: ${message.from}, Message: ${message.body}`;
+        li.textContent = `Date: ${timestamp}, From: ${fromNumber}, Message: ${messageBody}`;
         smsLog.appendChild(li);
       });
     } catch (err) {
