@@ -17,48 +17,26 @@ const pool = new Pool({
 
 const client = twilio(accountSid, authToken);
 
-// Fetch Call Logs with Driver & Company Info
-exports.getCallLogs = async (req, res) => {
+exports.logCall = async (callData) => {
   try {
-    console.log("📥 [DEBUG] Fetching call logs from database...");
-
-    const result = await pool.query(`
-      SELECT cl.*, d.name AS driver_name, c.name AS company_name
-      FROM call_logs cl
-      LEFT JOIN drivers d ON CAST(cl.driver_id AS INTEGER) = d.id
-      LEFT JOIN companies c ON d.company_id = c.id
-      ORDER BY cl.timestamp DESC LIMIT 10;
-    `);
-
-    res.json(result.rows);
+    console.log("📞 [DEBUG] Logging call:", callData);
+    await pool.query(
+      `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, driver_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
+       ON CONFLICT (call_sid) DO NOTHING;`,
+      [
+        callData.CallSid,
+        new Date(),
+        callData.From,
+        callData.To,
+        callData.CallStatus,
+        callData.Duration || 0,
+        callData.Direction || "unknown",
+      ],
+    );
+    console.log("✅ [DEBUG] Call logged successfully.");
   } catch (err) {
-    console.error("❌ [ERROR] Failed to fetch call logs:", err.message);
-    res
-      .status(500)
-      .json({ error: "Failed to fetch logs", details: err.message });
-  }
-};
-
-// Get SMS logs as JSON
-exports.getMessageLogs = async (req, res) => {
-  try {
-    console.log("📥 [DEBUG] Fetching messages from database...");
-
-    const result = await pool.query(`
-      SELECT m.id, m.from_number AS "from", m.to_number, m.body, m.timestamp,
-             d.name AS driver_name, c.name AS company_name
-      FROM messages m
-      LEFT JOIN drivers d ON m.driver_id = d.id
-      LEFT JOIN companies c ON CAST(d.company_id AS INTEGER) = c.id
-      ORDER BY m.timestamp DESC LIMIT 10;
-    `);
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error("❌ [ERROR] Failed to fetch messages:", err.message);
-    res
-      .status(500)
-      .json({ error: "Failed to fetch messages", details: err.message });
+    console.error("❌ [ERROR] Failed to log call:", err.message);
   }
 };
 
@@ -109,6 +87,51 @@ exports.syncSmsLogs = async () => {
     console.log("✅ [DEBUG] SMS logs synced from Twilio to the database.");
   } catch (err) {
     console.error("❌ [ERROR] Failed to sync SMS logs:", err.message);
+  }
+};
+
+// Fetch Call Logs
+exports.getCallLogs = async (req, res) => {
+  try {
+    console.log("📥 [DEBUG] Fetching call log from database...");
+
+    const result = await pool.query(`
+      SELECT cl.*, d.name AS driver_name, c.name AS company_name
+      FROM call_logs cl
+      LEFT JOIN drivers d ON CAST(cl.driver_id AS INTEGER) = d.id
+      LEFT JOIN companies c ON d.company_id = c.id
+      ORDER BY cl.timestamp DESC LIMIT 10;
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ [ERROR] Failed to fetch call logs:", err.message);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch logs", details: err.message });
+  }
+};
+
+// Get SMS logs
+exports.getMessageLogs = async (req, res) => {
+  try {
+    console.log("📥 [DEBUG] Fetching message log from database...");
+
+    const result = await pool.query(`
+      SELECT m.id, m.from_number AS "from", m.to_number, m.body, m.timestamp,
+             d.name AS driver_name, c.name AS company_name
+      FROM messages m
+      LEFT JOIN drivers d ON m.driver_id = d.id
+      LEFT JOIN companies c ON CAST(d.company_id AS INTEGER) = c.id
+      ORDER BY m.timestamp DESC LIMIT 10;
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ [ERROR] Failed to fetch messages:", err.message);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch messages", details: err.message });
   }
 };
 
