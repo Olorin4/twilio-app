@@ -44,21 +44,13 @@ router.post("/voice", (req, res) => {
   }
 });
 
-// Webhook to Fetch Latest Call Logs from Database
-router.get("/call-logs", async (req, res) => {
-  try {
-    await getCallLogs(req, res);
-  } catch (error) {
-    console.error("❌ [ERROR] Error fetching call logs:", error);
-    if (!res.headersSent)
-      res.status(500).json({ error: "Failed to fetch logs" });
-  }
-});
+// Webhook for fetching latest call logs from database
+router.get("/call-logs", getCallLogs);
 
-// Webhook for handling incoming SMS
+// Webhook for handling incoming sms
 router.post("/sms", smsResponse);
 
-// Webhook for fetching logged messages
+// Webhook for fetching latest message logs from database
 router.get("/message-logs", getMessageLogs);
 
 // Webhook for sending a fax
