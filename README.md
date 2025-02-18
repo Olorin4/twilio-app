@@ -169,5 +169,3 @@ fetch("/call-logs")
 This project is licensed under the MIT License.
 
 ---
-
-Now you're ready to showcase your project professionally!
