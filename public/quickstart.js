@@ -293,12 +293,19 @@ $(function () {
       }
 
       const calls = await response.json();
+      console.log("✅ [DEBUG] Call logs received:", calls);
       const callLog = document.getElementById("call-log");
       callLog.innerHTML = "";
 
       calls.forEach((call) => {
+        const fromNumber = call.from_number || "Unknown";
+        const toNumber = call.to_number || "Unknown";
+        const callStatus = call.status || "Unknown";
+        const duration =
+          call.duration !== null ? `${call.duration} sec` : "N/A";
+
         const li = document.createElement("li");
-        li.textContent = `From: ${call.from_number}, To: ${call.to_number}, Status: ${call.status}, Duration: ${call.duration}`;
+        li.textContent = `From: ${fromNumber}, To: ${toNumber}, Status: ${callStatus}, Duration: ${duration}`;
         callLog.appendChild(li);
       });
     } catch (err) {
