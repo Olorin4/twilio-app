@@ -57,11 +57,14 @@ exports.getCallLogs = async (req, res) => {
 
 // Cleanup Function (Deletes Logs Older Than 1 Year)
 exports.cleanupOldLogs = async () => {
-  if (lastCleanupTime && Date.now() - lastCleanupTime < 60 * 1000) {
+  const now = Date.now();
+
+  // Ensure cleanup only runs if 364+ days have passed
+  if (lastCleanupTime && now - lastCleanupTime < 364 * 24 * 60 * 60 * 1000) {
     console.warn("⚠️ [WARN] cleanupOldLogs called too soon. Skipping...");
     return;
   }
-  lastCleanupTime = Date.now(); // Update last run time
+  lastCleanupTime = now; // Update last run time
 
   try {
     console.log("🗑 [DEBUG] Deleting call logs older than 1 year...");
