@@ -17,6 +17,8 @@ const pool = new Pool({
 
 const client = twilio(accountSid, authToken);
 
+let lastCleanupTime = null;
+
 // Fetch Call Logs with Driver & Company Info
 exports.getCallLogs = async (req, res) => {
   try {
@@ -55,6 +57,12 @@ exports.getCallLogs = async (req, res) => {
 
 // Cleanup Function (Deletes Logs Older Than 1 Year)
 exports.cleanupOldLogs = async () => {
+  if (lastCleanupTime && Date.now() - lastCleanupTime < 60 * 1000) {
+    console.warn("⚠️ [WARN] cleanupOldLogs called too soon. Skipping...");
+    return;
+  }
+  lastCleanupTime = Date.now(); // Update last run time
+
   try {
     console.log("🗑 [DEBUG] Deleting call logs older than 1 year...");
     await pool.query(
