@@ -61,6 +61,56 @@ exports.getMessageLogs = async (req, res) => {
   }
 };
 
+// Fetch Call Logs from Twilio API and Store in PostgreSQL
+exports.syncCallLogs = async () => {
+  try {
+    console.log("📥 [DEBUG] Fetching latest call logs from Twilio...");
+    const calls = await client.calls.list({ limit: 50 });
+
+    for (const call of calls) {
+      await pool.query(
+        `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, driver_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
+         ON CONFLICT (call_sid) DO NOTHING;`,
+        [
+          call.sid,
+          call.startTime,
+          call.from,
+          call.to,
+          call.status,
+          call.duration,
+          call.direction,
+        ],
+      );
+    }
+
+    console.log("✅ [DEBUG] Call logs synced from Twilio to PostgreSQL.");
+  } catch (err) {
+    console.error("❌ [ERROR] Failed to sync call logs:", err.message);
+  }
+};
+
+// Fetch SMS Logs from Twilio API and Store in PostgreSQL
+exports.syncSmsLogs = async () => {
+  try {
+    console.log("📥 [DEBUG] Fetching latest SMS logs from Twilio...");
+    const messages = await client.messages.list({ limit: 50 });
+
+    for (const message of messages) {
+      await pool.query(
+        `INSERT INTO messages (from_number, to_number, body, timestamp, driver_id)
+         VALUES ($1, $2, $3, $4, NULL)
+         ON CONFLICT (from_number, to_number, body, timestamp) DO NOTHING;`,
+        [message.from, message.to, message.body, message.dateSent],
+      );
+    }
+
+    console.log("✅ [DEBUG] SMS logs synced from Twilio to PostgreSQL.");
+  } catch (err) {
+    console.error("❌ [ERROR] Failed to sync SMS logs:", err.message);
+  }
+};
+
 // // Cleanup Function (Deletes Logs Older Than 1 Year)
 // exports.cleanupOldLogs = async () => {
 //   try {
@@ -82,63 +132,3 @@ exports.getMessageLogs = async (req, res) => {
 //     console.error("❌ [ERROR] Failed to delete old logs:", err.message);
 //   }
 // };
-
-// Sync Call Logs from Twilio API to PostgreSQL
-exports.syncCallLogs = async () => {
-  try {
-    console.log("📥 [DEBUG] Fetching latest call logs from Twilio...");
-    const calls = await client.calls.list({ limit: 50 });
-
-    for (const call of calls) {
-      // ✅ Find driver or client ID
-      const { driverId, clientId } = await findUserId(call.from);
-
-      await pool.query(
-        `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, driver_id, client_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (call_sid) DO NOTHING;`,
-        [
-          call.sid,
-          call.startTime,
-          call.from,
-          call.to,
-          call.status,
-          call.duration,
-          call.direction,
-          driverId || null,
-          clientId || null,
-        ],
-      );
-    }
-
-    console.log("✅ [DEBUG] Call logs synced with driver & client data.");
-  } catch (err) {
-    console.error("❌ [ERROR] Failed to sync call logs:", err.message);
-  }
-};
-
-// Function to Find Driver or Client ID Based on Phone Number
-async function findUserId(phoneNumber) {
-  try {
-    // Search for driver
-    const driverResult = await pool.query(
-      "SELECT id FROM drivers WHERE phone_number = $1",
-      [phoneNumber],
-    );
-    if (driverResult.rows.length > 0)
-      return { driverId: driverResult.rows[0].id };
-
-    // Search for client
-    const clientResult = await pool.query(
-      "SELECT id FROM clients WHERE phone_number = $1",
-      [phoneNumber],
-    );
-    if (clientResult.rows.length > 0)
-      return { clientId: clientResult.rows[0].id };
-
-    return {}; // No matching user found
-  } catch (err) {
-    console.error("❌ [ERROR] Failed to find user ID:", err.message);
-    return {};
-  }
-}
