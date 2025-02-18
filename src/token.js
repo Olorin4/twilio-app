@@ -46,7 +46,10 @@ let identity = "";
 
 // Generate Twilio Token for Browser client
 function tokenGenerator() {
-  identity = nameGenerator();
+  identity = process.env.TWILIO_IDENTITY || nameGenerator();
+  if (!identity) {
+    throw new Error("❌ [ERROR] identity is undefined in tokenGenerator()");
+  }
 
   const accessToken = new AccessToken(accountSid, apiKey, apiSecret);
   accessToken.identity = identity;
@@ -55,6 +58,7 @@ function tokenGenerator() {
     incomingAllow: true,
   });
   accessToken.addGrant(grant);
+  console.log(`✅ [DEBUG] Token generated for identity: ${identity}`);
   // Include identity and token in a JSON response
   return {
     identity: identity,
