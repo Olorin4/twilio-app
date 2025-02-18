@@ -45,7 +45,7 @@ exports.getMessageLogs = async (req, res) => {
     console.log("📥 [DEBUG] Fetching messages from database...");
 
     const result = await pool.query(`
-      SELECT m.*, d.name AS driver_name, c.name AS company_name
+      SELECT m.*, from_number, d.name AS to_number,driver_name, c.name AS company_name
       FROM messages m
       LEFT JOIN drivers d ON CAST(m.driver_id AS INTEGER) = d.id
       LEFT JOIN companies c ON d.company_id = c.id
