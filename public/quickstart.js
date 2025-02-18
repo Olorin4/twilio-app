@@ -321,7 +321,7 @@ $(function () {
       }
 
       const messages = await response.json();
-
+      console.log("✅ [DEBUG] SMS logs received:", calls);
       const smsLog = document.getElementById("sms-log");
       smsLog.innerHTML = "";
 
