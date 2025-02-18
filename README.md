@@ -5,14 +5,6 @@ This app logs incoming/outgoing calls and messages, provides a real-time call lo
 
 ---
 
-## Demo Preview
-
-Live Demo (Optional): [twilio.iron-wing-dispatching.com](https://twilio.iron-wing-dispatching.com)
-
-![Project Screenshot](screenshot.png)
-
----
-
 ## Features
 
 - Real-time Call Logging – Logs all incoming & outgoing calls.
@@ -67,11 +59,11 @@ TWILIO_CALLER_ID=your_twilio_caller_id
 TWILIO_IDENTITY=YourName
 TWILIO_API_KEY=your_twilio_api_key
 TWILIO_API_SECRET=your_twilio_api_secret
-PG_USER=your_postgres_user
-PG_HOST=your_postgres_host
-PG_DATABASE=your_postgres_db
-PG_PASSWORD=your_postgres_password
-PG_PORT=5432
+DB_USER=your_postgres_user
+DB_HOST=your_postgres_host
+DB_DATABASE=your_postgres_db
+DB_PASSWORD=your_postgres_password
+DB_PORT=5432
 ```
 
 ### 4. Set Up PostgreSQL Database
@@ -168,8 +160,7 @@ fetch("/call-logs")
 
 ## Contributors
 
-- [Your Name](https://github.com/yourusername)
-- Open for Contributions! Submit a PR
+- Nick Kalas(https://github.com/Olorin4)
 
 ---
 
