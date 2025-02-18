@@ -47,15 +47,11 @@ router.post("/voice", (req, res) => {
 // Webhook to Fetch Latest Call Logs from Database
 router.get("/call-logs", async (req, res) => {
   try {
-    if (typeof getCallLogs !== "function") {
-      throw new Error("getCallLogs is not a function");
-    }
     await getCallLogs(req, res); // Ensures a single response
   } catch (error) {
     console.error("❌ [ERROR] Error fetching call logs:", error);
-    if (!res.headersSent) {
+    if (!res.headersSent)
       res.status(500).json({ error: "Failed to fetch logs" });
-    }
   }
 });
 
