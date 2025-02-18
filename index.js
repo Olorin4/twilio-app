@@ -24,5 +24,12 @@ server.listen(port, function () {
 });
 
 // Schedule Automatic Sync and Cleanup
-setInterval(syncCallLogs, 5 * 60 * 1000); // Sync every 5 minutes
-setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
+if (!global.cleanupScheduled) {
+  global.cleanupScheduled = true; // Ensures this block only runs once
+
+  setInterval(syncCallLogs, 5 * 60 * 1000); // Sync every 5 minutes
+  setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every 365 days
+  console.log(
+    "🔄 [DEBUG] Log Manager: Auto-sync (5 min) and cleanup (1 year) scheduled.",
+  );
+}
