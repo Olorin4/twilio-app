@@ -123,7 +123,8 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* SMS LOG */
+/* LOGS */
+.calls-column,
 .sms-column {
   padding: 10px;
   background-color: #f9f9f9;
@@ -131,11 +132,13 @@ button:disabled {
   margin-top: 20px;
 }
 
+.calls-column ul,
 .sms-column ul {
   list-style: none;
   padding: 0;
 }
 
+.calls-column ul li,
 .sms-column ul li {
   padding: 5px;
   border-bottom: 1px solid #ddd;
