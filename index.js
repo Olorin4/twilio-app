@@ -24,6 +24,18 @@ server.listen(port, function () {
 });
 
 // Schedule Automatic Sync and Cleanup
-setInterval(syncCallLogs, 5 * 60 * 1000);
-setInterval(syncSmsLogs, 5 * 60 * 1000);
+if (!global.cleanupScheduled) {
+  global.cleanupScheduled = true; // ✅ Prevent multiple intervals
+
+  console.log("🔄 [DEBUG] Scheduling auto-sync for call logs...");
+  setInterval(syncCallLogs, 5 * 60 * 1000); // ✅ Sync call logs every 5 minutes
+
+  console.log("🔄 [DEBUG] Scheduling auto-sync for SMS logs...");
+  setInterval(syncSmsLogs, 5 * 60 * 1000); // ✅ Sync SMS logs every 5 minutes
+
+  console.log(
+    "🔄 [DEBUG] Log Manager: Auto-sync for calls & messages scheduled.",
+  );
+}
+
 // setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
