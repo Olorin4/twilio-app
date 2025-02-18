@@ -51,8 +51,9 @@ function tokenGenerator() {
     throw new Error("❌ [ERROR] identity is undefined in tokenGenerator()");
   }
 
-  const accessToken = new AccessToken(accountSid, apiKey, apiSecret);
-  accessToken.identity = identity;
+  const accessToken = new AccessToken(accountSid, apiKey, apiSecret, {
+    identity,
+  });
   const grant = new VoiceGrant({
     outgoingApplicationSid: appSid,
     incomingAllow: true,
