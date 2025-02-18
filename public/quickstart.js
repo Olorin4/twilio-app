@@ -308,7 +308,7 @@ $(function () {
   }
 
   // Periodically fetch messages (every 15 seconds)
-  setInterval(fetchIncomingMessages, 15000);
+  setInterval(fetchIncomingMessages, 60000);
 
   // MISC USER INTERFACE
 
