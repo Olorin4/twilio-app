@@ -53,27 +53,27 @@ exports.getCallLogs = async (req, res) => {
   }
 };
 
-// Cleanup Function (Deletes Logs Older Than 1 Year)
-exports.cleanupOldLogs = async () => {
-  try {
-    // Check if any logs older than 1 year exist
-    const { rowCount } = await pool.query(
-      "SELECT * FROM call_logs WHERE timestamp < NOW() - INTERVAL '1 year';",
-    );
-    if (rowCount === 0) {
-      console.log("🛑 [INFO] No old call logs found. Cleanup skipped.");
-      return;
-    }
+// // Cleanup Function (Deletes Logs Older Than 1 Year)
+// exports.cleanupOldLogs = async () => {
+//   try {
+//     // Check if any logs older than 1 year exist
+//     const { rowCount } = await pool.query(
+//       "SELECT * FROM call_logs WHERE timestamp < NOW() - INTERVAL '1 year';",
+//     );
+//     if (rowCount === 0) {
+//       console.log("🛑 [INFO] No old call logs found. Cleanup skipped.");
+//       return;
+//     }
 
-    console.log("🗑 [DEBUG] Deleting call logs older than 1 year...");
-    await pool.query(
-      "DELETE FROM call_logs WHERE timestamp < NOW() - INTERVAL '1 year';",
-    );
-    console.log("✅ [DEBUG] Old call logs deleted.");
-  } catch (err) {
-    console.error("❌ [ERROR] Failed to delete old logs:", err.message);
-  }
-};
+//     console.log("🗑 [DEBUG] Deleting call logs older than 1 year...");
+//     await pool.query(
+//       "DELETE FROM call_logs WHERE timestamp < NOW() - INTERVAL '1 year';",
+//     );
+//     console.log("✅ [DEBUG] Old call logs deleted.");
+//   } catch (err) {
+//     console.error("❌ [ERROR] Failed to delete old logs:", err.message);
+//   }
+// };
 
 // Sync Call Logs from Twilio API to PostgreSQL
 exports.syncCallLogs = async () => {
