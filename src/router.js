@@ -7,7 +7,7 @@ const Router = require("express").Router;
 const { tokenGenerator } = require("./token");
 const { voiceResponse } = require("./callResponse");
 const { smsResponse } = require("./smsResponse");
-const { getCallLogs, getLogsAsJSON } = require("./logManager");
+const { getCallLogs, getMessageLogs } = require("./logManager");
 const { sendFax, getFaxStatus } = require("./sendFax");
 
 // Debugging
@@ -59,7 +59,7 @@ router.get("/call-logs", async (req, res) => {
 router.post("/sms", smsResponse);
 
 // Webhook for fetching logged messages
-router.get("/messages", getLogsAsJSON);
+router.get("/messages", getMessageLogs);
 
 // Webhook for sending a fax
 router.post("/fax", sendFax);
