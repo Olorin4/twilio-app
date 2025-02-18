@@ -287,7 +287,7 @@ $(function () {
 
   async function fetchIncomingMessages() {
     try {
-      const response = await fetch("/messages", { redirect: "follow" });
+      const response = await fetch("/message-logs", { redirect: "follow" });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -307,7 +307,7 @@ $(function () {
     }
   }
 
-  // Periodically fetch messages (every 15 seconds)
+  // Periodically fetch messages (every 60 seconds)
   setInterval(fetchIncomingMessages, 60000);
 
   // MISC USER INTERFACE

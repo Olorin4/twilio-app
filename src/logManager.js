@@ -85,7 +85,7 @@ exports.syncCallLogs = async () => {
       );
     }
 
-    console.log("✅ [DEBUG] Call logs synced from Twilio to PostgreSQL.");
+    console.log("✅ [DEBUG] Call logs synced from Twilio to the database.");
   } catch (err) {
     console.error("❌ [ERROR] Failed to sync call logs:", err.message);
   }
@@ -106,7 +106,7 @@ exports.syncSmsLogs = async () => {
       );
     }
 
-    console.log("✅ [DEBUG] SMS logs synced from Twilio to PostgreSQL.");
+    console.log("✅ [DEBUG] SMS logs synced from Twilio to the database.");
   } catch (err) {
     console.error("❌ [ERROR] Failed to sync SMS logs:", err.message);
   }

@@ -47,7 +47,7 @@ router.post("/voice", (req, res) => {
 // Webhook to Fetch Latest Call Logs from Database
 router.get("/call-logs", async (req, res) => {
   try {
-    await getCallLogs(req, res); // Ensures a single response
+    await getCallLogs(req, res);
   } catch (error) {
     console.error("❌ [ERROR] Error fetching call logs:", error);
     if (!res.headersSent)
@@ -59,7 +59,7 @@ router.get("/call-logs", async (req, res) => {
 router.post("/sms", smsResponse);
 
 // Webhook for fetching logged messages
-router.get("/messages", getMessageLogs);
+router.get("/message-logs", getMessageLogs);
 
 // Webhook for sending a fax
 router.post("/fax", sendFax);
