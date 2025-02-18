@@ -24,9 +24,5 @@ server.listen(port, function () {
 });
 
 // Schedule Automatic Sync and Cleanup
-if (!global.cleanupScheduled) {
-  global.cleanupScheduled = true;
-  console.log("✅ [DEBUG] Scheduling cleanupOldLogs for the first time.");
-  setInterval(syncCallLogs, 5 * 60 * 1000); // Sync every 5 minutes
-  setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
-}
+setInterval(syncCallLogs, 5 * 60 * 1000); // Sync every 5 minutes
+setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
