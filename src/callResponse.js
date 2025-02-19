@@ -61,6 +61,7 @@ exports.voiceResponse = async function voiceResponse(requestBody) {
       "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
     );
     twiml.pause({ length: 3 });
+    twiml.hangup();
   } else if (toNumberOrClientName == callerId) {
     // Route call to browser-client if it's online OR within business hours
     console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
@@ -71,6 +72,7 @@ exports.voiceResponse = async function voiceResponse(requestBody) {
       "Hello! Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon.",
     );
     twiml.pause({ length: 3 });
+    twiml.hangup();
   } else if (requestBody.To) {
     // Outgoing call logic
     let dial = twiml.dial({ callerId });
