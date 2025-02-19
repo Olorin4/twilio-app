@@ -56,19 +56,21 @@ exports.voiceResponse = async function voiceResponse(requestBody) {
     console.log(
       "🟠 [DEBUG] Client is offline & outside business hours. Playing closed message.",
     );
+    twiml.pause({ length: 1 });
     twiml.say(
       "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
     );
+    twiml.hangup();
   } else if (toNumberOrClientName == callerId) {
     // Route call to browser-client if it's online OR within business hours
     console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
     let dial = twiml.dial({ timeout: 20 });
     dial.client(identity);
-
     // **This message only plays if no one answers within 20 seconds**
     twiml.say(
       "Hello! Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon.",
     );
+    twiml.hangup();
   } else if (requestBody.To) {
     // Outgoing call logic
     let dial = twiml.dial({ callerId });
