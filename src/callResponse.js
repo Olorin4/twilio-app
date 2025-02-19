@@ -19,7 +19,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
   const currentHour = new Date().getHours(); // Get the current hour in 24-hour format
-  const businessHoursStart = 9; // Change this to your start hour
+  const businessHoursStart = 7; // Change this to your start hour
   const businessHoursEnd = 17; // Change this to your closing hour
 
   if (currentHour < businessHoursStart || currentHour >= businessHoursEnd) {
