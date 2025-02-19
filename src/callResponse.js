@@ -56,12 +56,8 @@ exports.voiceResponse = async function voiceResponse(requestBody) {
     console.log(
       "🟠 [DEBUG] Client is offline & outside business hours. Playing closed message.",
     );
-    twiml.pause({ length: 2 });
-    twiml.say(
-      "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
-    );
-    twiml.pause({ length: 3 });
-    twiml.hangup();
+    console.log("🟠 [DEBUG] Redirecting to pre-rendered TwiML file.");
+    twiml.redirect(`https://${process.env.SERVER_IP}:3001/closed.xml`);
   } else if (toNumberOrClientName == callerId) {
     // Route call to browser-client if it's online OR within business hours
     console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
