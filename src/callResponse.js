@@ -35,6 +35,10 @@ exports.voiceResponse = async function voiceResponse(requestBody) {
   let twiml = new VoiceResponse();
 
   const identity = getIdentity(); // Get the latest identity
+  if (!identity) {
+    console.error("❌ [ERROR] Identity is undefined!");
+    identity = "default_client"; // Fallback to avoid undefined identity
+  }
   console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
   const currentHour = new Date().getHours(); // Get the current hour in 24-hour format
