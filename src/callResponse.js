@@ -34,7 +34,7 @@ exports.voiceResponse = async function voiceResponse(requestBody) {
   console.log("📞 Incoming call to:", requestBody.To);
   let twiml = new VoiceResponse();
 
-  const identity = getIdentity(); // Get the latest identity
+  let identity = getIdentity(); // Get the latest identity
   if (!identity) {
     console.error("❌ [ERROR] Identity is undefined!");
     identity = "default_client"; // Fallback to avoid undefined identity
