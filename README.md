@@ -44,7 +44,7 @@ This project was originally based on [Twilio’s Quickstart Voice App](https://g
 ### 1. Clone the Repository
 
 ```sh
-git clone https://github.com/yourusername/twilio-voip-app.git
+git clone https://github.com/Olorin4/twilio-app.git
 cd twilio-voip-app
 ```
 
@@ -74,7 +74,7 @@ DB_PASSWORD=your_postgres_password
 DB_PORT=5432
 ```
 
-### 4. Set Up PostgreSQL Database
+### 4. Set Up your PostgreSQL Database
 
 Run:
 
@@ -168,7 +168,7 @@ fetch("/call-logs")
 
 ## Contributors
 
-- Nick Kalas(https://github.com/Olorin4)
+- Nick Kalas (https://github.com/Olorin4)
 
 ---
 
