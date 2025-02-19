@@ -111,6 +111,11 @@ $(function () {
     if (data) {
       token = data.token;
       device.updateToken(token); // Update the Twilio Device with the new token
+      // Ensure device is properly registered after token refresh
+      if (device) {
+        device.destroy(); // Destroy the old instance to avoid conflicts
+        initializeDevice(); // Re-initialize the device to ensure it registers again
+      }
       log("✅ Token refreshed successfully.");
     } else log("❌ Token refresh failed. Try restarting the client.");
   }
