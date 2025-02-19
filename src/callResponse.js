@@ -9,8 +9,27 @@ const { callerId, getIdentity } = require("./token");
 // if (!callerId) throw new Error("Caller ID is missing in Twilio configuration.");
 console.log("✔ Twilio credentials correctly imported into handler.js");
 
+let onlineClients = new Set(); // Stores active clients
+
+// API to update client status
+exports.updateClientStatus = function (req, res) {
+  const { identity, status } = req.body;
+  if (status === "online") {
+    onlineClients.add(identity);
+  } else {
+    onlineClients.delete(identity);
+  }
+  console.log(`🔄 Client status updated: ${identity} is ${status}`);
+  res.sendStatus(200);
+};
+
+// Function to check if a client is online
+function checkClientStatus(identity) {
+  return onlineClients.has(identity);
+}
+
 // Handle Incoming Calls
-exports.voiceResponse = function voiceResponse(requestBody) {
+exports.voiceResponse = async function voiceResponse(requestBody) {
   const toNumberOrClientName = requestBody.To;
   console.log("📞 Incoming call to:", requestBody.To);
   let twiml = new VoiceResponse();
@@ -19,20 +38,27 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
   const currentHour = new Date().getHours(); // Get the current hour in 24-hour format
-  const businessHoursStart = 9; // Change this to your start hour
-  const businessHoursEnd = 17; // Change this to your closing hour
+  const businessHoursStart = 9; // Change this to your office's opening hour
+  const businessHoursEnd = 17; // Change this to your office's closing hour
 
-  if (currentHour < businessHoursStart || currentHour >= businessHoursEnd) {
-    // If the call is outside business hours, play the closed message
-    console.log("🟠 [DEBUG] Outside business hours. Playing closed message.");
+  // Check if the Twilio client is registered & online
+  const isClientOnline = checkClientStatus(identity);
+
+  if (
+    !isClientOnline &&
+    (currentHour < businessHoursStart || currentHour >= businessHoursEnd)
+  ) {
+    // If the client is offline AND it's outside business hours, play the closed message
+    console.log(
+      "🟠 [DEBUG] Client is offline & outside business hours. Playing closed message.",
+    );
     twiml.say(
       "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
     );
   } else if (toNumberOrClientName == callerId) {
-    // Call is within business hours, attempt to connect to the client
+    // Route call to browser-client if it's online OR within business hours
     console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
     let dial = twiml.dial({ timeout: 20 });
-
     dial.client(identity);
 
     // **This message only plays if no one answers within 20 seconds**
@@ -60,4 +86,3 @@ exports.voiceResponse = function voiceResponse(requestBody) {
 function isAValidPhoneNumber(number) {
   return /^[\d\+\-\(\) ]+$/.test(number);
 }
-//

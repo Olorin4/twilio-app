@@ -5,7 +5,7 @@ the main index.js file to define the routes for the server. */
 
 const Router = require("express").Router;
 const { tokenGenerator } = require("./token");
-const { voiceResponse } = require("./callResponse");
+const { updateClientStatus, voiceResponse } = require("./callResponse");
 const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getMessageLogs } = require("./logManager");
 const { sendFax, getFaxStatus } = require("./sendFax");
@@ -16,6 +16,8 @@ console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator)
 const router = new Router();
 
 router.get("/", (req, res) => res.send("Twilio VoIP API is running!"));
+
+router.post("/client-status", updateClientStatus);
 
 // Webhook for generating an Access Token
 router.get("/token", (req, res) => {

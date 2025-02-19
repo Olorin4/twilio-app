@@ -162,6 +162,24 @@ $(function () {
     device.register();
   }
 
+  // Register the client as online
+  async function registerClientOnline(identity) {
+    try {
+      await fetch("/client-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity, status: "online" }),
+      });
+      console.log("✅ Client registered as online");
+    } catch (error) {
+      console.error("❌ Failed to update client status:", error);
+    }
+  }
+  // Call this when the browser Twilio client starts
+  Twilio.Device.on("ready", () => {
+    registerClientOnline(identity);
+  });
+
   // SETUP STEP 4:
   // Listen for Twilio.Device states
   function addDeviceListeners(device) {
