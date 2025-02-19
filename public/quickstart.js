@@ -35,33 +35,6 @@ $(function () {
   const dtmfControlsDiv = document.getElementById("dtmf-controls");
   const dtmfButtons = document.querySelectorAll(".dtmf-button");
 
-  // Notify Server When the Browser App is open or closed
-  // (function () {
-  //   console.log("✅ [DEBUG] quickstart.js is loaded!");
-
-  //   // ✅ Attach the function to `window` to make it globally accessible
-  //   window.browserClientOnline = async function (status) {
-  //     try {
-  //       await fetch("/client-status", {
-  //         method: "POST",
-  //         headers: { "Content-Type": "application/json" },
-  //         body: JSON.stringify({ connected: status }),
-  //       });
-  //       console.log(`🟢 [BROWSER] Sent client status update: ${status}`);
-  //     } catch (error) {
-  //       console.error("❌ [BROWSER] Failed to notify server:", error);
-  //     }
-  //   };
-
-  //   // ✅ Notify the server when the browser app starts
-  //   window.addEventListener("load", () => window.browserClientOnline(true));
-
-  //   // ✅ Notify the server when the browser tab is closed or minimized
-  //   window.addEventListener("beforeunload", () =>
-  //     window.browserClientOnline(false),
-  //   );
-  // })();
-
   let device;
   let token;
   let tokenRefreshInterval; // Variable to store interval reference

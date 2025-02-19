@@ -1,17 +1,18 @@
 {
-  "name": "twilio-voice-javascript-sdk-quickstart-node",
+  "name": "Twilio browser voip app",
   "private": true,
   "version": "1.0.0",
-  "description": "Quick Start application template for Twilio Voice JavaScript SDK on Node.js",
+  "description": "Twilio browser TwimL app",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "NODE_ENV=production node index.js",
+    "dev": "NODE_ENV=development node index.js",
     "eslint": "./node_modules/.bin/eslint .",
     "test": "./node_modules/.bin/jest  --passWithNoTests"
   },
   "repository": {
     "type": "git",
-    "url": "github.com/TwilioDevEd/client-quickstart-node"
+    "url": "https://github.com/Olorin4/twilio-app"
   },
   "keywords": [
     "twilio",
@@ -22,7 +23,7 @@
     "time",
     "diggity"
   ],
-  "author": "Twilio Developer Education",
+  "author": "Nick Kalas",
   "license": "MIT",
   "engines": {
     "node": ">=10.x"

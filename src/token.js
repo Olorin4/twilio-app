@@ -3,28 +3,19 @@ It also initializes the Twilio client and exports it for reuse. The tokenGenerat
 generates a new token with a unique identity and grants the necessary permission
 for voice calls. The client object is exported for use in other modules. */
 
-require("dotenv").config();
+const config = require("./config");
 const twilio = require("twilio");
 const AccessToken = require("twilio").jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
 const nameGenerator = require("../name_generator");
 
-// Load Twilio credentials from .env
-console.log("🔍 Debugging ENV Variables:");
-console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID);
-console.log("TWILIO_AUTH_TOKEN:", process.env.TWILIO_AUTH_TOKEN);
-console.log("TWILIO_TWIML_APP_SID:", process.env.TWILIO_TWIML_APP_SID);
-console.log("TWILIO_API_KEY:", process.env.TWILIO_API_KEY);
-console.log("TWILIO_API_SECRET:", process.env.TWILIO_API_SECRET);
-console.log("TWILIO_CALLER_ID:", process.env.TWILIO_CALLER_ID);
-
-// Assign values correctly
-const accountSid = process.env.TWILIO_ACCOUNT_SID || "";
-const authToken = process.env.TWILIO_AUTH_TOKEN || "";
-const appSid = process.env.TWILIO_TWIML_APP_SID || "";
-const apiKey = process.env.TWILIO_API_KEY || "";
-const apiSecret = process.env.TWILIO_API_SECRET || "";
-const callerId = process.env.TWILIO_CALLER_ID || "";
+// Import Twilio credentials from config.js
+const accountSid = config.TWILIO_ACCOUNT_SID;
+const authToken = config.TWILIO_AUTH_TOKEN;
+const appSid = config.TWILIO_TWIML_APP_SID;
+const apiKey = config.TWILIO_API_KEY;
+const apiSecret = config.TWILIO_API_SECRET;
+const callerId = config.TWILIO_CALLER_ID;
 let identity;
 
 // Ensure required variables are imported from .env

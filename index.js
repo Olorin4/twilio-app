@@ -1,5 +1,6 @@
 /* index.js is responsible for creating the Express server and running it. */
 
+const config = require("./src/config");
 const http = require("http");
 const path = require("path");
 const express = require("express");
@@ -16,8 +17,8 @@ app.use(router);
 
 // Create http server and run it
 const server = http.createServer(app);
-const port = process.env.PORT || 3001;
-server.listen(port, () => console.log("Express server running on *:" + port));
+const port = config.PORT;
+server.listen(port, () => console.log(`Express server running on *:${port}`));
 
 // Schedule Automatic Sync and Cleanup
 if (!global.cleanupScheduled) {

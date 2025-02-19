@@ -34,6 +34,7 @@ jobs:
       # Step 5: Generate .env file from GitHub Secrets
       - name: Generate .env file
         run: |
+          echo "NODE_ENV=production" >> .env
           echo "PORT=${{ secrets.PORT }}" >> .env
           echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" >> .env
           echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" >> .env

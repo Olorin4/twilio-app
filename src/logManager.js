@@ -2,18 +2,22 @@
 from Twilio
  */
 
+const config = require("./config");
 const twilio = require("twilio");
 const { accountSid, authToken } = require("./token");
 const { Pool } = require("pg");
 
 // Configure PostgreSQL connection
 const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASS,
-  port: process.env.DB_PORT,
+  user: config.DB_USER,
+  host: config.DB_HOST,
+  database: config.DB_NAME,
+  password: config.DB_PASS,
+  port: config.DB_PORT,
 });
+console.log(
+  `✅ Connected to PostgreSQL at ${config.DB_HOST}, DB: ${config.DB_NAME}`,
+);
 
 const client = twilio(accountSid, authToken);
 
@@ -156,3 +160,5 @@ exports.getMessageLogs = async (req, res) => {
 //     console.error("❌ [ERROR] Failed to delete old logs:", err.message);
 //   }
 // };
+
+module.exports = pool;
