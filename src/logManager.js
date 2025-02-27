@@ -96,11 +96,13 @@ exports.getCallLogs = async (req, res) => {
     console.log("📥 [DEBUG] Fetching call log from database...");
 
     const result = await pool.query(`
-      SELECT cl.*, d.name AS driver_name, c.name AS company_name
+      SELECT cl.*, d."fullName" AS driver_name, c.name AS company_name
       FROM call_logs cl
-      LEFT JOIN drivers d ON CAST(cl.driver_id AS INTEGER) = d.id
-      LEFT JOIN companies c ON d.company_id = c.id
-      ORDER BY cl.timestamp DESC LIMIT 10;
+      LEFT JOIN drivers d ON cl.driver_id = d.id
+      LEFT JOIN companies c ON d."companyId" = c.id
+      ORDER BY cl.timestamp DESC
+      LIMIT 10;
+
     `);
 
     res.json(result.rows);
@@ -119,11 +121,13 @@ exports.getMessageLogs = async (req, res) => {
 
     const result = await pool.query(`
       SELECT m.id, m.from_number AS "from", m.to_number, m.body, m.timestamp,
-             d.name AS driver_name, c.name AS company_name
+      d."fullName" AS driver_name, c.name AS company_name
       FROM messages m
       LEFT JOIN drivers d ON m.driver_id = d.id
-      LEFT JOIN companies c ON CAST(d.company_id AS INTEGER) = c.id
-      ORDER BY m.timestamp DESC LIMIT 10;
+      LEFT JOIN companies c ON d."companyId" = c.id
+      ORDER BY m.timestamp DESC
+      LIMIT 10;
+
     `);
 
     res.json(result.rows);
