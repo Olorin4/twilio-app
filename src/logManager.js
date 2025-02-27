@@ -97,8 +97,8 @@ exports.getCallLogs = async (req, res) => {
 
     const result = await pool.query(`
       SELECT cl.id, 
-             cl.from_number AS from_number, 
-             cl.to_number   AS to_number, 
+             cl.from_number, 
+             cl.to_number, 
              cl.timestamp,
              d.full_name AS driver_name, 
              c.name AS company_name
@@ -125,8 +125,8 @@ exports.getMessageLogs = async (req, res) => {
 
     const result = await pool.query(`
       SELECT m.id, 
-             m.from_number AS from_number, 
-             m.to_number   AS to_number, 
+             m.from_number, 
+             m.to_number, 
              m.body, 
              m.timestamp,
              d.full_name AS driver_name, 
