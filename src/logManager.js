@@ -21,7 +21,7 @@ exports.logCall = async (callData) => {
   try {
     console.log("📞 [DEBUG] Logging call:", callData);
     await pool.query(
-      `INSERT INTO call_logs (call_sid, timestamp, "from", "to", status, duration, direction)
+      `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (call_sid) DO NOTHING;`,
       [
@@ -43,12 +43,12 @@ exports.logCall = async (callData) => {
 // Fetch Call Logs from Twilio API and Store in PostgreSQL
 exports.syncCallLogs = async () => {
   try {
-    console.log("📥 Syncing database with Twilio call logs...");
+    console.log("📥 [DEBUG] Syncing database with Twilio call logs...");
     const calls = await client.calls.list({ limit: 50 });
 
     for (const call of calls) {
       await pool.query(
-        `INSERT INTO call_logs (call_sid, timestamp, "from", "to", status, duration, direction)
+        `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (call_sid) DO NOTHING;`,
         [
@@ -77,7 +77,7 @@ exports.syncSmsLogs = async () => {
 
     for (const message of messages) {
       await pool.query(
-        `INSERT INTO message_logs ("from", "to", body, timestamp)
+        `INSERT INTO message_logs (from_number, to_number, body, timestamp)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (from, to, body, timestamp) DO NOTHING;`,
         [message.from, message.to, message.body, message.dateSent],
@@ -93,12 +93,12 @@ exports.syncSmsLogs = async () => {
 // Fetch Call Logs
 exports.getCallLogs = async (req, res) => {
   try {
-    console.log("📥 [DEBUG] Fetching call log from database...");
+    console.log("📥 [DEBUG] Fetching call log from postgreSQL...");
 
     const result = await pool.query(`
       SELECT cl.id, 
-             cl."from" AS "from", 
-             cl."to"   AS "to", 
+             cl.from_number AS from_number, 
+             cl.to_number   AS to_number, 
              cl.timestamp,
              d.full_name AS driver_name, 
              c.name AS company_name
@@ -111,7 +111,7 @@ exports.getCallLogs = async (req, res) => {
 
     res.json(result.rows);
   } catch (err) {
-    console.error("❌ [ERROR] Failed to fetch call logs:", err.message);
+    console.error("❌ [ERROR] Failed to fetch call log:", err.message);
     res
       .status(500)
       .json({ error: "Failed to fetch logs", details: err.message });
@@ -121,12 +121,12 @@ exports.getCallLogs = async (req, res) => {
 // Get SMS logs
 exports.getMessageLogs = async (req, res) => {
   try {
-    console.log("📥 [DEBUG] Fetching message log from database...");
+    console.log("📥 [DEBUG] Fetching message log from postgreSQL...");
 
     const result = await pool.query(`
       SELECT m.id, 
-             m."from" AS "from", 
-             m."to"   AS "to", 
+             m.from_number AS from_number, 
+             m.to_number   AS to_number, 
              m.body, 
              m.timestamp,
              d.full_name AS driver_name, 
@@ -140,7 +140,7 @@ exports.getMessageLogs = async (req, res) => {
 
     res.json(result.rows);
   } catch (err) {
-    console.error("❌ [ERROR] Failed to fetch messages:", err.message);
+    console.error("❌ [ERROR] Failed to fetch message log:", err.message);
     res
       .status(500)
       .json({ error: "Failed to fetch messages", details: err.message });
