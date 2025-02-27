@@ -21,8 +21,8 @@ exports.logCall = async (callData) => {
   try {
     console.log("📞 [DEBUG] Logging call:", callData);
     await pool.query(
-      `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, driver_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
+      `INSERT INTO call_logs (call_sid, timestamp, "from", "to", status, duration, direction)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (call_sid) DO NOTHING;`,
       [
         callData.CallSid,
@@ -48,8 +48,8 @@ exports.syncCallLogs = async () => {
 
     for (const call of calls) {
       await pool.query(
-        `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, driver_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
+        `INSERT INTO call_logs (call_sid, timestamp, "from", "to", status, duration, direction)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (call_sid) DO NOTHING;`,
         [
           call.sid,
@@ -72,14 +72,14 @@ exports.syncCallLogs = async () => {
 // Fetch SMS Logs from Twilio API and Store in PostgreSQL
 exports.syncSmsLogs = async () => {
   try {
-    console.log("📥 [DEBUG] Syncing database with Twilio sms logs..");
+    console.log("📥 [DEBUG] Syncing database with Twilio sms logs...");
     const messages = await client.messages.list({ limit: 50 });
 
     for (const message of messages) {
       await pool.query(
-        `INSERT INTO messages (from_number, to_number, body, timestamp, driver_id)
-         VALUES ($1, $2, $3, $4, NULL)
-         ON CONFLICT (from_number, to_number, body, timestamp) DO NOTHING;`,
+        `INSERT INTO message_logs ("from", "to", body, timestamp)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (from, to, body, timestamp) DO NOTHING;`,
         [message.from, message.to, message.body, message.dateSent],
       );
     }
@@ -96,13 +96,17 @@ exports.getCallLogs = async (req, res) => {
     console.log("📥 [DEBUG] Fetching call log from database...");
 
     const result = await pool.query(`
-      SELECT cl.*, d."fullName" AS driver_name, c.name AS company_name
+      SELECT cl.id, 
+             cl."from" AS "from", 
+             cl."to"   AS "to", 
+             cl.timestamp,
+             d.full_name AS driver_name, 
+             c.name AS company_name
       FROM call_logs cl
       LEFT JOIN drivers d ON cl.driver_id = d.id
-      LEFT JOIN companies c ON d."companyId" = c.id
+      LEFT JOIN companies c ON d.company_id = c.id
       ORDER BY cl.timestamp DESC
       LIMIT 10;
-
     `);
 
     res.json(result.rows);
@@ -120,14 +124,18 @@ exports.getMessageLogs = async (req, res) => {
     console.log("📥 [DEBUG] Fetching message log from database...");
 
     const result = await pool.query(`
-      SELECT m.id, m.from_number AS "from", m.to_number, m.body, m.timestamp,
-      d."fullName" AS driver_name, c.name AS company_name
-      FROM messages m
+      SELECT m.id, 
+             m."from" AS "from", 
+             m."to"   AS "to", 
+             m.body, 
+             m.timestamp,
+             d.full_name AS driver_name, 
+             c.name AS company_name
+      FROM message_logs m
       LEFT JOIN drivers d ON m.driver_id = d.id
-      LEFT JOIN companies c ON d."companyId" = c.id
+      LEFT JOIN companies c ON d.company_id = c.id
       ORDER BY m.timestamp DESC
       LIMIT 10;
-
     `);
 
     res.json(result.rows);
