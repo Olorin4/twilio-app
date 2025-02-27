@@ -79,7 +79,7 @@ exports.syncSmsLogs = async () => {
       await pool.query(
         `INSERT INTO message_logs (from_number, to_number, body, timestamp)
          VALUES ($1, $2, $3, $4)
-         ON CONFLICT (from, to, body, timestamp) DO NOTHING;`,
+         ON CONFLICT (from_number, to_number, body, timestamp) DO NOTHING;`,
         [message.from, message.to, message.body, message.dateSent],
       );
     }
