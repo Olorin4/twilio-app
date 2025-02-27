@@ -292,7 +292,7 @@ $(function () {
 
   async function fetchIncomingCalls() {
     try {
-      const response = await fetch("/call-logs", { redirect: "follow" });
+      const response = await fetch("/call-logs");
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -320,7 +320,7 @@ $(function () {
 
   async function fetchIncomingMessages() {
     try {
-      const response = await fetch("/message-logs", { redirect: "follow" });
+      const response = await fetch("/message-logs");
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -330,7 +330,7 @@ $(function () {
       smsLog.innerHTML = "";
 
       messages.forEach((message) => {
-        const fromNumber = message.from || "Unknown";
+        const fromNumber = message.from_number || "Unknown";
         const messageBody = message.body || "[No content]";
         const timestamp = new Date(message.timestamp).toLocaleString();
 
