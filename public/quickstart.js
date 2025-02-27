@@ -332,7 +332,7 @@ $(function () {
       messages.forEach((message) => {
         const fromNumber = message.from || "Unknown";
         const messageBody = message.body || "[No content]";
-        const timestamp = new Date(message.timestamp).toLocaleString(); // ✅ Convert timestamp to readable format
+        const timestamp = new Date(message.timestamp).toLocaleString();
 
         const li = document.createElement("li");
         li.textContent = `Date: ${timestamp}, From: ${fromNumber}, Message: ${messageBody}`;
