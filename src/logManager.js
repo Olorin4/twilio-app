@@ -103,8 +103,8 @@ exports.getCallLogs = async (req, res) => {
              d.full_name AS driver_name, 
              c.name AS company_name
       FROM call_logs cl
-      LEFT JOIN drivers d ON cl.driver_id = d.id
-      LEFT JOIN companies c ON d.company_id = c.id
+      LEFT JOIN driver d ON cl.driver_id = d.id
+      LEFT JOIN company c ON d.company_id = c.id
       ORDER BY cl.timestamp DESC
       LIMIT 10;
     `);
@@ -132,8 +132,8 @@ exports.getMessageLogs = async (req, res) => {
              d.full_name AS driver_name, 
              c.name AS company_name
       FROM message_logs m
-      LEFT JOIN drivers d ON m.driver_id = d.id
-      LEFT JOIN companies c ON d.company_id = c.id
+      LEFT JOIN driver d ON m.driver_id = d.id
+      LEFT JOIN company c ON d.company_id = c.id
       ORDER BY m.timestamp DESC
       LIMIT 10;
     `);
