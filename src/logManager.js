@@ -100,7 +100,8 @@ exports.getCallLogs = async (req, res) => {
              cl.from_number, 
              cl.to_number, 
              cl.timestamp,
-             d.full_name AS driver_name, 
+             d.first_name AS driver_first_name, 
+             d.last_name AS driver_last_name, 
              c.name AS company_name
       FROM call_logs cl
       LEFT JOIN driver d ON cl.driver_id = d.id
@@ -129,7 +130,8 @@ exports.getMessageLogs = async (req, res) => {
              m.to_number, 
              m.body, 
              m.timestamp,
-             d.full_name AS driver_name, 
+             d.first_name AS driver_first_name, 
+             d.last_name AS driver_last_name,  
              c.name AS company_name
       FROM message_logs m
       LEFT JOIN driver d ON m.driver_id = d.id
