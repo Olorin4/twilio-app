@@ -1,4 +1,4 @@
-/* index.js is responsible for creating the Express server and running it. */
+/* main.jsx is responsible for creating the Express server and running it. */
 
 const http = require("http");
 const path = require("path");
@@ -6,6 +6,12 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const router = require("./src/router");
 const { syncCallLogs, syncSmsLogs } = require("./src/logManager");
+const dotenv = require('dotenv');
+const envFile = process.env.NODE_ENV === 'development' ? '.env.local' : '.env';
+dotenv.config({ path: envFile });
+console.log("✅ Loaded env file:", envFile);
+console.log("✅ DB_USER:", process.env.DB_USER);
+
 
 // Create Express webapp
 const app = express();
