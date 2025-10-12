@@ -72,10 +72,6 @@ jobs:
 
           echo "🚀 Installing dependencies and restarting PM2..."
           ssh nick-kalas@$SERVER_IP << 'EOF'
-            # --- Diagnostic Step ---
-            echo "🔍 Diagnosing DNS resolution..."
-            nslookup ${{ secrets.DB_HOST }}
-            # --- End Diagnostic Step ---
 
             # Source nvm and use the correct node version
             export NVM_DIR="$HOME/.nvm"
