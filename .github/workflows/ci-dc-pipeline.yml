@@ -54,27 +54,36 @@ jobs:
           echo "EMAIL_PORT=${{ secrets.EMAIL_PORT }}" >> .env
 
       # Step 6: Deploy to Server (test)
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_AWS_SERVER_KEY }}
+
       - name: Deploy to Server
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_HETZNER_SERVER_KEY }}
           SERVER_IP: ${{ secrets.SERVER_IP }}
         run: |
-          echo "$SSH_PRIVATE_KEY" > private_key.pem
-          chmod 600 private_key.pem
+          # Add server to known hosts
+          ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts
 
           echo "🚀 Transferring files to the server using rsync..."
-          rsync -avz --exclude='node_modules' --exclude='.git' --exclude='.github' --exclude='logs' -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" ./ NickKalas@$SERVER_IP:/var/www/twilio-voip
+          rsync -avz --exclude='node_modules' --exclude='.git' --exclude='.github' --exclude='logs' ./ nick-kalas@$SERVER_IP:/home/nick-kalas/apps/twilio-voip
 
           echo "🚀 Installing dependencies and restarting PM2..."
-          ssh -i private_key.pem -o StrictHostKeyChecking=no NickKalas@$SERVER_IP << 'EOF'
-            cd /var/www/twilio-voip
-            if [ -f package-lock.json ]; then
-              echo "🚀 package-lock.json exists, checking for updates..."
-              npm install --omit=dev
-            else
-              echo "✅ No dependency changes detected, skipping npm install."
-            fi
+          ssh nick-kalas@$SERVER_IP << 'EOF'
+            # Source nvm and use the correct node version
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            nvm use
+
+            cd /home/nick-kalas/apps/twilio-voip
+            
+            echo "🚀 Installing dependencies..."
+            npm install --omit=dev
+
+            echo "🚀 Restarting PM2 application..."
             pm2 restart twilio-voip || pm2 start index.js --name twilio-voip
             pm2 save
+            
             echo "✅ Deployment completed successfully."
           EOF

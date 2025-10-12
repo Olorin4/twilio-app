@@ -63,11 +63,11 @@ jobs:
           chmod 600 private_key.pem
 
           echo "🚀 Transferring files to the server using rsync..."
-          rsync -avz --exclude='node_modules' --exclude='.git' --exclude='.github' --exclude='tests' --exclude='logs' -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" ./ nick-kalas@$SERVER_IP:/var/www/twilio-voip
+          rsync -avz --exclude='node_modules' --exclude='.git' --exclude='.github' --exclude='tests' --exclude='logs' -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" ./ nick-kalas@$SERVER_IP:/home/nick-kalas/apps/twilio-voip
 
           echo "🚀 Installing dependencies and restarting PM2..."
           ssh -i private_key.pem -o StrictHostKeyChecking=no nick-kalas@$SERVER_IP << 'EOF'
-            cd /var/www/twilio-voip
+            cd /home/nick-kalas/apps/twilio-voip
             if [ -f package-lock.json ]; then
               echo "🚀 package-lock.json exists, checking for updates..."
               npm install --omit=dev
