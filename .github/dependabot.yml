@@ -56,17 +56,17 @@ jobs:
       # Step 6: Deploy to Server (test)
       - name: Deploy to Server
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_HETZNER_SERVER_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_AWS_SERVER_KEY }}
           SERVER_IP: ${{ secrets.SERVER_IP }}
         run: |
           echo "$SSH_PRIVATE_KEY" > private_key.pem
           chmod 600 private_key.pem
 
           echo "🚀 Transferring files to the server using rsync..."
-          rsync -avz --exclude='node_modules' --exclude='.git' --exclude='.github' --exclude='logs' -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" ./ NickKalas@$SERVER_IP:/var/www/twilio-voip
+          rsync -avz --exclude='node_modules' --exclude='.git' --exclude='.github' --exclude='tests' --exclude='logs' -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" ./ nick-kalas@$SERVER_IP:/var/www/twilio-voip
 
           echo "🚀 Installing dependencies and restarting PM2..."
-          ssh -i private_key.pem -o StrictHostKeyChecking=no NickKalas@$SERVER_IP << 'EOF'
+          ssh -i private_key.pem -o StrictHostKeyChecking=no nick-kalas@$SERVER_IP << 'EOF'
             cd /var/www/twilio-voip
             if [ -f package-lock.json ]; then
               echo "🚀 package-lock.json exists, checking for updates..."
