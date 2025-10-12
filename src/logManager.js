@@ -9,6 +9,7 @@ const { Pool } = require("pg");
 // Configure PostgreSQL connection
 const pool = new Pool({
   connectionString: process.env.DB_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
 const client = twilio(accountSid, authToken);
