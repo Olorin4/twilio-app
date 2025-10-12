@@ -79,6 +79,7 @@ jobs:
             npm install --omit=dev
 
             echo "🚀 Restarting PM2 application..."
+            export NODE_TLS_REJECT_UNAUTHORIZED=0
             pm2 restart twilio-voip || pm2 start index.js --name twilio-voip
             pm2 save
             
