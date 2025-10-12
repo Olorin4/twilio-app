@@ -42,6 +42,7 @@ jobs:
           echo "TWILIO_CALLER_ID=${{ secrets.TWILIO_CALLER_ID }}" >> .env
           echo "TWILIO_API_KEY=${{ secrets.TWILIO_API_KEY }}" >> .env
           echo "TWILIO_API_SECRET=${{ secrets.TWILIO_API_SECRET }}" >> .env
+          echo "DB_URL=${{ secrets.DB_URL }}" >> .env
           echo "DB_NAME=${{ secrets.DB_NAME }}" >> .env
           echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
           echo "DB_USER=${{ secrets.DB_USER }}" >> .env
