@@ -23,7 +23,7 @@ This project was originally based on [Twilio’s Quickstart Voice App](https://g
 
 > 💡 **What I Learned**: Working on this project deepened my knowledge of **Twilio APIs, Express.js, PostgreSQL, and real-time event handling.**
 
-----
+---
 
 ## Tech Stack
 

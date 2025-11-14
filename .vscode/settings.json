@@ -1,3 +1,4 @@
 {
-  "cSpell.ignoreWords": ["twiml"]
+  "cSpell.ignoreWords": ["twiml"],
+  "editor.formatOnSave": true
 }

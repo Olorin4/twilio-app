@@ -4,10 +4,13 @@
   "version": "1.0.0",
   "description": "Quick Start application template for Twilio Voice JavaScript SDK on Node.js",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js",
     "eslint": "./node_modules/.bin/eslint .",
-    "test": "./node_modules/.bin/jest  --passWithNoTests"
+    "test": "./node_modules/.bin/jest  --passWithNoTests",
+    "lint": "npm run eslint",
+    "format": "prettier --write ."
   },
   "repository": {
     "type": "git",
