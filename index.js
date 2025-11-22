@@ -4,8 +4,8 @@ import http from "http";
 import path from "path";
 import express from "express";
 import bodyParser from "body-parser";
-import router from "./src/router";
-import { syncCallLogs, syncSmsLogs } from "./src/logManager";
+import router from "./src/router.js";
+import { syncCallLogs, syncSmsLogs } from "./src/logManager.js";
 
 // Create Express webapp
 const app = express();
