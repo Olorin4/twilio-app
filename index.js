@@ -21,9 +21,9 @@ server.listen(port, () => console.log("Express server running on *:" + port));
 
 // Schedule Automatic Sync and Cleanup
 if (!global.cleanupScheduled) {
-  global.cleanupScheduled = true; // Prevent multiple intervals
-  setInterval(syncCallLogs, 60 * 60 * 1000);
-  setInterval(syncSmsLogs, 60 * 60 * 1000);
-  // setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
-  console.log("🔄 Auto-sync for calls & messages scheduled.");
+    global.cleanupScheduled = true; // Prevent multiple intervals
+    setInterval(syncCallLogs, 4 * 59 * 1000);
+    setInterval(syncSmsLogs, 4 * 59 * 1000);
+    // setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
+    console.log("🔄 Auto-sync for calls & messages scheduled.");
 }
