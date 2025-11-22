@@ -1,11 +1,11 @@
 /* index.js is responsible for creating the Express server and running it. */
 
-const http = require("http");
-const path = require("path");
-const express = require("express");
-const bodyParser = require("body-parser");
-const router = require("./src/router");
-const { syncCallLogs, syncSmsLogs } = require("./src/logManager");
+import http from "http";
+import path from "path";
+import express from "express";
+import bodyParser from "body-parser";
+import router from "./src/router";
+import { syncCallLogs, syncSmsLogs } from "./src/logManager";
 
 // Create Express webapp
 const app = express();
