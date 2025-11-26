@@ -19,7 +19,7 @@ const server = http.createServer(app);
 const port = process.env.PORT || 3001;
 server.listen(port, () => console.log("Express server running on *:" + port));
 
-// Schedule Automatic Sync and Cleanup
+// Schedule Automatic Sync and Cleanup:
 if (!global.cleanupScheduled) {
     global.cleanupScheduled = true; // Prevent multiple intervals
     setInterval(syncCallLogs, 4 * 59 * 1000);
