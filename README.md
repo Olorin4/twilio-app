@@ -1,6 +1,6 @@
 # Twilio VoIP App
 
-A browser-based VoIP application using Twilio, Express, PostgreSQL, and Node.js.  
+A browser-based VoIP application using Twilio, Express, PostgreSQL and Node.js.  
 This app logs incoming/outgoing calls and messages, provides a real-time call log, and integrates Twilio Webhooks.
 
 ---
