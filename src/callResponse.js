@@ -58,6 +58,6 @@ exports.voiceResponse = function voiceResponse(requestBody) {
  * @return {Boolean}
  */
 function isAValidPhoneNumber(number) {
-  return /^[\d\+\-\(\) ]+$/.test(number);
+  return /^[\d()+ -]+$/.test(number);
 }
 //

@@ -1,7 +1,23 @@
-version: "3.8"
+name: twilio-app
+
+# twilio.iron-wing-dispatching.com — joins the shared `edge` network so the
+# containerized nginx edge reaches it by service name (http://twilio-app:3001).
+# No host ports: only the edge talks to it. Create .env on the box first
+# (TWILIO_* creds, DB_*, EMAIL_*).
 services:
-  app:
-    restart: always
-    build: .
-    ports:
-      - "3000:3000"
+    app:
+        build: .
+        image: twilio-app:latest
+        container_name: twilio-app
+        restart: unless-stopped
+        environment:
+            NODE_ENV: production
+            PORT: 3001
+        env_file:
+            - .env
+        networks:
+            - edge
+
+networks:
+    edge:
+        external: true
