@@ -1,5 +1,7 @@
 const { client, callerId } = require("./token");
 const pool = require("./db");
+const { publish } = require("./messageEvents");
+const { saveStatus } = require("./conversations");
 
 async function sendSms(req, res) {
   if (!req.is("application/json")) {
@@ -10,12 +12,10 @@ async function sendSms(req, res) {
     typeof to !== "string" ||
     !/^\+[1-9]\d{1,14}$/.test(to.replace(/[ ()-]/g, ""))
   ) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Enter a valid phone number with country code, such as +15551234567.",
-      });
+    return res.status(400).json({
+      error:
+        "Enter a valid phone number with country code, such as +15551234567.",
+    });
   }
   if (typeof body !== "string" || !body.trim() || body.length > 1600) {
     return res
@@ -28,17 +28,22 @@ async function sendSms(req, res) {
       from: callerId,
       to: to.replace(/[ ()-]/g, ""),
       body,
+      ...(process.env.TWILIO_WEBHOOK_BASE_URL
+        ? {
+            statusCallback:
+              process.env.TWILIO_WEBHOOK_BASE_URL.replace(/\/$/, "") +
+              "/sms-status",
+          }
+        : {}),
     });
   } catch (error) {
     console.error("SMS send failed:", error.code || error.message);
-    return res
-      .status(502)
-      .json({
-        error:
-          error.status >= 400 && error.status < 500 && error.code
-            ? `Twilio rejected the message (error ${error.code}).`
-            : "Could not confirm whether Twilio accepted the message. Check Twilio before retrying.",
-      });
+    return res.status(502).json({
+      error:
+        error.status >= 400 && error.status < 500 && error.code
+          ? `Twilio rejected the message (error ${error.code}).`
+          : "Could not confirm whether Twilio accepted the message. Check Twilio before retrying.",
+    });
   }
   let saved = true;
   try {
@@ -50,6 +55,14 @@ async function sendSms(req, res) {
   } catch (error) {
     saved = false;
     console.error("Accepted SMS could not be saved:", error.message);
+  }
+  if (saved) publish();
+  if (message.status) {
+    try {
+      await saveStatus(message.sid, message.status);
+    } catch (error) {
+      console.error("SMS status could not be saved:", error.message);
+    }
   }
   return res
     .status(202)

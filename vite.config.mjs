@@ -5,9 +5,16 @@ export default defineConfig({
   build: { outDir: "../dist", emptyOutDir: true },
   server: {
     proxy: Object.fromEntries(
-      ["/token", "/call-logs", "/message-logs", "/contacts", "/messages"].map(
-        (route) => [route, "http://localhost:3001"],
-      ),
+      [
+        "/token",
+        "/call-logs",
+        "/message-logs",
+        "/message-events",
+        "/conversations",
+        "/conversation",
+        "/contacts",
+        "/messages",
+      ].map((route) => [route, "http://localhost:3001"]),
     ),
   },
 });

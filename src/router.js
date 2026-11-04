@@ -12,6 +12,8 @@ const { sendFax, getFaxStatus } = require("./sendFax");
 const { validateWebhook } = require("./security");
 const contactsRouter = require("./contacts");
 const { sendSms } = require("./sendSms");
+const conversations = require("./conversations");
+const { stream } = require("./messageEvents");
 
 // Debugging
 console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
@@ -58,6 +60,10 @@ router.post("/sms", validateWebhook, smsResponse);
 // Webhook for fetching latest message logs from database
 router.get("/message-logs", getMessageLogs);
 router.post("/messages", sendSms);
+router.post("/sms-status", validateWebhook, conversations.statusCallback);
+router.get("/message-events", stream);
+router.get("/conversations", conversations.list);
+router.get("/conversation", conversations.thread);
 
 // Webhook for sending a fax
 router.post("/fax", sendFax);

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useVoice } from "./useVoice";
 import Contacts from "./Contacts";
+import Conversations from "./Conversations";
 import "./styles.css";
 
 const keypad = [
@@ -808,139 +809,148 @@ function App() {
                     />
                   </div>
                 </div>
-                {loadError && (
-                  <div className="list-notice" role="alert">
-                    {loadError} <button onClick={refresh}>Retry</button>
-                  </div>
-                )}
-                {loading ? (
-                  <div className="empty">Loading activity…</div>
-                ) : !filtered.length ? (
-                  <div className="empty">
-                    <div className="empty-icon">
-                      {view === "calls" ? (
-                        <Phone size={23} />
-                      ) : (
-                        <MessageSquare size={23} />
-                      )}
-                    </div>
-                    <strong>
-                      {search
-                        ? "No matching activity"
-                        : view === "calls"
-                          ? "No calls yet"
-                          : "No messages yet"}
-                    </strong>
-                    <span>
-                      {search
-                        ? "Try a different search."
-                        : view === "calls"
-                          ? "Your recent calls will appear here."
-                          : "Your messages will appear here."}
-                    </span>
-                  </div>
+                {view === "messages" ? (
+                  <Conversations contacts={contacts} search={search} />
                 ) : (
-                  <div className="activity-list">
-                    {filtered.map((row, index) => {
-                      const phone = activityNumber(row, view);
-                      const contact = contactFor(phone);
-                      const name = contact?.name || phone || "Unknown number";
-                      return (
-                        <div className="activity-row" key={row.id ?? index}>
-                          <div
-                            className={`avatar ${contact ? "avatar-contact" : "avatar-unknown"}`}
-                          >
-                            {contact ? (
-                              contact.name.trim().charAt(0).toUpperCase()
-                            ) : (
-                              <UserRound
-                                size={20}
-                                aria-label="Unknown contact"
-                              />
-                            )}
-                          </div>
-                          <div className="row-main">
-                            <strong>{name}</strong>
-                            <span>
-                              {view === "calls" ? (
-                                <>
-                                  <ArrowDownLeft size={13} />{" "}
-                                  {phone || "Unknown"}
-                                  {row.company_name
-                                    ? ` · ${row.company_name}`
-                                    : ""}
-                                </>
-                              ) : (
-                                <>
-                                  {row.outgoing ? "Sent · " : "Received · "}
-                                  {row.body || "[No message content]"}
-                                </>
-                              )}
-                            </span>
-                          </div>
-                          <div className="row-end">
-                            <div className="activity-meta">
-                              <time>{formatActivityDate(row.timestamp)}</time>
-                              {view === "calls" && (
-                                <span>{formatDuration(row.duration)}</span>
-                              )}
-                            </div>
-                            {view === "calls" && phone && (
-                              <button
-                                className="quick-call"
-                                aria-label={`Dial ${phone}`}
-                                onClick={() => {
-                                  setNumber(phone);
-                                  setView("calls");
-                                }}
-                              >
-                                <Phone size={15} />
-                              </button>
-                            )}
-                          </div>
+                  <>
+                    {loadError && (
+                      <div className="list-notice" role="alert">
+                        {loadError} <button onClick={refresh}>Retry</button>
+                      </div>
+                    )}
+                    {loading ? (
+                      <div className="empty">Loading activity…</div>
+                    ) : !filtered.length ? (
+                      <div className="empty">
+                        <div className="empty-icon">
+                          {view === "calls" ? (
+                            <Phone size={23} />
+                          ) : (
+                            <MessageSquare size={23} />
+                          )}
                         </div>
-                      );
-                    })}
-                  </div>
+                        <strong>
+                          {search
+                            ? "No matching activity"
+                            : view === "calls"
+                              ? "No calls yet"
+                              : "No messages yet"}
+                        </strong>
+                        <span>
+                          {search
+                            ? "Try a different search."
+                            : view === "calls"
+                              ? "Your recent calls will appear here."
+                              : "Your messages will appear here."}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="activity-list">
+                        {filtered.map((row, index) => {
+                          const phone = activityNumber(row, view);
+                          const contact = contactFor(phone);
+                          const name =
+                            contact?.name || phone || "Unknown number";
+                          return (
+                            <div className="activity-row" key={row.id ?? index}>
+                              <div
+                                className={`avatar ${contact ? "avatar-contact" : "avatar-unknown"}`}
+                              >
+                                {contact ? (
+                                  contact.name.trim().charAt(0).toUpperCase()
+                                ) : (
+                                  <UserRound
+                                    size={20}
+                                    aria-label="Unknown contact"
+                                  />
+                                )}
+                              </div>
+                              <div className="row-main">
+                                <strong>{name}</strong>
+                                <span>
+                                  {view === "calls" ? (
+                                    <>
+                                      <ArrowDownLeft size={13} />{" "}
+                                      {phone || "Unknown"}
+                                      {row.company_name
+                                        ? ` · ${row.company_name}`
+                                        : ""}
+                                    </>
+                                  ) : (
+                                    <>
+                                      {row.outgoing ? "Sent · " : "Received · "}
+                                      {row.body || "[No message content]"}
+                                    </>
+                                  )}
+                                </span>
+                              </div>
+                              <div className="row-end">
+                                <div className="activity-meta">
+                                  <time>
+                                    {formatActivityDate(row.timestamp)}
+                                  </time>
+                                  {view === "calls" && (
+                                    <span>{formatDuration(row.duration)}</span>
+                                  )}
+                                </div>
+                                {view === "calls" && phone && (
+                                  <button
+                                    className="quick-call"
+                                    aria-label={`Dial ${phone}`}
+                                    onClick={() => {
+                                      setNumber(phone);
+                                      setView("calls");
+                                    }}
+                                  >
+                                    <Phone size={15} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <nav
+                      className="activity-pagination"
+                      aria-label="History pagination"
+                    >
+                      <label className="page-size">
+                        Rows per page
+                        <select
+                          value={pageSize}
+                          onChange={(event) => {
+                            setPage(1);
+                            setPageSize(Number(event.target.value));
+                          }}
+                        >
+                          {[10, 20, 50].map((size) => (
+                            <option key={size} value={size}>
+                              {size}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <span>Page {page}</span>
+                      <div className="page-navigation">
+                        <button
+                          className="button button-light"
+                          disabled={page === 1 || loading}
+                          onClick={() => setPage((current) => current - 1)}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          className="button button-light"
+                          disabled={!hasMore[view] || loading}
+                          onClick={() => setPage((current) => current + 1)}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </nav>
+                  </>
                 )}
-                <nav
-                  className="activity-pagination"
-                  aria-label="History pagination"
-                >
-                  <label className="page-size">
-                    Rows per page
-                    <select
-                      value={pageSize}
-                      onChange={(event) => {
-                        setPage(1);
-                        setPageSize(Number(event.target.value));
-                      }}
-                    >
-                      {[10, 20, 50].map((size) => (
-                        <option key={size} value={size}>
-                          {size}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <span>Page {page}</span>
-                  <div className="page-navigation">
-                    <button
-                      className="button button-light"
-                      disabled={page === 1 || loading}
-                      onClick={() => setPage((current) => current - 1)}
-                    >
-                      Previous
-                    </button>
-                    <button
-                      className="button button-light"
-                      disabled={!hasMore[view] || loading}
-                      onClick={() => setPage((current) => current + 1)}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </nav>
               </section>
             )}
           </div>

@@ -1419,3 +1419,106 @@ h1 {
     width: 120px;
   }
 }
+.conversation-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: white;
+  border: 0;
+  border-bottom: 1px solid #edf1eb;
+  padding: 15px 28px;
+  cursor: pointer;
+}
+.conversation-row:hover {
+  background: #f7faf6;
+}
+.conversation-row time {
+  white-space: nowrap;
+  color: #728579;
+  font-size: 10px;
+}
+.thread {
+  display: flex;
+  flex-direction: column;
+  min-height: 450px;
+}
+.thread-heading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid #edf1eb;
+  padding: 14px 20px;
+  font-size: 13px;
+}
+.thread-heading span {
+  display: block;
+  color: #849488;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.thread-messages {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding: 20px 24px;
+  flex: 1;
+}
+.bubble {
+  max-width: 80%;
+  border-radius: 12px;
+  padding: 10px 13px;
+  background: #f0f3ef;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubble.outgoing {
+  align-self: flex-end;
+  background: #e4f1e1;
+}
+.bubble small {
+  display: block;
+  color: #728579;
+  font-size: 10px;
+  margin-top: 7px;
+}
+.thread-compose {
+  border-top: 1px solid #edf1eb;
+  padding: 15px 20px;
+}
+.thread-compose label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #617467;
+}
+.thread-compose textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px;
+  margin-top: 7px;
+  border: 1px solid #dfe7dd;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+}
+.thread-compose > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.thread-compose small,
+.thread-compose p {
+  color: #718475;
+  font-size: 11px;
+}
+.thread-compose p {
+  margin-top: 8px;
+}

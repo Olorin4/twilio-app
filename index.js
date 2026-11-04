@@ -13,7 +13,7 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use((req, res, next) => {
-    if (req.method === "POST" && (req.path === "/voice" || req.path === "/sms")) return next();
+    if (req.method === "POST" && (req.path === "/voice" || req.path === "/sms" || req.path === "/sms-status")) return next();
     return requireLogin(req, res, next);
 });
 app.use(express.static(path.join(__dirname, "dist")));

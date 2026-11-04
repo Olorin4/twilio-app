@@ -5,6 +5,7 @@ from Twilio
 const twilio = require("twilio");
 const { accountSid, authToken } = require("./token");
 const pool = require("./db");
+const { publish } = require("./messageEvents");
 
 const client = twilio(accountSid, authToken);
 
@@ -15,6 +16,7 @@ exports.logMessage = async (message) => {
      ON CONFLICT (message_sid) DO NOTHING;`,
     [message.MessageSid, message.From, message.To, message.Body, new Date()],
   );
+  publish();
 };
 
 exports.logCall = async (callData) => {

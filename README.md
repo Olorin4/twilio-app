@@ -199,3 +199,9 @@ fetch("/call-logs")
 This project is licensed under the MIT License.
 
 ---
+
+### SMS conversations
+
+Run `npm run migrate:message-delivery` against the intended database before starting this version. This creates a separate delivery-status table and is safe to rerun. Set `TWILIO_WEBHOOK_BASE_URL` to the public app origin and configure the inbound SMS webhook to POST to `/sms`. Outbound messages include `/sms-status` as their Twilio status callback; both webhooks validate Twilio signatures. The signed-in browser listens on `/message-events` and refreshes conversations on reconnect. Configure the reverse proxy to allow streaming and disable response buffering for that route.
+
+Set `TWILIO_PREVIOUS_NUMBERS` to a comma-separated list of former Twilio numbers (E.164 format) to include their messages in conversations. Messages that do not involve a configured number are not assigned to a conversation. Existing messages have no delivery status unless a callback is received.
