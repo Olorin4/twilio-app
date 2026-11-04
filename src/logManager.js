@@ -14,6 +14,15 @@ const pool = new Pool({
 
 const client = twilio(accountSid, authToken);
 
+exports.logMessage = async (message) => {
+  await pool.query(
+    `INSERT INTO message_logs (message_sid, from_number, to_number, body, timestamp)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (message_sid) DO NOTHING;`,
+    [message.MessageSid, message.From, message.To, message.Body, new Date()],
+  );
+};
+
 exports.logCall = async (callData) => {
   try {
     console.log("📞 [DEBUG] Logging call:", callData);

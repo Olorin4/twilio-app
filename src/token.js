@@ -46,7 +46,7 @@ const client = twilio(accountSid, authToken);
 
 // Generate Twilio Token for Browser client
 function tokenGenerator() {
-  identity = process.env.TWILIO_IDENTITY || nameGenerator();
+  identity = process.env.TWILIO_IDENTITY || identity || nameGenerator();
   if (!identity) {
     throw new Error("❌ [ERROR] identity is undefined in tokenGenerator()");
   }
@@ -77,5 +77,5 @@ module.exports = {
   callerId,
   client,
   tokenGenerator,
-  getIdentity: () => identity,
+  getIdentity: () => identity || process.env.TWILIO_IDENTITY,
 };

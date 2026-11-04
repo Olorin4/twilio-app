@@ -9,6 +9,7 @@ const { voiceResponse } = require("./callResponse");
 const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getMessageLogs } = require("./logManager");
 const { sendFax, getFaxStatus } = require("./sendFax");
+const { validateWebhook } = require("./security");
 
 // Debugging
 console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
@@ -30,7 +31,7 @@ router.get("/token", (req, res) => {
 });
 
 // Webhook for handling voice calls
-router.post("/voice", (req, res) => {
+router.post("/voice", validateWebhook, (req, res) => {
   try {
     console.log("📞 Received call webhook event:", req.body);
     logCall(req.body);
@@ -48,7 +49,7 @@ router.post("/voice", (req, res) => {
 router.get("/call-logs", getCallLogs);
 
 // Webhook for handling incoming sms
-router.post("/sms", smsResponse);
+router.post("/sms", validateWebhook, smsResponse);
 
 // Webhook for fetching latest message logs from database
 router.get("/message-logs", getMessageLogs);

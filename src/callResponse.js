@@ -18,11 +18,15 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   const identity = getIdentity(); // Get the latest identity
   console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
-  const currentHour = new Date().getHours(); // Get the current hour in 24-hour format
-  const businessHoursStart = 7; // Change this to your start hour
-  const businessHoursEnd = 17; // Change this to your closing hour
+  const currentHour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    hourCycle: "h23",
+  }).format(new Date()));
+  const businessHoursStart = 7;
+  const businessHoursEnd = 18;
 
-  if (currentHour < businessHoursStart || currentHour >= businessHoursEnd) {
+  if (toNumberOrClientName == callerId && (currentHour < businessHoursStart || currentHour >= businessHoursEnd)) {
     // If the call is outside business hours, play the closed message
     console.log("🟠 [DEBUG] Outside business hours. Playing closed message.");
     twiml.say(
@@ -31,9 +35,10 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   } else if (toNumberOrClientName == callerId) {
     // Call is within business hours, attempt to connect to the client
     console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
-    let dial = twiml.dial({ timeout: 20 });
-
-    dial.client(identity);
+    if (identity) {
+      let dial = twiml.dial({ timeout: 20 });
+      dial.client(identity);
+    }
 
     // **This message only plays if no one answers within 20 seconds**
     twiml.say(

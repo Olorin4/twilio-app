@@ -3,6 +3,11 @@
 A browser-based VoIP application using Twilio, Express, PostgreSQL, and Node.js.  
 This app logs incoming/outgoing calls and messages, provides a real-time call log, and integrates Twilio Webhooks.
 
+The frontend is a React application built with Vite. The server provides the
+Twilio token, voice and SMS webhooks, and recent activity endpoints. Incoming
+SMS can be viewed in the app; outbound SMS and contact management are not yet
+implemented.
+
 ---
 
 ## Features
@@ -82,11 +87,22 @@ Run:
 psql -U yourusername -d yourdatabase -f setup.sql
 ```
 
-### 5. Start the Server
+### 5. Build and start the server
 
 ```sh
+npm run build
 npm start
 ```
+
+The production server serves the generated `dist` directory. Docker builds it
+automatically. Node.js 22.12 or newer is required. To work on the frontend,
+start the backend with `npm start` and run `npm run dev` in a second terminal;
+Vite proxies the app's API requests to port 3001.
+
+Set `APP_PASSWORD` to a strong password and `TWILIO_WEBHOOK_BASE_URL` to the
+public HTTPS origin. Sign in with username `operator` and that password. Voice
+and SMS webhooks must use the matching public origin and Twilio request
+signatures.
 
 or with PM2:
 

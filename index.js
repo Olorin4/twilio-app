@@ -6,12 +6,17 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const router = require("./src/router");
 const { syncCallLogs, syncSmsLogs } = require("./src/logManager");
+const { requireLogin } = require("./src/security");
 
 // Create Express webapp
 const app = express();
-app.use(express.static(path.join(__dirname, "public")));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+app.use((req, res, next) => {
+    if (req.method === "POST" && (req.path === "/voice" || req.path === "/sms")) return next();
+    return requireLogin(req, res, next);
+});
+app.use(express.static(path.join(__dirname, "dist")));
 app.use(router);
 
 // Create http server and run it:
