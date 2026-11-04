@@ -104,10 +104,11 @@ function App() {
   const [calls, setCalls] = useState([]);
   const [messages, setMessages] = useState([]);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [hasMore, setHasMore] = useState({ calls: false, messages: false });
   const activityRequest = useRef(0);
   const [contacts, setContacts] = useState([]);
-  const [smsTo, setSmsTo] = useState("");
+  const [smsOpen, setSmsOpen] = useState(false);
   const [smsBody, setSmsBody] = useState("");
   const [smsSending, setSmsSending] = useState(false);
   const [smsFeedback, setSmsFeedback] = useState(null);
@@ -163,7 +164,11 @@ function App() {
   const refresh = useCallback(async () => {
     const requestId = ++activityRequest.current;
     try {
-      const query = new URLSearchParams({ page: String(page), search });
+      const query = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        search,
+      });
       const [callResponse, messageResponse] = await Promise.all([
         fetch(`/call-logs?${query}`),
         fetch(`/message-logs?${query}`),
@@ -187,7 +192,7 @@ function App() {
     } finally {
       if (requestId === activityRequest.current) setLoading(false);
     }
-  }, [page, search]);
+  }, [page, pageSize, search]);
   useEffect(() => {
     setLoading(true);
     refresh();
@@ -195,7 +200,7 @@ function App() {
     return () => clearInterval(interval);
   }, [refresh]);
   const sendMessage = async (event) => {
-    event.preventDefault();
+    if (event) event.preventDefault();
     if (smsInFlight.current) return;
     smsInFlight.current = true;
     setSmsSending(true);
@@ -206,7 +211,7 @@ function App() {
         response = await fetch("/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: smsTo, body: smsBody }),
+          body: JSON.stringify({ to: number, body: smsBody }),
         });
       } catch {
         throw new Error(
@@ -269,12 +274,21 @@ function App() {
           "refresh-failed": "Refresh failed",
         }[token.state];
   const running = !!voice.call;
+  useEffect(() => {
+    if (running) setSmsOpen(false);
+  }, [running]);
   const pressing = (value) => {
     if (running && voice.call.phase === "active") voice.digit(value);
     else if (!running) setNumber((n) => n + value);
   };
   const keyDown = (event) => {
-    if (event.key === "Enter" && online && !running && number.trim())
+    if (
+      event.key === "Enter" &&
+      !smsOpen &&
+      online &&
+      !running &&
+      number.trim()
+    )
       voice.dial(number);
   };
 
@@ -300,7 +314,7 @@ function App() {
             }}
           >
             <Phone size={18} />
-            <span>Phone</span>
+            <span>Calls</span>
             {view === "calls" && <span className="nav-active" />}
           </button>
           <button
@@ -491,7 +505,7 @@ function App() {
             <div>
               <h1>
                 {view === "calls"
-                  ? "Phone"
+                  ? "Calls"
                   : view === "messages"
                     ? "Messages"
                     : "Contacts"}
@@ -525,157 +539,226 @@ function App() {
             </div>
           )}
           <div className="content-grid">
-            <section className="dial-card card" aria-label="Phone dialer">
-              <div className="card-top">
-                <div>
-                  <h2>Make a call</h2>
-                </div>
-                <div className="dial-icon">
-                  <PhoneCall size={19} />
-                </div>
-              </div>
-              <div className={`phone-status ${online ? "ready" : ""}`}>
-                <span className="status-pulse" />
-                <span>
-                  {online
-                    ? "Ready to make and receive calls"
-                    : voice.connection === "connecting"
-                      ? "Connecting to your phone…"
-                      : "Connect your phone to get started"}
-                </span>
-              </div>
-              {!online && (
-                <button
-                  className="connect-button"
-                  disabled={voice.connection === "connecting"}
-                  onClick={voice.start}
-                >
-                  <AudioLines size={17} />
-                  {voice.connection === "connecting"
-                    ? "Connecting…"
-                    : "Connect phone"}
-                </button>
-              )}
-              <div className="dial-field">
-                <label htmlFor="dial-number">PHONE NUMBER</label>
-                <div className="input-wrap">
-                  {!number && (
-                    <button
-                      aria-label="Add plus prefix"
-                      disabled={!!number || running}
-                      onClick={() => setNumber("+")}
-                    >
-                      +
-                    </button>
-                  )}
-                  <input
-                    id="dial-number"
-                    type="tel"
-                    autoComplete="tel"
-                    value={number}
-                    disabled={running}
-                    onChange={(event) => setNumber(event.target.value)}
-                    onKeyDown={keyDown}
-                    placeholder="Enter a phone number"
-                  />
-                  <button
-                    aria-label="Delete last digit"
-                    disabled={!number || running}
-                    onClick={() => setNumber((n) => n.slice(0, -1))}
-                  >
-                    <Delete size={19} />
-                  </button>
-                </div>
-              </div>
-              <div
-                className="keypad"
-                aria-label={
-                  voice.call?.phase === "active" ? "Call keypad" : "Dial pad"
-                }
-              >
-                {keypad.map(([value, letters]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    disabled={running && voice.call.phase !== "active"}
-                    onClick={() => pressing(value)}
-                    aria-label={`Digit ${value}`}
-                  >
-                    <span>{value}</span>
-                    <small>{letters || "\u00a0"}</small>
-                  </button>
-                ))}
-              </div>
-              {running ? (
-                <div className="call-actions">
-                  <button className="hangup-button" onClick={voice.hangup}>
-                    <PhoneOff size={18} />{" "}
-                    {voice.call.direction === "incoming" &&
-                    voice.call.phase === "ringing"
-                      ? "Decline"
-                      : "End call"}
-                  </button>
-                  {voice.call.phase === "active" && (
-                    <button className="mute-button" onClick={voice.toggleMute}>
-                      {voice.muted ? <MicOff size={17} /> : <Mic size={17} />}{" "}
-                      {voice.muted ? "Unmute" : "Mute"}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <button
-                  className="call-button"
-                  disabled={!online || !number.trim()}
-                  onClick={() => voice.dial(number)}
-                >
-                  <Phone size={18} /> Call number
-                </button>
-              )}
-              {voice.call && (
-                <div className="call-panel" role="status">
+            <div className="communication-panel">
+              <section className="dial-card card" aria-label="Phone dialer">
+                <div className="card-top">
                   <div>
-                    <span className="live-dot" />{" "}
-                    {voice.call.direction === "incoming" &&
-                    voice.call.phase === "ringing"
-                      ? "INCOMING CALL"
-                      : voice.call.phase === "active"
-                        ? "CALL IN PROGRESS"
-                        : "CONNECTING"}
+                    <h2>Make a call</h2>
                   </div>
-                  <strong>{voice.call.number}</strong>
-                  {voice.call.direction === "incoming" &&
-                    voice.call.phase === "ringing" && (
-                      <button onClick={voice.accept}>
-                        <PhoneIncoming size={15} /> Answer call
+                  <div className="dial-icon">
+                    <PhoneCall size={19} />
+                  </div>
+                </div>
+                <div className={`phone-status ${online ? "ready" : ""}`}>
+                  <span className="status-pulse" />
+                  <span>
+                    {online
+                      ? "Ready to make and receive calls"
+                      : voice.connection === "connecting"
+                        ? "Connecting to your phone…"
+                        : "Connect your phone to get started"}
+                  </span>
+                </div>
+                {!online && (
+                  <button
+                    className="connect-button"
+                    disabled={voice.connection === "connecting"}
+                    onClick={voice.start}
+                  >
+                    <AudioLines size={17} />
+                    {voice.connection === "connecting"
+                      ? "Connecting…"
+                      : "Connect phone"}
+                  </button>
+                )}
+                <div className="dial-field">
+                  <label htmlFor="dial-number">PHONE NUMBER</label>
+                  <div className="input-wrap">
+                    {!number && (
+                      <button
+                        aria-label="Add plus prefix"
+                        disabled={!!number || running}
+                        onClick={() => setNumber("+")}
+                      >
+                        +
                       </button>
                     )}
-                  {voice.call.phase === "active" && (
-                    <div className="level-row">
-                      <span>Mic</span>
-                      <i>
-                        <b
-                          style={{
-                            width: `${Math.min(100, voice.levels.input * 100)}%`,
-                          }}
-                        />
-                      </i>
-                      <span>Speaker</span>
-                      <i>
-                        <b
-                          style={{
-                            width: `${Math.min(100, voice.levels.output * 100)}%`,
-                          }}
-                        />
-                      </i>
+                    <input
+                      id="dial-number"
+                      type="tel"
+                      autoComplete="tel"
+                      value={number}
+                      disabled={running}
+                      onChange={(event) => setNumber(event.target.value)}
+                      onKeyDown={keyDown}
+                      placeholder="Enter a phone number"
+                    />
+                    <button
+                      aria-label="Delete last digit"
+                      disabled={!number || running}
+                      onClick={() => setNumber((n) => n.slice(0, -1))}
+                    >
+                      <Delete size={19} />
+                    </button>
+                  </div>
+                </div>
+                <div className="keypad-area">
+                  <div
+                    className="keypad"
+                    inert={smsOpen ? true : undefined}
+                    aria-label={
+                      voice.call?.phase === "active"
+                        ? "Call keypad"
+                        : "Dial pad"
+                    }
+                  >
+                    {keypad.map(([value, letters]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        disabled={running && voice.call.phase !== "active"}
+                        onClick={() => pressing(value)}
+                        aria-label={`Digit ${value}`}
+                      >
+                        <span>{value}</span>
+                        <small>{letters || "\u00a0"}</small>
+                      </button>
+                    ))}
+                  </div>
+                  {smsOpen && (
+                    <div className="sms-editor">
+                      <div className="sms-editor-heading">
+                        <label htmlFor="sms-body">Message</label>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label="Close message editor"
+                          onClick={() => setSmsOpen(false)}
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                      <textarea
+                        id="sms-body"
+                        autoFocus
+                        maxLength={1600}
+                        value={smsBody}
+                        onChange={(event) => setSmsBody(event.target.value)}
+                        placeholder="Write your message"
+                      />
+                      <small>
+                        {smsBody.length}/1600 characters · Only message
+                        recipients who have consented.
+                      </small>
                     </div>
                   )}
                 </div>
-              )}
-              <div className="dial-footer">
-                <ShieldCheck size={14} />
-                <span>Connected securely with Twilio</span>
-              </div>
-            </section>
+                <div className="dial-buttons">
+                  {running ? (
+                    <div className="call-actions">
+                      <button className="hangup-button" onClick={voice.hangup}>
+                        <PhoneOff size={18} />{" "}
+                        {voice.call.direction === "incoming" &&
+                        voice.call.phase === "ringing"
+                          ? "Decline"
+                          : "End call"}
+                      </button>
+                      {voice.call.phase === "active" && (
+                        <button
+                          className="mute-button"
+                          onClick={voice.toggleMute}
+                        >
+                          {voice.muted ? (
+                            <MicOff size={17} />
+                          ) : (
+                            <Mic size={17} />
+                          )}{" "}
+                          {voice.muted ? "Unmute" : "Mute"}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      className="call-button"
+                      disabled={!smsOpen && (!online || !number.trim())}
+                      onClick={() => {
+                        setSmsOpen(false);
+                        if (online && number.trim()) voice.dial(number);
+                      }}
+                    >
+                      <Phone size={18} /> Call number
+                    </button>
+                  )}
+                  <button
+                    className="button sms-button"
+                    type="button"
+                    disabled={
+                      smsSending ||
+                      running ||
+                      (smsOpen && (!number.trim() || !smsBody.trim()))
+                    }
+                    onClick={() => (smsOpen ? sendMessage() : setSmsOpen(true))}
+                  >
+                    <Send size={16} />{" "}
+                    {smsSending ? "Sending…" : "Send message"}
+                  </button>
+                </div>
+                {smsFeedback && (
+                  <p
+                    className={
+                      smsFeedback.success ? "sms-success" : "contact-form-error"
+                    }
+                    role="status"
+                  >
+                    {smsFeedback.text}
+                  </p>
+                )}
+                {voice.call && (
+                  <div className="call-panel" role="status">
+                    <div>
+                      <span className="live-dot" />{" "}
+                      {voice.call.direction === "incoming" &&
+                      voice.call.phase === "ringing"
+                        ? "INCOMING CALL"
+                        : voice.call.phase === "active"
+                          ? "CALL IN PROGRESS"
+                          : "CONNECTING"}
+                    </div>
+                    <strong>{voice.call.number}</strong>
+                    {voice.call.direction === "incoming" &&
+                      voice.call.phase === "ringing" && (
+                        <button onClick={voice.accept}>
+                          <PhoneIncoming size={15} /> Answer call
+                        </button>
+                      )}
+                    {voice.call.phase === "active" && (
+                      <div className="level-row">
+                        <span>Mic</span>
+                        <i>
+                          <b
+                            style={{
+                              width: `${Math.min(100, voice.levels.input * 100)}%`,
+                            }}
+                          />
+                        </i>
+                        <span>Speaker</span>
+                        <i>
+                          <b
+                            style={{
+                              width: `${Math.min(100, voice.levels.output * 100)}%`,
+                            }}
+                          />
+                        </i>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="dial-footer">
+                  <ShieldCheck size={14} />
+                  <span>Connected securely with Twilio</span>
+                </div>
+              </section>
+            </div>
             {view === "contacts" ? (
               <Contacts
                 onDial={(phone) => {
@@ -701,61 +784,6 @@ function App() {
                     <History size={19} />
                   </div>
                 </div>
-                {view === "messages" && (
-                  <form
-                    className="sms-compose contact-form-grid"
-                    onSubmit={sendMessage}
-                  >
-                    <h3>New message</h3>
-                    <label htmlFor="sms-to">TO</label>
-                    <input
-                      id="sms-to"
-                      type="tel"
-                      autoComplete="tel"
-                      placeholder="+1 555 123 4567"
-                      value={smsTo}
-                      onChange={(event) => setSmsTo(event.target.value)}
-                      required
-                    />
-                    <label htmlFor="sms-body">MESSAGE</label>
-                    <textarea
-                      id="sms-body"
-                      rows="3"
-                      maxLength={1600}
-                      value={smsBody}
-                      onChange={(event) => setSmsBody(event.target.value)}
-                      required
-                    />
-                    <div className="sms-compose-footer">
-                      <small>
-                        {smsBody.length}/1600 characters · Only message
-                        recipients who have consented.
-                      </small>
-                      <button
-                        className="button button-green"
-                        type="submit"
-                        disabled={
-                          smsSending || !smsTo.trim() || !smsBody.trim()
-                        }
-                      >
-                        <Send size={15} />{" "}
-                        {smsSending ? "Sending…" : "Send message"}
-                      </button>
-                    </div>
-                    {smsFeedback && (
-                      <p
-                        className={
-                          smsFeedback.success
-                            ? "sms-success"
-                            : "contact-form-error"
-                        }
-                        role="status"
-                      >
-                        {smsFeedback.text}
-                      </p>
-                    )}
-                  </form>
-                )}
                 <div className="activity-tabs">
                   <button
                     className={view === "calls" ? "active" : ""}
@@ -783,7 +811,6 @@ function App() {
                     <strong>
                       {view === "calls" ? "Call history" : "Message history"}
                     </strong>
-                    <span>10 per page</span>
                   </div>
                   <div className="search">
                     <Search size={15} />
@@ -897,21 +924,39 @@ function App() {
                   className="activity-pagination"
                   aria-label="History pagination"
                 >
-                  <button
-                    className="button button-light"
-                    disabled={page === 1 || loading}
-                    onClick={() => setPage((current) => current - 1)}
-                  >
-                    Previous
-                  </button>
+                  <label className="page-size">
+                    Rows per page
+                    <select
+                      value={pageSize}
+                      onChange={(event) => {
+                        setPage(1);
+                        setPageSize(Number(event.target.value));
+                      }}
+                    >
+                      {[10, 20, 50].map((size) => (
+                        <option key={size} value={size}>
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <span>Page {page}</span>
-                  <button
-                    className="button button-light"
-                    disabled={!hasMore[view] || loading}
-                    onClick={() => setPage((current) => current + 1)}
-                  >
-                    Next
-                  </button>
+                  <div className="page-navigation">
+                    <button
+                      className="button button-light"
+                      disabled={page === 1 || loading}
+                      onClick={() => setPage((current) => current - 1)}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      className="button button-light"
+                      disabled={!hasMore[view] || loading}
+                      onClick={() => setPage((current) => current + 1)}
+                    >
+                      Next
+                    </button>
+                  </div>
                 </nav>
               </section>
             )}

@@ -101,18 +101,26 @@ exports.syncSmsLogs = async () => {
 
 function historyParams(req) {
   const page = Number(req.query?.page ?? 1);
+  const pageSize = Number(req.query?.pageSize ?? 10);
   const search =
     typeof req.query?.search === "string"
       ? req.query.search.trim().slice(0, 120).toLowerCase()
       : "";
-  if (!Number.isSafeInteger(page) || page < 1 || page > 100000) return null;
-  return { offset: (page - 1) * 10, search };
+  if (
+    !Number.isSafeInteger(page) ||
+    page < 1 ||
+    page > 100000 ||
+    ![10, 20, 50].includes(pageSize)
+  )
+    return null;
+  return { offset: (page - 1) * pageSize, pageSize, search };
 }
 
 // Fetch Call Logs
 exports.getCallLogs = async (req, res) => {
   const params = historyParams(req);
-  if (!params) return res.status(400).json({ error: "Invalid page." });
+  if (!params)
+    return res.status(400).json({ error: "Invalid page or page size." });
   try {
     console.log("📥 [DEBUG] Fetching call log from postgreSQL...");
 
@@ -134,13 +142,18 @@ exports.getCallLogs = async (req, res) => {
       WHERE $2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0)
       ORDER BY cl.timestamp DESC NULLS LAST, cl.id DESC
-      LIMIT 11 OFFSET $3;
+      LIMIT $4 OFFSET $3;
     `,
-      [process.env.TWILIO_CALLER_ID, params.search, params.offset],
+      [
+        process.env.TWILIO_CALLER_ID,
+        params.search,
+        params.offset,
+        params.pageSize + 1,
+      ],
     );
 
-    res.set("X-Has-More", String(result.rows.length > 10));
-    res.json(result.rows.slice(0, 10));
+    res.set("X-Has-More", String(result.rows.length > params.pageSize));
+    res.json(result.rows.slice(0, params.pageSize));
   } catch (err) {
     console.error("❌ [ERROR] Failed to fetch call log:", err.message);
     res
@@ -152,7 +165,8 @@ exports.getCallLogs = async (req, res) => {
 // Get SMS logs
 exports.getMessageLogs = async (req, res) => {
   const params = historyParams(req);
-  if (!params) return res.status(400).json({ error: "Invalid page." });
+  if (!params)
+    return res.status(400).json({ error: "Invalid page or page size." });
   try {
     console.log("📥 [DEBUG] Fetching message log from postgreSQL...");
 
@@ -173,13 +187,18 @@ exports.getMessageLogs = async (req, res) => {
       WHERE $2 = '' OR position($2 in lower(concat_ws(' ', m.from_number, m.to_number, m.body, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.phone IN (m.from_number, m.to_number) AND position($2 in lower(pc.name)) > 0)
       ORDER BY m.timestamp DESC NULLS LAST, m.id DESC
-      LIMIT 11 OFFSET $3;
+      LIMIT $4 OFFSET $3;
     `,
-      [process.env.TWILIO_CALLER_ID, params.search, params.offset],
+      [
+        process.env.TWILIO_CALLER_ID,
+        params.search,
+        params.offset,
+        params.pageSize + 1,
+      ],
     );
 
-    res.set("X-Has-More", String(result.rows.length > 10));
-    res.json(result.rows.slice(0, 10));
+    res.set("X-Has-More", String(result.rows.length > params.pageSize));
+    res.json(result.rows.slice(0, params.pageSize));
   } catch (err) {
     console.error("❌ [ERROR] Failed to fetch message log:", err.message);
     res
