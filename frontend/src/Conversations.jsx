@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, MessageSquare, Send, UserRound } from "lucide-react";
+import Pagination from "./Pagination";
 
 function nameFor(phone, contacts) {
   const matches = contacts.filter((contact) => contact.phone === phone);
@@ -18,6 +19,8 @@ function time(value) {
 }
 export default function Conversations({ contacts, search }) {
   const [list, setList] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [phone, setPhone] = useState("");
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
@@ -59,6 +62,23 @@ export default function Conversations({ contacts, search }) {
           ];
         });
         if (!loadedOlder.current) setHasMore(threadData.hasMore);
+        const throughId = threadData.messages.reduce(
+          (max, message) =>
+            BigInt(message.id) > BigInt(max) ? String(message.id) : max,
+          "0",
+        );
+        if (throughId !== "0" && selected.current === target) {
+          const response = await fetch("/activity-views/conversation", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phone: target,
+              throughId: String(throughId),
+            }),
+          });
+          if (!response.ok)
+            throw new Error("Could not mark messages as viewed.");
+        }
       }
       setError("");
     } catch (err) {
@@ -143,6 +163,15 @@ export default function Conversations({ contacts, search }) {
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
+  useEffect(() => setPage(1), [search]);
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(filtered.length / pageSize)),
+  );
+  const pageItems = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
   return (
     <div className="conversations">
       {error && (
@@ -151,42 +180,65 @@ export default function Conversations({ contacts, search }) {
         </div>
       )}
       {!phone ? (
-        <div className="conversation-list">
-          {!filtered.length ? (
-            <div className="empty">
-              <MessageSquare size={23} />
-              <strong>
-                {search ? "No matching conversations" : "No conversations yet"}
-              </strong>
-            </div>
-          ) : (
-            filtered.map((item) => {
-              const name = nameFor(item.phone, contacts);
-              return (
-                <button
-                  className="conversation-row"
-                  key={item.phone}
-                  onClick={() => setPhone(item.phone)}
-                >
-                  <span
-                    className={`avatar ${name !== item.phone ? "avatar-contact" : "avatar-unknown"}`}
+        <>
+          <div className="conversation-list">
+            {!filtered.length ? (
+              <div className="empty">
+                <MessageSquare size={23} />
+                <strong>
+                  {search
+                    ? "No matching conversations"
+                    : "No conversations yet"}
+                </strong>
+              </div>
+            ) : (
+              pageItems.map((item) => {
+                const name = nameFor(item.phone, contacts);
+                return (
+                  <button
+                    className={`conversation-row ${Number(item.unviewed_count) > 0 ? "unviewed-row" : ""}`}
+                    key={item.phone}
+                    onClick={() => setPhone(item.phone)}
                   >
-                    {name !== item.phone ? (
-                      name.charAt(0).toUpperCase()
-                    ) : (
-                      <UserRound size={20} />
+                    <span
+                      className={`avatar ${name !== item.phone ? "avatar-contact" : "avatar-unknown"}`}
+                    >
+                      {name !== item.phone ? (
+                        name.charAt(0).toUpperCase()
+                      ) : (
+                        <UserRound size={20} />
+                      )}
+                    </span>
+                    <span className="row-main">
+                      <strong>{name}</strong>
+                      <span>{item.body || "[No message content]"}</span>
+                    </span>
+                    {Number(item.unviewed_count) > 0 && (
+                      <span
+                        className="unviewed-count"
+                        aria-label={`${item.unviewed_count} unviewed messages`}
+                      >
+                        {item.unviewed_count}
+                      </span>
                     )}
-                  </span>
-                  <span className="row-main">
-                    <strong>{name}</strong>
-                    <span>{item.body || "[No message content]"}</span>
-                  </span>
-                  <time>{time(item.timestamp)}</time>
-                </button>
-              );
-            })
-          )}
-        </div>
+                    <time>{time(item.timestamp)}</time>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <Pagination
+            label="Conversations pagination"
+            page={currentPage}
+            pageSize={pageSize}
+            hasMore={currentPage * pageSize < filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPage(1);
+              setPageSize(size);
+            }}
+          />
+        </>
       ) : (
         <section
           className="thread"

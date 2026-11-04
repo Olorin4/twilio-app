@@ -110,6 +110,10 @@ driver or company records. The migration is safe to rerun. For a local
 PostgreSQL instance without TLS, set `DB_SSL=false`; production defaults to
 the existing TLS connection settings.
 
+Run `npm run migrate:activity-views` before using unread activity tracking.
+Incoming calls and messages after the migration are unviewed until acknowledged;
+older history is treated as viewed. The migration is safe to rerun.
+
 or with PM2:
 
 ```sh

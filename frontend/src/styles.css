@@ -627,7 +627,7 @@ h1 {
   height: 2px;
   background: #719d6f;
 }
-.activity-tabs button span {
+.activity-tabs button span:not(.unviewed-count) {
   border-radius: 5px;
   padding: 2px 6px;
   background: #f1f5ef;
@@ -707,6 +707,32 @@ h1 {
   border-bottom: 1px solid #f0f3ef;
   padding: 15px 0;
 }
+.unviewed-row {
+  background: #edf6eb;
+  box-shadow: inset 3px 0 #5a955e;
+}
+.conversation-row.unviewed-row:hover {
+  background: #e4f1e1;
+}
+.unviewed-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: #477d4c;
+  color: white;
+  font-size: 10px;
+}
+.mark-viewed {
+  border: 0;
+  background: none;
+  color: #426e45;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .avatar-contact {
   height: 38px;
   width: 38px;
@@ -725,6 +751,9 @@ h1 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.missed-call-icon {
+  color: #dc4545;
+}
 .row-main strong {
   font-size: 12px;
 }
@@ -736,6 +765,9 @@ h1 {
 .row-main span svg {
   vertical-align: middle;
   color: #87a984;
+}
+.row-main span svg.missed-call-icon {
+  color: #dc4545;
 }
 .row-end {
   display: flex;
@@ -828,16 +860,6 @@ h1 {
   background: none;
   color: #426e45;
   text-decoration: underline;
-}
-.page-footer {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 31px;
-  color: #a3afa4;
-  font-size: 10px;
-}
-.footer-star {
-  color: #82a97e;
 }
 .modal-backdrop {
   position: fixed;
@@ -1000,9 +1022,6 @@ h1 {
   .dial-card {
     padding: 23px;
   }
-  .page-footer {
-    gap: 10px;
-  }
 }
 
 .contacts-card {
@@ -1013,11 +1032,18 @@ h1 {
 }
 .contacts-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 15px;
   padding: 25px 28px 22px;
   border-bottom: 1px solid #edf1eb;
+}
+.contacts-count {
+  margin-left: 5px;
+  color: #8a9c8b;
+  font-size: 11px;
+  font-weight: 500;
 }
 .contacts-header h2 {
   font-size: 17px;
@@ -1037,27 +1063,9 @@ h1 {
 .button-green:hover:not(:disabled) {
   background: #244a31;
 }
-.contacts-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 24px 28px 12px;
-}
-.contacts-toolbar > div:first-child {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.contacts-toolbar strong {
-  font-size: 12px;
-}
-.contacts-toolbar > div:first-child span {
-  color: #a6b2a7;
-  font-size: 10px;
-}
 .contacts-search {
   width: 185px;
+  margin-right: calc(100% - 185px);
 }
 .contacts-list {
   padding: 0 28px;
@@ -1182,14 +1190,12 @@ h1 {
   .contacts-header {
     padding: 23px 20px 20px;
   }
-  .contacts-toolbar {
-    padding: 20px 20px 10px;
-  }
   .contacts-list {
     padding: 0 20px;
   }
   .contacts-search {
     width: 155px;
+    margin-right: calc(100% - 155px);
   }
 }
 @media (max-width: 430px) {
@@ -1392,9 +1398,6 @@ h1 {
   font-size: 10px;
   padding: 0 9px;
 }
-.page-footer {
-  justify-content: flex-end;
-}
 @media (max-width: 760px) {
   .sidebar {
     flex-wrap: wrap;
@@ -1418,6 +1421,15 @@ h1 {
   .activity-search {
     width: 120px;
   }
+}
+.conversations {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.conversation-list {
+  flex: 1;
 }
 .conversation-row {
   width: 100%;

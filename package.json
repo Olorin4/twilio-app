@@ -13,7 +13,8 @@
     "dev": "vite",
     "build": "vite build",
     "migrate:contacts": "node scripts/migrate-contacts.js",
-    "migrate:message-delivery": "node scripts/migrate-message-delivery.js"
+    "migrate:message-delivery": "node scripts/migrate-message-delivery.js",
+    "migrate:activity-views": "node scripts/migrate-activity-views.js"
   },
   "repository": {
     "type": "git",

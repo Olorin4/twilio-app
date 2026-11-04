@@ -4,6 +4,7 @@ import {
   ArrowDownLeft,
   AudioLines,
   ChevronDown,
+  CornerDownLeft,
   Delete,
   Headphones,
   History,
@@ -25,6 +26,7 @@ import {
 import { useVoice } from "./useVoice";
 import Contacts from "./Contacts";
 import Conversations from "./Conversations";
+import Pagination from "./Pagination";
 import "./styles.css";
 
 const keypad = [
@@ -114,6 +116,7 @@ function App() {
   const [smsFeedback, setSmsFeedback] = useState(null);
   const smsInFlight = useRef(false);
   const [loadError, setLoadError] = useState("");
+  const [unviewed, setUnviewed] = useState({ calls: 0, messages: 0 });
   const [loading, setLoading] = useState(true);
   const [audioOpen, setAudioOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -199,6 +202,41 @@ function App() {
     const interval = setInterval(refresh, 60000);
     return () => clearInterval(interval);
   }, [refresh]);
+  const refreshCounts = useCallback(async () => {
+    try {
+      const response = await fetch("/activity-counts");
+      if (response.ok) setUnviewed(await response.json());
+    } catch {
+      // Keep the last known counts until the next refresh.
+    }
+  }, []);
+  useEffect(() => {
+    refreshCounts();
+    const stream = new EventSource("/message-events");
+    const update = () => {
+      refreshCounts();
+      refresh();
+    };
+    stream.addEventListener("messages", update);
+    stream.addEventListener("ready", refreshCounts);
+    const timer = setInterval(refreshCounts, 60000);
+    return () => {
+      stream.close();
+      clearInterval(timer);
+    };
+  }, [refresh, refreshCounts]);
+  const markCallViewed = async (id) => {
+    try {
+      const response = await fetch(`/activity-views/calls/${id}`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error();
+      refresh();
+      refreshCounts();
+    } catch {
+      setLoadError("Could not mark the call as viewed. Please try again.");
+    }
+  };
   const sendMessage = async (event) => {
     if (event) event.preventDefault();
     if (smsInFlight.current) return;
@@ -785,6 +823,14 @@ function App() {
                     }}
                   >
                     <Phone size={15} /> Calls
+                    {unviewed.calls > 0 && (
+                      <span
+                        className="unviewed-count"
+                        aria-label={`${unviewed.calls} unviewed calls`}
+                      >
+                        {unviewed.calls}
+                      </span>
+                    )}
                   </button>
                   <button
                     className={view === "messages" ? "active" : ""}
@@ -795,6 +841,14 @@ function App() {
                     }}
                   >
                     <MessageSquare size={15} /> Messages
+                    {unviewed.messages > 0 && (
+                      <span
+                        className="unviewed-count"
+                        aria-label={`${unviewed.messages} unviewed messages`}
+                      >
+                        {unviewed.messages}
+                      </span>
+                    )}
                   </button>
                   <div className="search activity-search">
                     <Search size={15} />
@@ -849,10 +903,18 @@ function App() {
                         {filtered.map((row, index) => {
                           const phone = activityNumber(row, view);
                           const contact = contactFor(phone);
+                          const missed =
+                            row.direction === "inbound" &&
+                            ["no-answer", "busy", "canceled"].includes(
+                              row.status,
+                            );
                           const name =
                             contact?.name || phone || "Unknown number";
                           return (
-                            <div className="activity-row" key={row.id ?? index}>
+                            <div
+                              className={`activity-row ${row.unviewed ? "unviewed-row" : ""}`}
+                              key={row.id ?? index}
+                            >
                               <div
                                 className={`avatar ${contact ? "avatar-contact" : "avatar-unknown"}`}
                               >
@@ -870,7 +932,15 @@ function App() {
                                 <span>
                                   {view === "calls" ? (
                                     <>
-                                      <ArrowDownLeft size={13} />{" "}
+                                      {missed ? (
+                                        <CornerDownLeft
+                                          size={13}
+                                          className="missed-call-icon"
+                                          aria-label="Missed call"
+                                        />
+                                      ) : (
+                                        <ArrowDownLeft size={13} />
+                                      )}{" "}
                                       {phone || "Unknown"}
                                       {row.company_name
                                         ? ` · ${row.company_name}`
@@ -885,6 +955,14 @@ function App() {
                                 </span>
                               </div>
                               <div className="row-end">
+                                {row.unviewed && (
+                                  <button
+                                    className="mark-viewed"
+                                    onClick={() => markCallViewed(row.id)}
+                                  >
+                                    Mark viewed
+                                  </button>
+                                )}
                                 <div className="activity-meta">
                                   <time>
                                     {formatActivityDate(row.timestamp)}
@@ -911,53 +989,22 @@ function App() {
                         })}
                       </div>
                     )}
-                    <nav
-                      className="activity-pagination"
-                      aria-label="History pagination"
-                    >
-                      <label className="page-size">
-                        Rows per page
-                        <select
-                          value={pageSize}
-                          onChange={(event) => {
-                            setPage(1);
-                            setPageSize(Number(event.target.value));
-                          }}
-                        >
-                          {[10, 20, 50].map((size) => (
-                            <option key={size} value={size}>
-                              {size}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <span>Page {page}</span>
-                      <div className="page-navigation">
-                        <button
-                          className="button button-light"
-                          disabled={page === 1 || loading}
-                          onClick={() => setPage((current) => current - 1)}
-                        >
-                          Previous
-                        </button>
-                        <button
-                          className="button button-light"
-                          disabled={!hasMore[view] || loading}
-                          onClick={() => setPage((current) => current + 1)}
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </nav>
+                    <Pagination
+                      label="Call history pagination"
+                      page={page}
+                      pageSize={pageSize}
+                      hasMore={hasMore.calls}
+                      loading={loading}
+                      onPageChange={setPage}
+                      onPageSizeChange={(size) => {
+                        setPage(1);
+                        setPageSize(size);
+                      }}
+                    />
                   </>
                 )}
               </section>
             )}
-          </div>
-          <div className="page-footer">
-            <span>
-              Built for the road ahead <span className="footer-star">✦</span>
-            </span>
           </div>
         </div>
       </main>

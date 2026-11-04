@@ -51,9 +51,12 @@ async function list(req, res) {
   try {
     const result = await pool.query(
       `WITH messages AS (
-      SELECT m.id, m.body, m.timestamp, CASE WHEN m.from_number = ANY($1::text[]) THEN m.to_number ELSE m.from_number END AS phone
+      SELECT m.id, m.body, m.timestamp, CASE WHEN m.from_number = ANY($1::text[]) THEN m.to_number ELSE m.from_number END AS phone,
+      (m.to_number = ANY($1::text[]) AND NOT (m.from_number = ANY($1::text[]))
+       AND m.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
+       AND NOT EXISTS (SELECT 1 FROM activity_views v WHERE v.kind = 'message' AND v.item_id = m.id)) AS unviewed
       FROM message_logs m WHERE m.from_number = ANY($1::text[]) OR m.to_number = ANY($1::text[])
-    ) SELECT DISTINCT ON (phone) phone, body, timestamp FROM messages WHERE phone IS NOT NULL
+    ) SELECT DISTINCT ON (phone) phone, body, timestamp, count(*) FILTER (WHERE unviewed) OVER (PARTITION BY phone) AS unviewed_count FROM messages WHERE phone IS NOT NULL
       ORDER BY phone, timestamp DESC NULLS LAST, id DESC`,
       [numbers()],
     );
@@ -94,4 +97,4 @@ async function thread(req, res) {
     res.status(500).json({ error: "Could not load conversation." });
   }
 }
-module.exports = { saveStatus, statusCallback, list, thread };
+module.exports = { saveStatus, statusCallback, list, thread, numbers };

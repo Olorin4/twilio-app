@@ -8,6 +8,8 @@ export default defineConfig({
       [
         "/token",
         "/call-logs",
+        "/activity-counts",
+        "/activity-views",
         "/message-logs",
         "/message-events",
         "/conversations",

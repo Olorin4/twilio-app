@@ -132,6 +132,9 @@ exports.getCallLogs = async (req, res) => {
              cl.from_number, 
              cl.to_number, 
              cl.direction,
+             cl.status,
+             (cl.direction = 'inbound' AND cl.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
+              AND NOT EXISTS (SELECT 1 FROM activity_views v WHERE v.kind = 'call' AND v.item_id = cl.id)) AS unviewed,
              cl.duration,
              (cl.from_number = $1) AS outgoing,
              cl.timestamp,

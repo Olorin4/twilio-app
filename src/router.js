@@ -14,6 +14,7 @@ const contactsRouter = require("./contacts");
 const { sendSms } = require("./sendSms");
 const conversations = require("./conversations");
 const { stream } = require("./messageEvents");
+const activityViews = require("./activityViews");
 
 // Debugging
 console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
@@ -64,6 +65,9 @@ router.post("/sms-status", validateWebhook, conversations.statusCallback);
 router.get("/message-events", stream);
 router.get("/conversations", conversations.list);
 router.get("/conversation", conversations.thread);
+router.get("/activity-counts", activityViews.counts);
+router.post("/activity-views/calls/:id", activityViews.markCall);
+router.post("/activity-views/conversation", activityViews.markConversation);
 
 // Webhook for sending a fax
 router.post("/fax", sendFax);

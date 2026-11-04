@@ -9,6 +9,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import Pagination from "./Pagination";
 
 const emptyContact = { name: "", phone: "", company: "", email: "", notes: "" };
 const initialLetters = (name) =>
@@ -34,6 +35,8 @@ async function request(url, options) {
 export default function Contacts({ onDial }) {
   const [contacts, setContacts] = useState([]);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(null);
@@ -63,6 +66,14 @@ export default function Contacts({ onDial }) {
       ),
     );
   }, [contacts, query]);
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(filtered.length / pageSize)),
+  );
+  const pageContacts = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
   const openEditor = (contact) => {
     setEditing(contact || { id: null });
     setForm(
@@ -123,7 +134,9 @@ export default function Contacts({ onDial }) {
         <div className="contacts-header">
           <div>
             <div className="card-kicker">YOUR ADDRESS BOOK</div>
-            <h2 id="contacts-heading">Contacts</h2>
+            <h2 id="contacts-heading">
+              Contacts <span className="contacts-count">{contacts.length}</span>
+            </h2>
             <p>Keep the people you call close at hand.</p>
           </div>
           <button
@@ -132,21 +145,16 @@ export default function Contacts({ onDial }) {
           >
             <Plus size={16} /> Add contact
           </button>
-        </div>
-        <div className="contacts-toolbar">
-          <div>
-            <strong>All contacts</strong>
-            <span>
-              {contacts.length} {contacts.length === 1 ? "contact" : "contacts"}
-            </span>
-          </div>
           <div className="search contacts-search">
             <Search size={15} />
             <input
               aria-label="Search contacts"
               placeholder="Search contacts"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
             />
           </div>
         </div>
@@ -181,7 +189,7 @@ export default function Contacts({ onDial }) {
           </div>
         ) : (
           <div className="contacts-list">
-            {filtered.map((contact) => (
+            {pageContacts.map((contact) => (
               <article className="contact-row" key={contact.id}>
                 <div className="avatar avatar-contact">
                   {initialLetters(contact.name)}
@@ -231,9 +239,18 @@ export default function Contacts({ onDial }) {
             ))}
           </div>
         )}
-        <div className="activity-foot">
-          <span>Saved to your address book</span>
-        </div>
+        <Pagination
+          label="Contacts pagination"
+          page={currentPage}
+          pageSize={pageSize}
+          hasMore={currentPage * pageSize < filtered.length}
+          loading={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPage(1);
+            setPageSize(size);
+          }}
+        />
       </section>
       {editing && (
         <div
