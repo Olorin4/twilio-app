@@ -4,13 +4,7 @@ from Twilio
 
 const twilio = require("twilio");
 const { accountSid, authToken } = require("./token");
-const { Pool } = require("pg");
-
-// Configure PostgreSQL connection
-const pool = new Pool({
-  connectionString: process.env.DB_URL,
-  ssl: { rejectUnauthorized: false },
-});
+const pool = require("./db");
 
 const client = twilio(accountSid, authToken);
 

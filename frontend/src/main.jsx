@@ -25,9 +25,11 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  UsersRound,
   X,
 } from "lucide-react";
 import { useVoice } from "./useVoice";
+import Contacts from "./Contacts";
 import "./styles.css";
 
 const keypad = [
@@ -192,7 +194,7 @@ function App() {
           >
             <Phone size={18} />
             <span>Phone</span>
-            <span className="nav-active" />
+            {view === "calls" && <span className="nav-active" />}
           </button>
           <button
             className={view === "messages" ? "nav-link selected" : "nav-link"}
@@ -203,6 +205,18 @@ function App() {
           >
             <MessageSquare size={18} />
             <span>Messages</span>
+            {view === "messages" && <span className="nav-active" />}
+          </button>
+          <button
+            className={view === "contacts" ? "nav-link selected" : "nav-link"}
+            onClick={() => {
+              setView("contacts");
+              setSearch("");
+            }}
+          >
+            <UsersRound size={18} />
+            <span>Contacts</span>
+            {view === "contacts" && <span className="nav-active" />}
           </button>
         </nav>
         <div className="sidebar-bottom">
@@ -222,7 +236,13 @@ function App() {
           <div className="breadcrumb">
             <span>Workspace</span>
             <span className="crumb-slash">/</span>
-            <strong>{view === "calls" ? "Phone" : "Messages"}</strong>
+            <strong>
+              {view === "calls"
+                ? "Phone"
+                : view === "messages"
+                  ? "Messages"
+                  : "Contacts"}
+            </strong>
           </div>
           <div className="topbar-right">
             <div className="status-control" ref={statusRef}>
@@ -301,20 +321,28 @@ function App() {
                 <span className="eyebrow-dot" /> DISPATCH WORKSPACE
               </div>
               <h1>
-                {view === "calls" ? "Phone" : "Messages"}
+                {view === "calls"
+                  ? "Phone"
+                  : view === "messages"
+                    ? "Messages"
+                    : "Contacts"}
                 <span className="heading-period">.</span>
               </h1>
               <p>
                 {view === "calls"
                   ? "Your calls and conversations, all in one place."
-                  : "Keep up with messages coming into your number."}
+                  : view === "messages"
+                    ? "Keep up with messages coming into your number."
+                    : "Your people, one call away."}
               </p>
             </div>
-            <div className="heading-actions">
-              <button className="button button-light" onClick={refresh}>
-                <RefreshCw size={15} /> Refresh
-              </button>
-            </div>
+            {view !== "contacts" && (
+              <div className="heading-actions">
+                <button className="button button-light" onClick={refresh}>
+                  <RefreshCw size={15} /> Refresh
+                </button>
+              </div>
+            )}
           </div>
           {voice.error && (
             <div className="notice error" role="alert">
@@ -481,157 +509,166 @@ function App() {
                 <span>Connected securely with Twilio</span>
               </div>
             </section>
-            <section className="activity-card card">
-              <div className="activity-heading">
-                <div>
-                  <div className="card-kicker">YOUR ACTIVITY</div>
-                  <h2>
-                    {view === "calls" ? "Recent calls" : "Incoming messages"}
-                  </h2>
-                  <p>
-                    {view === "calls"
-                      ? "Your latest conversations at a glance."
-                      : "Recent messages received on your number."}
-                  </p>
-                </div>
-                <div className="activity-icon">
-                  {view === "calls" ? (
-                    <History size={19} />
-                  ) : (
-                    <MessageSquare size={19} />
-                  )}
-                </div>
-              </div>
-              <div className="activity-tabs">
-                <button
-                  className={view === "calls" ? "active" : ""}
-                  onClick={() => {
-                    setView("calls");
-                    setSearch("");
-                  }}
-                >
-                  <Phone size={15} /> Calls <span>{calls.length}</span>
-                </button>
-                <button
-                  className={view === "messages" ? "active" : ""}
-                  onClick={() => {
-                    setView("messages");
-                    setSearch("");
-                  }}
-                >
-                  <MessageSquare size={15} /> Messages{" "}
-                  <span>{messages.length}</span>
-                </button>
-              </div>
-              <div className="list-toolbar">
-                <div>
-                  <strong>
-                    {view === "calls" ? "Call history" : "Message history"}
-                  </strong>
-                  <span>Latest 10</span>
-                </div>
-                <div className="search">
-                  <Search size={15} />
-                  <input
-                    aria-label="Search activity"
-                    placeholder="Search"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-              {loadError && (
-                <div className="list-notice" role="alert">
-                  {loadError} <button onClick={refresh}>Retry</button>
-                </div>
-              )}
-              {loading ? (
-                <div className="empty">Loading activity…</div>
-              ) : !filtered.length ? (
-                <div className="empty">
-                  <div className="empty-icon">
+            {view === "contacts" ? (
+              <Contacts
+                onDial={(phone) => {
+                  setNumber(phone);
+                  setView("calls");
+                }}
+              />
+            ) : (
+              <section className="activity-card card">
+                <div className="activity-heading">
+                  <div>
+                    <div className="card-kicker">YOUR ACTIVITY</div>
+                    <h2>
+                      {view === "calls" ? "Recent calls" : "Incoming messages"}
+                    </h2>
+                    <p>
+                      {view === "calls"
+                        ? "Your latest conversations at a glance."
+                        : "Recent messages received on your number."}
+                    </p>
+                  </div>
+                  <div className="activity-icon">
                     {view === "calls" ? (
-                      <Phone size={23} />
+                      <History size={19} />
                     ) : (
-                      <MessageSquare size={23} />
+                      <MessageSquare size={19} />
                     )}
                   </div>
-                  <strong>
-                    {search
-                      ? "No matching activity"
-                      : view === "calls"
-                        ? "No calls yet"
-                        : "No messages yet"}
-                  </strong>
-                  <span>
-                    {search
-                      ? "Try a different search."
-                      : view === "calls"
-                        ? "Your recent calls will appear here."
-                        : "Messages sent to your number will appear here."}
-                  </span>
                 </div>
-              ) : (
-                <div className="activity-list">
-                  {filtered.map((row, index) => {
-                    const name = displayName(row);
-                    return (
-                      <div className="activity-row" key={row.id ?? index}>
-                        <div className="avatar avatar-contact">
-                          {initials(name)}
-                        </div>
-                        <div className="row-main">
-                          <strong>{name}</strong>
-                          <span>
-                            {view === "calls" ? (
-                              <>
-                                <ArrowDownLeft size={13} />{" "}
-                                {row.from_number || "Unknown"}
-                                {row.company_name
-                                  ? ` · ${row.company_name}`
-                                  : ""}
-                              </>
-                            ) : (
-                              row.body || "[No message content]"
+                <div className="activity-tabs">
+                  <button
+                    className={view === "calls" ? "active" : ""}
+                    onClick={() => {
+                      setView("calls");
+                      setSearch("");
+                    }}
+                  >
+                    <Phone size={15} /> Calls <span>{calls.length}</span>
+                  </button>
+                  <button
+                    className={view === "messages" ? "active" : ""}
+                    onClick={() => {
+                      setView("messages");
+                      setSearch("");
+                    }}
+                  >
+                    <MessageSquare size={15} /> Messages{" "}
+                    <span>{messages.length}</span>
+                  </button>
+                </div>
+                <div className="list-toolbar">
+                  <div>
+                    <strong>
+                      {view === "calls" ? "Call history" : "Message history"}
+                    </strong>
+                    <span>Latest 10</span>
+                  </div>
+                  <div className="search">
+                    <Search size={15} />
+                    <input
+                      aria-label="Search activity"
+                      placeholder="Search"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {loadError && (
+                  <div className="list-notice" role="alert">
+                    {loadError} <button onClick={refresh}>Retry</button>
+                  </div>
+                )}
+                {loading ? (
+                  <div className="empty">Loading activity…</div>
+                ) : !filtered.length ? (
+                  <div className="empty">
+                    <div className="empty-icon">
+                      {view === "calls" ? (
+                        <Phone size={23} />
+                      ) : (
+                        <MessageSquare size={23} />
+                      )}
+                    </div>
+                    <strong>
+                      {search
+                        ? "No matching activity"
+                        : view === "calls"
+                          ? "No calls yet"
+                          : "No messages yet"}
+                    </strong>
+                    <span>
+                      {search
+                        ? "Try a different search."
+                        : view === "calls"
+                          ? "Your recent calls will appear here."
+                          : "Messages sent to your number will appear here."}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="activity-list">
+                    {filtered.map((row, index) => {
+                      const name = displayName(row);
+                      return (
+                        <div className="activity-row" key={row.id ?? index}>
+                          <div className="avatar avatar-contact">
+                            {initials(name)}
+                          </div>
+                          <div className="row-main">
+                            <strong>{name}</strong>
+                            <span>
+                              {view === "calls" ? (
+                                <>
+                                  <ArrowDownLeft size={13} />{" "}
+                                  {row.from_number || "Unknown"}
+                                  {row.company_name
+                                    ? ` · ${row.company_name}`
+                                    : ""}
+                                </>
+                              ) : (
+                                row.body || "[No message content]"
+                              )}
+                            </span>
+                          </div>
+                          <div className="row-end">
+                            <time>{formatDate(row.timestamp)}</time>
+                            {view === "calls" && row.from_number && (
+                              <button
+                                className="quick-call"
+                                aria-label={`Dial ${row.from_number}`}
+                                onClick={() => {
+                                  setNumber(row.from_number);
+                                  setView("calls");
+                                }}
+                              >
+                                <Phone size={15} />
+                              </button>
                             )}
-                          </span>
+                          </div>
                         </div>
-                        <div className="row-end">
-                          <time>{formatDate(row.timestamp)}</time>
-                          {view === "calls" && row.from_number && (
-                            <button
-                              className="quick-call"
-                              aria-label={`Dial ${row.from_number}`}
-                              onClick={() => {
-                                setNumber(row.from_number);
-                                setView("calls");
-                              }}
-                            >
-                              <Phone size={15} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="activity-foot">
-                <span>Updates every minute</span>
-                <span className="foot-indicator">
-                  <span /> LIVE ACTIVITY
-                </span>
-              </div>
-              {view === "messages" && (
-                <div className="message-note">
-                  <CircleHelp size={16} />
-                  <span>
-                    This inbox shows received messages. Sending messages is not
-                    available yet.
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="activity-foot">
+                  <span>Updates every minute</span>
+                  <span className="foot-indicator">
+                    <span /> LIVE ACTIVITY
                   </span>
                 </div>
-              )}
-            </section>
+                {view === "messages" && (
+                  <div className="message-note">
+                    <CircleHelp size={16} />
+                    <span>
+                      This inbox shows received messages. Sending messages is
+                      not available yet.
+                    </span>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
           <div className="page-footer">
             <span>© {new Date().getFullYear()} Iron Wing Dispatching</span>

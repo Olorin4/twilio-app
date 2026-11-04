@@ -11,7 +11,8 @@
     "lint": "npm run eslint",
     "format": "prettier --write .",
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "migrate:contacts": "node scripts/migrate-contacts.js"
   },
   "repository": {
     "type": "git",

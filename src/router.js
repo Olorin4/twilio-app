@@ -10,11 +10,14 @@ const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getMessageLogs } = require("./logManager");
 const { sendFax, getFaxStatus } = require("./sendFax");
 const { validateWebhook } = require("./security");
+const contactsRouter = require("./contacts");
 
 // Debugging
 console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
 
 const router = new Router();
+
+router.use("/contacts", contactsRouter);
 
 router.get("/", (req, res) => res.send("Twilio VoIP API is running!"));
 

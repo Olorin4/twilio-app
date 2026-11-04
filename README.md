@@ -5,8 +5,8 @@ This app logs incoming/outgoing calls and messages, provides a real-time call lo
 
 The frontend is a React application built with Vite. The server provides the
 Twilio token, voice and SMS webhooks, and recent activity endpoints. Incoming
-SMS can be viewed in the app; outbound SMS and contact management are not yet
-implemented.
+SMS can be viewed in the app; outbound SMS is not yet implemented. The phone
+address book is stored separately from existing driver and company records.
 
 ---
 
@@ -103,6 +103,12 @@ Set `APP_PASSWORD` to a strong password and `TWILIO_WEBHOOK_BASE_URL` to the
 public HTTPS origin. Sign in with username `operator` and that password. Voice
 and SMS webhooks must use the matching public origin and Twilio request
 signatures.
+
+Before using Contacts, run `npm run migrate:contacts` once against the intended
+database. This creates the `phone_contacts` table without modifying existing
+driver or company records. The migration is safe to rerun. For a local
+PostgreSQL instance without TLS, set `DB_SSL=false`; production defaults to
+the existing TLS connection settings.
 
 or with PM2:
 
