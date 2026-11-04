@@ -1050,6 +1050,11 @@ h1 {
   letter-spacing: -0.45px;
   margin-top: 8px;
 }
+.contacts-header::before {
+  content: "";
+  flex-basis: 100%;
+  order: 1;
+}
 .contacts-header p {
   margin-top: 7px;
   font-size: 12px;
@@ -1065,7 +1070,8 @@ h1 {
 }
 .contacts-search {
   width: 185px;
-  margin-right: calc(100% - 185px);
+  margin-left: auto;
+  order: 2;
 }
 .contacts-list {
   padding: 0 28px;
@@ -1195,7 +1201,6 @@ h1 {
   }
   .contacts-search {
     width: 155px;
-    margin-right: calc(100% - 155px);
   }
 }
 @media (max-width: 430px) {
