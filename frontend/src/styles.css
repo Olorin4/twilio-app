@@ -1382,3 +1382,40 @@ h1 {
     grid-column: 1 / -1;
   }
 }
+
+.list-toolbar {
+  justify-content: flex-end;
+}
+
+.sidebar-copyright {
+  color: #91a69a;
+  font-size: 10px;
+  padding: 0 9px;
+}
+.page-footer {
+  justify-content: flex-end;
+}
+@media (max-width: 760px) {
+  .sidebar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .sidebar-copyright {
+    flex-basis: 100%;
+    padding: 0;
+  }
+}
+
+.activity-search {
+  margin-left: auto;
+  align-self: center;
+  min-width: 0;
+}
+@media (max-width: 520px) {
+  .activity-tabs {
+    gap: 12px;
+  }
+  .activity-search {
+    width: 120px;
+  }
+}

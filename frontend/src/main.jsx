@@ -11,7 +11,6 @@ import {
   Mic,
   MicOff,
   Phone,
-  PhoneCall,
   PhoneIncoming,
   PhoneOff,
   RefreshCw,
@@ -353,6 +352,9 @@ function App() {
             </div>
           </div>
         </div>
+        <div className="sidebar-copyright">
+          © {new Date().getFullYear()} Iron Wing Dispatching
+        </div>
       </aside>
       <main className="main">
         <header className="topbar">
@@ -541,19 +543,11 @@ function App() {
           <div className="content-grid">
             <div className="communication-panel">
               <section className="dial-card card" aria-label="Phone dialer">
-                <div className="card-top">
-                  <div>
-                    <h2>Make a call</h2>
-                  </div>
-                  <div className="dial-icon">
-                    <PhoneCall size={19} />
-                  </div>
-                </div>
                 <div className={`phone-status ${online ? "ready" : ""}`}>
                   <span className="status-pulse" />
                   <span>
                     {online
-                      ? "Ready to make and receive calls"
+                      ? "Ready to make and receive calls and messages"
                       : voice.connection === "connecting"
                         ? "Connecting to your phone…"
                         : "Connect your phone to get started"}
@@ -680,11 +674,8 @@ function App() {
                   ) : (
                     <button
                       className="call-button"
-                      disabled={!smsOpen && (!online || !number.trim())}
-                      onClick={() => {
-                        setSmsOpen(false);
-                        if (online && number.trim()) voice.dial(number);
-                      }}
+                      disabled={!online || !number.trim()}
+                      onClick={() => voice.dial(number)}
                     >
                       <Phone size={18} /> Call number
                     </button>
@@ -770,9 +761,8 @@ function App() {
               <section className="activity-card card">
                 <div className="activity-heading">
                   <div>
-                    <div className="card-kicker">YOUR ACTIVITY</div>
                     <h2>
-                      {view === "calls" ? "Recent calls" : "Recent messages"}
+                      {view === "calls" ? "Call history" : "Message history"}
                     </h2>
                     <p>
                       {view === "calls"
@@ -805,14 +795,7 @@ function App() {
                   >
                     <MessageSquare size={15} /> Messages
                   </button>
-                </div>
-                <div className="list-toolbar">
-                  <div>
-                    <strong>
-                      {view === "calls" ? "Call history" : "Message history"}
-                    </strong>
-                  </div>
-                  <div className="search">
+                  <div className="search activity-search">
                     <Search size={15} />
                     <input
                       aria-label="Search activity"
@@ -962,7 +945,6 @@ function App() {
             )}
           </div>
           <div className="page-footer">
-            <span>© {new Date().getFullYear()} Iron Wing Dispatching</span>
             <span>
               Built for the road ahead <span className="footer-star">✦</span>
             </span>
