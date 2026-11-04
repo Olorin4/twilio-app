@@ -800,6 +800,7 @@ function App() {
               <section className="activity-card card">
                 <div className="activity-heading">
                   <div>
+                    <div className="card-kicker">YOUR ACTIVITY</div>
                     <h2>
                       {view === "calls" ? "Call history" : "Message history"}
                     </h2>
