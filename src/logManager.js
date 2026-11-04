@@ -50,7 +50,10 @@ exports.syncCallLogs = async () => {
       await pool.query(
         `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (call_sid) DO NOTHING;`,
+         ON CONFLICT (call_sid) DO UPDATE SET
+           status = COALESCE(EXCLUDED.status, call_logs.status),
+           duration = COALESCE(EXCLUDED.duration, call_logs.duration),
+           direction = COALESCE(EXCLUDED.direction, call_logs.direction);`,
         [
           call.sid,
           call.startTime,
@@ -80,7 +83,13 @@ exports.syncSmsLogs = async () => {
         `INSERT INTO message_logs (message_sid, from_number, to_number, body, timestamp)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (message_sid) DO NOTHING;`,
-        [message.sid, message.from, message.to, message.body, message.dateSent],
+        [
+          message.sid,
+          message.from,
+          message.to,
+          message.body,
+          message.dateSent || message.dateCreated,
+        ],
       );
     }
 
@@ -90,15 +99,31 @@ exports.syncSmsLogs = async () => {
   }
 };
 
+function historyParams(req) {
+  const page = Number(req.query?.page ?? 1);
+  const search =
+    typeof req.query?.search === "string"
+      ? req.query.search.trim().slice(0, 120).toLowerCase()
+      : "";
+  if (!Number.isSafeInteger(page) || page < 1 || page > 100000) return null;
+  return { offset: (page - 1) * 10, search };
+}
+
 // Fetch Call Logs
 exports.getCallLogs = async (req, res) => {
+  const params = historyParams(req);
+  if (!params) return res.status(400).json({ error: "Invalid page." });
   try {
     console.log("📥 [DEBUG] Fetching call log from postgreSQL...");
 
-    const result = await pool.query(`
+    const result = await pool.query(
+      `
       SELECT cl.id, 
              cl.from_number, 
              cl.to_number, 
+             cl.direction,
+             cl.duration,
+             (cl.from_number = $1) AS outgoing,
              cl.timestamp,
              d.first_name AS driver_first_name, 
              d.last_name AS driver_last_name, 
@@ -106,11 +131,16 @@ exports.getCallLogs = async (req, res) => {
       FROM call_logs cl
       LEFT JOIN driver d ON cl.driver_id = d.id
       LEFT JOIN company c ON d.company_id = c.id
-      ORDER BY cl.timestamp DESC
-      LIMIT 10;
-    `);
+      WHERE $2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
+         OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0)
+      ORDER BY cl.timestamp DESC NULLS LAST, cl.id DESC
+      LIMIT 11 OFFSET $3;
+    `,
+      [process.env.TWILIO_CALLER_ID, params.search, params.offset],
+    );
 
-    res.json(result.rows);
+    res.set("X-Has-More", String(result.rows.length > 10));
+    res.json(result.rows.slice(0, 10));
   } catch (err) {
     console.error("❌ [ERROR] Failed to fetch call log:", err.message);
     res
@@ -121,13 +151,17 @@ exports.getCallLogs = async (req, res) => {
 
 // Get SMS logs
 exports.getMessageLogs = async (req, res) => {
+  const params = historyParams(req);
+  if (!params) return res.status(400).json({ error: "Invalid page." });
   try {
     console.log("📥 [DEBUG] Fetching message log from postgreSQL...");
 
-    const result = await pool.query(`
+    const result = await pool.query(
+      `
       SELECT m.id, 
              m.from_number, 
              m.to_number, 
+             (m.from_number = $1) AS outgoing,
              m.body, 
              m.timestamp,
              d.first_name AS driver_first_name, 
@@ -136,11 +170,16 @@ exports.getMessageLogs = async (req, res) => {
       FROM message_logs m
       LEFT JOIN driver d ON m.driver_id = d.id
       LEFT JOIN company c ON d.company_id = c.id
-      ORDER BY m.timestamp DESC
-      LIMIT 10;
-    `);
+      WHERE $2 = '' OR position($2 in lower(concat_ws(' ', m.from_number, m.to_number, m.body, d.first_name, d.last_name, c.name))) > 0
+         OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.phone IN (m.from_number, m.to_number) AND position($2 in lower(pc.name)) > 0)
+      ORDER BY m.timestamp DESC NULLS LAST, m.id DESC
+      LIMIT 11 OFFSET $3;
+    `,
+      [process.env.TWILIO_CALLER_ID, params.search, params.offset],
+    );
 
-    res.json(result.rows);
+    res.set("X-Has-More", String(result.rows.length > 10));
+    res.json(result.rows.slice(0, 10));
   } catch (err) {
     console.error("❌ [ERROR] Failed to fetch message log:", err.message);
     res

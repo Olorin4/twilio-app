@@ -1,16 +1,9 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowDownLeft,
   AudioLines,
   ChevronDown,
-  CircleHelp,
   Delete,
   Headphones,
   History,
@@ -23,9 +16,11 @@ import {
   PhoneOff,
   RefreshCw,
   Search,
+  Send,
   Settings2,
   ShieldCheck,
   UsersRound,
+  UserRound,
   X,
 } from "lucide-react";
 import { useVoice } from "./useVoice";
@@ -46,14 +41,14 @@ const keypad = [
   ["0", "+"],
   ["#", ""],
 ];
-const initials = (name) =>
-  (name || "?")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join("")
-    .toUpperCase();
+const normalizePhone = (value) => String(value || "").replace(/[\s().-]/g, "");
+const activityNumber = (row, view) => {
+  if (view === "messages")
+    return row.outgoing ? row.to_number : row.from_number;
+  return row.direction?.startsWith("outbound") || row.outgoing
+    ? row.to_number
+    : row.from_number;
+};
 const displayName = (row) =>
   [row.driver_first_name, row.driver_last_name].filter(Boolean).join(" ") ||
   row.company_name ||
@@ -75,6 +70,32 @@ const formatDate = (value) => {
   );
 };
 
+const formatActivityDate = (value) => {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime()))
+    return "Date and time unavailable";
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+const formatDuration = (value) => {
+  if (value === null || value === undefined || value === "")
+    return "Duration unavailable";
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return "Duration unavailable";
+  const total = Math.floor(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = String(total % 60).padStart(2, "0");
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${remainder}`
+    : `${minutes}:${remainder}`;
+};
+
 function App() {
   const voice = useVoice();
   const [view, setView] = useState("calls");
@@ -82,12 +103,22 @@ function App() {
   const [search, setSearch] = useState("");
   const [calls, setCalls] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState({ calls: false, messages: false });
+  const activityRequest = useRef(0);
+  const [contacts, setContacts] = useState([]);
+  const [smsTo, setSmsTo] = useState("");
+  const [smsBody, setSmsBody] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsFeedback, setSmsFeedback] = useState(null);
+  const smsInFlight = useRef(false);
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [audioOpen, setAudioOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [statusTime, setStatusTime] = useState(Date.now());
   const statusRef = useRef(null);
+  const audioRef = useRef(null);
 
   useEffect(() => {
     if (!statusOpen) return;
@@ -111,11 +142,31 @@ function App() {
     };
   }, [statusOpen]);
 
+  useEffect(() => {
+    if (!audioOpen) return;
+    const dismiss = (event) => {
+      if (
+        (event.type === "keydown" && event.key === "Escape") ||
+        (event.type === "pointerdown" &&
+          !audioRef.current?.contains(event.target))
+      )
+        setAudioOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", dismiss);
+    };
+  }, [audioOpen]);
+
   const refresh = useCallback(async () => {
+    const requestId = ++activityRequest.current;
     try {
+      const query = new URLSearchParams({ page: String(page), search });
       const [callResponse, messageResponse] = await Promise.all([
-        fetch("/call-logs"),
-        fetch("/message-logs"),
+        fetch(`/call-logs?${query}`),
+        fetch(`/message-logs?${query}`),
       ]);
       if (!callResponse.ok || !messageResponse.ok)
         throw new Error("Could not load recent activity. Please try again.");
@@ -123,33 +174,89 @@ function App() {
         callResponse.json(),
         messageResponse.json(),
       ]);
+      if (requestId !== activityRequest.current) return;
       setCalls(callData);
       setMessages(messageData);
+      setHasMore({
+        calls: callResponse.headers.get("X-Has-More") === "true",
+        messages: messageResponse.headers.get("X-Has-More") === "true",
+      });
       setLoadError("");
     } catch (err) {
-      setLoadError(err.message);
+      if (requestId === activityRequest.current) setLoadError(err.message);
     } finally {
-      setLoading(false);
+      if (requestId === activityRequest.current) setLoading(false);
     }
-  }, []);
+  }, [page, search]);
   useEffect(() => {
+    setLoading(true);
     refresh();
     const interval = setInterval(refresh, 60000);
     return () => clearInterval(interval);
   }, [refresh]);
+  const sendMessage = async (event) => {
+    event.preventDefault();
+    if (smsInFlight.current) return;
+    smsInFlight.current = true;
+    setSmsSending(true);
+    setSmsFeedback(null);
+    try {
+      let response;
+      try {
+        response = await fetch("/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: smsTo, body: smsBody }),
+        });
+      } catch {
+        throw new Error(
+          "Could not confirm if the message was sent. Check Twilio before retrying.",
+        );
+      }
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.error || "Could not send the message.");
+      setSmsBody("");
+      setSmsFeedback({
+        success: true,
+        text: data.saved
+          ? "Accepted by Twilio. Delivery is not yet confirmed."
+          : "Accepted by Twilio, but history could not be updated. Do not resend; check Twilio.",
+      });
+      refresh();
+    } catch (error) {
+      setSmsFeedback({
+        success: false,
+        text:
+          error.message ||
+          "Could not confirm if the message was sent. Check Twilio before retrying.",
+      });
+    } finally {
+      smsInFlight.current = false;
+      setSmsSending(false);
+    }
+  };
+  const refreshContacts = useCallback(async () => {
+    try {
+      const response = await fetch("/contacts");
+      if (response.ok) setContacts(await response.json());
+    } catch {
+      // History remains usable if contacts are temporarily unavailable.
+    }
+  }, []);
+  useEffect(() => {
+    refreshContacts();
+  }, [refreshContacts, view]);
+  const contactFor = (phone) => {
+    const normalized = normalizePhone(phone);
+    if (!/^\+[1-9]\d{7,14}$/.test(normalized)) return null;
+    const matches = contacts.filter(
+      (contact) => normalizePhone(contact.phone) === normalized,
+    );
+    return matches.length === 1 ? matches[0] : null;
+  };
   const rows = view === "calls" ? calls : messages;
-  const filtered = useMemo(
-    () =>
-      rows.filter((row) =>
-        [displayName(row), row.from_number, row.to_number, row.body].some(
-          (part) =>
-            String(part || "")
-              .toLowerCase()
-              .includes(search.toLowerCase()),
-        ),
-      ),
-    [rows, search],
-  );
+  const filtered = rows;
   const online = voice.connection === "online";
   const token = voice.tokenStatus;
   const tokenLabel =
@@ -183,13 +290,13 @@ function App() {
             <small>DISPATCHING</small>
           </div>
         </div>
-        <div className="workspace-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
           <button
             className={view === "calls" ? "nav-link selected" : "nav-link"}
             onClick={() => {
               setView("calls");
               setSearch("");
+              setPage(1);
             }}
           >
             <Phone size={18} />
@@ -201,6 +308,7 @@ function App() {
             onClick={() => {
               setView("messages");
               setSearch("");
+              setPage(1);
             }}
           >
             <MessageSquare size={18} />
@@ -212,6 +320,7 @@ function App() {
             onClick={() => {
               setView("contacts");
               setSearch("");
+              setPage(1);
             }}
           >
             <UsersRound size={18} />
@@ -233,17 +342,6 @@ function App() {
       </aside>
       <main className="main">
         <header className="topbar">
-          <div className="breadcrumb">
-            <span>Workspace</span>
-            <span className="crumb-slash">/</span>
-            <strong>
-              {view === "calls"
-                ? "Phone"
-                : view === "messages"
-                  ? "Messages"
-                  : "Contacts"}
-            </strong>
-          </div>
           <div className="topbar-right">
             <div className="status-control" ref={statusRef}>
               <button
@@ -304,22 +402,93 @@ function App() {
                 </section>
               )}
             </div>
-            <button
-              className="icon-button top-settings"
-              title="Audio settings"
-              aria-label="Audio settings"
-              onClick={() => setAudioOpen(true)}
-            >
-              <Settings2 size={18} />
-            </button>
+            <div className="audio-control" ref={audioRef}>
+              <button
+                className="icon-button top-settings"
+                title="Audio settings"
+                aria-label="Audio settings"
+                aria-expanded={audioOpen}
+                aria-controls="audio-settings"
+                onClick={() => setAudioOpen((open) => !open)}
+              >
+                <Settings2 size={18} />
+              </button>
+              {audioOpen && (
+                <section
+                  className="status-popover audio-popover"
+                  id="audio-settings"
+                  aria-labelledby="audio-title"
+                >
+                  <div className="status-popover-heading">
+                    <strong id="audio-title">Audio settings</strong>
+                  </div>
+                  <p>Choose where you hear calls and incoming ringtones.</p>
+                  {!online ? (
+                    <div className="settings-empty">
+                      Connect your phone to manage audio devices.
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        className="button button-light"
+                        onClick={voice.refreshAudio}
+                      >
+                        <Mic size={16} /> Allow microphone access
+                      </button>
+                      {voice.outputSupported ? (
+                        <div className="settings-fields">
+                          <label>
+                            Speaker
+                            <select
+                              value={voice.speaker}
+                              onChange={(e) =>
+                                voice.chooseOutput("speaker", e.target.value)
+                              }
+                            >
+                              <option value="default">Default device</option>
+                              {voice.outputs
+                                .filter((x) => x.deviceId !== "default")
+                                .map((x) => (
+                                  <option key={x.deviceId} value={x.deviceId}>
+                                    {x.label}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          <label>
+                            Ringtone
+                            <select
+                              value={voice.ringtone}
+                              onChange={(e) =>
+                                voice.chooseOutput("ringtone", e.target.value)
+                              }
+                            >
+                              <option value="default">Default device</option>
+                              {voice.outputs
+                                .filter((x) => x.deviceId !== "default")
+                                .map((x) => (
+                                  <option key={x.deviceId} value={x.deviceId}>
+                                    {x.label}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="settings-empty">
+                          Output selection is not supported in this browser.
+                        </div>
+                      )}
+                    </>
+                  )}
+                </section>
+              )}
+            </div>
           </div>
         </header>
         <div className="page">
           <div className="page-heading">
             <div>
-              <div className="eyebrow">
-                <span className="eyebrow-dot" /> DISPATCH WORKSPACE
-              </div>
               <h1>
                 {view === "calls"
                   ? "Phone"
@@ -332,7 +501,7 @@ function App() {
                 {view === "calls"
                   ? "Your calls and conversations, all in one place."
                   : view === "messages"
-                    ? "Keep up with messages coming into your number."
+                    ? "Send and receive messages from your number."
                     : "Your people, one call away."}
               </p>
             </div>
@@ -359,7 +528,6 @@ function App() {
             <section className="dial-card card" aria-label="Phone dialer">
               <div className="card-top">
                 <div>
-                  <div className="card-kicker">DISPATCH PHONE</div>
                   <h2>Make a call</h2>
                 </div>
                 <div className="dial-icon">
@@ -391,13 +559,15 @@ function App() {
               <div className="dial-field">
                 <label htmlFor="dial-number">PHONE NUMBER</label>
                 <div className="input-wrap">
-                  <button
-                    aria-label="Add plus prefix"
-                    disabled={!!number || running}
-                    onClick={() => setNumber("+")}
-                  >
-                    +
-                  </button>
+                  {!number && (
+                    <button
+                      aria-label="Add plus prefix"
+                      disabled={!!number || running}
+                      onClick={() => setNumber("+")}
+                    >
+                      +
+                    </button>
+                  )}
                   <input
                     id="dial-number"
                     type="tel"
@@ -416,9 +586,6 @@ function App() {
                     <Delete size={19} />
                   </button>
                 </div>
-                <span className="input-hint">
-                  Include country code, e.g. +1
-                </span>
               </div>
               <div
                 className="keypad"
@@ -522,41 +689,93 @@ function App() {
                   <div>
                     <div className="card-kicker">YOUR ACTIVITY</div>
                     <h2>
-                      {view === "calls" ? "Recent calls" : "Incoming messages"}
+                      {view === "calls" ? "Recent calls" : "Recent messages"}
                     </h2>
                     <p>
                       {view === "calls"
                         ? "Your latest conversations at a glance."
-                        : "Recent messages received on your number."}
+                        : "Your latest sent and received messages."}
                     </p>
                   </div>
                   <div className="activity-icon">
-                    {view === "calls" ? (
-                      <History size={19} />
-                    ) : (
-                      <MessageSquare size={19} />
-                    )}
+                    <History size={19} />
                   </div>
                 </div>
+                {view === "messages" && (
+                  <form
+                    className="sms-compose contact-form-grid"
+                    onSubmit={sendMessage}
+                  >
+                    <h3>New message</h3>
+                    <label htmlFor="sms-to">TO</label>
+                    <input
+                      id="sms-to"
+                      type="tel"
+                      autoComplete="tel"
+                      placeholder="+1 555 123 4567"
+                      value={smsTo}
+                      onChange={(event) => setSmsTo(event.target.value)}
+                      required
+                    />
+                    <label htmlFor="sms-body">MESSAGE</label>
+                    <textarea
+                      id="sms-body"
+                      rows="3"
+                      maxLength={1600}
+                      value={smsBody}
+                      onChange={(event) => setSmsBody(event.target.value)}
+                      required
+                    />
+                    <div className="sms-compose-footer">
+                      <small>
+                        {smsBody.length}/1600 characters · Only message
+                        recipients who have consented.
+                      </small>
+                      <button
+                        className="button button-green"
+                        type="submit"
+                        disabled={
+                          smsSending || !smsTo.trim() || !smsBody.trim()
+                        }
+                      >
+                        <Send size={15} />{" "}
+                        {smsSending ? "Sending…" : "Send message"}
+                      </button>
+                    </div>
+                    {smsFeedback && (
+                      <p
+                        className={
+                          smsFeedback.success
+                            ? "sms-success"
+                            : "contact-form-error"
+                        }
+                        role="status"
+                      >
+                        {smsFeedback.text}
+                      </p>
+                    )}
+                  </form>
+                )}
                 <div className="activity-tabs">
                   <button
                     className={view === "calls" ? "active" : ""}
                     onClick={() => {
                       setView("calls");
                       setSearch("");
+                      setPage(1);
                     }}
                   >
-                    <Phone size={15} /> Calls <span>{calls.length}</span>
+                    <Phone size={15} /> Calls
                   </button>
                   <button
                     className={view === "messages" ? "active" : ""}
                     onClick={() => {
                       setView("messages");
                       setSearch("");
+                      setPage(1);
                     }}
                   >
-                    <MessageSquare size={15} /> Messages{" "}
-                    <span>{messages.length}</span>
+                    <MessageSquare size={15} /> Messages
                   </button>
                 </div>
                 <div className="list-toolbar">
@@ -564,7 +783,7 @@ function App() {
                     <strong>
                       {view === "calls" ? "Call history" : "Message history"}
                     </strong>
-                    <span>Latest 10</span>
+                    <span>10 per page</span>
                   </div>
                   <div className="search">
                     <Search size={15} />
@@ -572,7 +791,10 @@ function App() {
                       aria-label="Search activity"
                       placeholder="Search"
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(e) => {
+                        setPage(1);
+                        setSearch(e.target.value);
+                      }}
                     />
                   </div>
                 </div>
@@ -604,17 +826,28 @@ function App() {
                         ? "Try a different search."
                         : view === "calls"
                           ? "Your recent calls will appear here."
-                          : "Messages sent to your number will appear here."}
+                          : "Your messages will appear here."}
                     </span>
                   </div>
                 ) : (
                   <div className="activity-list">
                     {filtered.map((row, index) => {
-                      const name = displayName(row);
+                      const phone = activityNumber(row, view);
+                      const contact = contactFor(phone);
+                      const name = contact?.name || phone || "Unknown number";
                       return (
                         <div className="activity-row" key={row.id ?? index}>
-                          <div className="avatar avatar-contact">
-                            {initials(name)}
+                          <div
+                            className={`avatar ${contact ? "avatar-contact" : "avatar-unknown"}`}
+                          >
+                            {contact ? (
+                              contact.name.trim().charAt(0).toUpperCase()
+                            ) : (
+                              <UserRound
+                                size={20}
+                                aria-label="Unknown contact"
+                              />
+                            )}
                           </div>
                           <div className="row-main">
                             <strong>{name}</strong>
@@ -622,24 +855,32 @@ function App() {
                               {view === "calls" ? (
                                 <>
                                   <ArrowDownLeft size={13} />{" "}
-                                  {row.from_number || "Unknown"}
+                                  {phone || "Unknown"}
                                   {row.company_name
                                     ? ` · ${row.company_name}`
                                     : ""}
                                 </>
                               ) : (
-                                row.body || "[No message content]"
+                                <>
+                                  {row.outgoing ? "Sent · " : "Received · "}
+                                  {row.body || "[No message content]"}
+                                </>
                               )}
                             </span>
                           </div>
                           <div className="row-end">
-                            <time>{formatDate(row.timestamp)}</time>
-                            {view === "calls" && row.from_number && (
+                            <div className="activity-meta">
+                              <time>{formatActivityDate(row.timestamp)}</time>
+                              {view === "calls" && (
+                                <span>{formatDuration(row.duration)}</span>
+                              )}
+                            </div>
+                            {view === "calls" && phone && (
                               <button
                                 className="quick-call"
-                                aria-label={`Dial ${row.from_number}`}
+                                aria-label={`Dial ${phone}`}
                                 onClick={() => {
-                                  setNumber(row.from_number);
+                                  setNumber(phone);
                                   setView("calls");
                                 }}
                               >
@@ -652,21 +893,26 @@ function App() {
                     })}
                   </div>
                 )}
-                <div className="activity-foot">
-                  <span>Updates every minute</span>
-                  <span className="foot-indicator">
-                    <span /> LIVE ACTIVITY
-                  </span>
-                </div>
-                {view === "messages" && (
-                  <div className="message-note">
-                    <CircleHelp size={16} />
-                    <span>
-                      This inbox shows received messages. Sending messages is
-                      not available yet.
-                    </span>
-                  </div>
-                )}
+                <nav
+                  className="activity-pagination"
+                  aria-label="History pagination"
+                >
+                  <button
+                    className="button button-light"
+                    disabled={page === 1 || loading}
+                    onClick={() => setPage((current) => current - 1)}
+                  >
+                    Previous
+                  </button>
+                  <span>Page {page}</span>
+                  <button
+                    className="button button-light"
+                    disabled={!hasMore[view] || loading}
+                    onClick={() => setPage((current) => current + 1)}
+                  >
+                    Next
+                  </button>
+                </nav>
               </section>
             )}
           </div>
@@ -678,100 +924,6 @@ function App() {
           </div>
         </div>
       </main>
-      {audioOpen && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setAudioOpen(false);
-          }}
-        >
-          <section
-            className="modal card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="audio-title"
-          >
-            <div className="modal-title">
-              <div>
-                <div className="card-kicker">PHONE PREFERENCES</div>
-                <h2 id="audio-title">Audio settings</h2>
-              </div>
-              <button
-                className="icon-button"
-                onClick={() => setAudioOpen(false)}
-                aria-label="Close audio settings"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <p>Choose where you hear calls and incoming ringtones.</p>
-            {!online ? (
-              <div className="settings-empty">
-                Connect your phone to manage audio devices.
-              </div>
-            ) : (
-              <>
-                <button
-                  className="button button-light"
-                  onClick={voice.refreshAudio}
-                >
-                  <Mic size={16} /> Allow microphone access
-                </button>
-                {voice.outputSupported ? (
-                  <div className="settings-fields">
-                    <label>
-                      Speaker
-                      <select
-                        value={voice.speaker}
-                        onChange={(e) =>
-                          voice.chooseOutput("speaker", e.target.value)
-                        }
-                      >
-                        <option value="default">Default device</option>
-                        {voice.outputs
-                          .filter((x) => x.deviceId !== "default")
-                          .map((x) => (
-                            <option key={x.deviceId} value={x.deviceId}>
-                              {x.label}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <label>
-                      Ringtone
-                      <select
-                        value={voice.ringtone}
-                        onChange={(e) =>
-                          voice.chooseOutput("ringtone", e.target.value)
-                        }
-                      >
-                        <option value="default">Default device</option>
-                        {voice.outputs
-                          .filter((x) => x.deviceId !== "default")
-                          .map((x) => (
-                            <option key={x.deviceId} value={x.deviceId}>
-                              {x.label}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  </div>
-                ) : (
-                  <div className="settings-empty">
-                    Output selection is not supported in this browser.
-                  </div>
-                )}
-              </>
-            )}
-            <button
-              className="button button-outline modal-done"
-              onClick={() => setAudioOpen(false)}
-            >
-              Done
-            </button>
-          </section>
-        </div>
-      )}
     </div>
   );
 }
