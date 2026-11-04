@@ -347,6 +347,7 @@ h1 {
   box-shadow: 0 4px 22px rgba(39, 61, 42, 0.025);
 }
 .dial-card {
+  min-width: 0;
   padding: 24px 27px 19px;
 }
 .card-top,
@@ -588,6 +589,7 @@ h1 {
   font-size: 10px;
 }
 .activity-card {
+  min-width: 0;
   min-height: 620px;
   display: flex;
   flex-direction: column;
@@ -702,6 +704,7 @@ h1 {
   flex: 1;
 }
 .activity-row {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -979,7 +982,7 @@ h1 {
     flex: 1;
   }
   .content-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .activity-card {
     min-height: 430px;
