@@ -150,46 +150,12 @@ nav {
   line-height: 1.5;
   margin: 4px 0 0;
 }
-.operator {
-  border-top: 1px solid #354b41;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 19px 3px 0;
-}
-.operator > div:nth-child(2) {
-  flex: 1;
-  min-width: 0;
-}
-.operator strong,
-.operator span {
-  display: block;
-}
-.operator strong {
-  font-size: 12px;
-  color: #fff;
-}
-.operator span {
-  font-size: 10px;
-  color: #9bad9e;
-  margin-top: 3px;
-}
-.operator > svg {
-  color: #90a899;
-}
 .avatar {
   display: grid;
   place-items: center;
   flex-shrink: 0;
   border-radius: 50%;
   font-weight: 700;
-}
-.avatar-dark {
-  width: 36px;
-  height: 36px;
-  background: #b4d0ae;
-  color: #243e30;
-  font-size: 11px;
 }
 .main {
   min-width: 0;
@@ -225,6 +191,77 @@ nav {
   color: #77867b;
   font-size: 12px;
 }
+.status-control {
+  position: relative;
+}
+.status-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #617467;
+  font-size: 12px;
+}
+.status-trigger:hover,
+.status-trigger[aria-expanded="true"] {
+  background: #eff4ee;
+}
+.status-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 12px);
+  z-index: 4;
+  width: 280px;
+  padding: 17px;
+  border: 1px solid #e4eae2;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(30, 50, 35, 0.14);
+  color: #304135;
+  font-size: 12px;
+}
+.status-popover-heading,
+.status-detail {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+.status-popover-heading {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #edf1eb;
+}
+.status-popover-heading > strong {
+  font-family: Manrope, sans-serif;
+  font-size: 13px;
+}
+.status-popover-heading > span {
+  color: #8a998d;
+  font-size: 11px;
+}
+.status-popover-heading > .status-online {
+  color: #58885a;
+}
+.status-detail {
+  padding-top: 12px;
+}
+.status-detail > span {
+  color: #8a998d;
+}
+.status-detail > strong {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+}
+.status-popover p {
+  margin-top: 14px;
+  color: #87968a;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .connection-dot,
 .live-dot {
   width: 7px;
@@ -250,13 +287,6 @@ nav {
 }
 .top-settings {
   margin-left: 20px;
-}
-.avatar-small {
-  background: #e6ede4;
-  color: #496f4c;
-  font-size: 10px;
-  width: 32px;
-  height: 32px;
 }
 .page {
   max-width: 1460px;

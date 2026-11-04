@@ -1,15 +1,19 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowDownLeft,
-  ArrowUpRight,
   AudioLines,
   ChevronDown,
   CircleHelp,
   Delete,
   Headphones,
   History,
-  LayoutGrid,
   MessageSquare,
   Mic,
   MicOff,
@@ -79,6 +83,31 @@ function App() {
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [audioOpen, setAudioOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusTime, setStatusTime] = useState(Date.now());
+  const statusRef = useRef(null);
+
+  useEffect(() => {
+    if (!statusOpen) return;
+    setStatusTime(Date.now());
+    const timer = setInterval(() => setStatusTime(Date.now()), 10000);
+    const dismiss = (event) => {
+      if (event.type === "keydown" && event.key === "Escape")
+        setStatusOpen(false);
+      if (
+        event.type === "pointerdown" &&
+        !statusRef.current?.contains(event.target)
+      )
+        setStatusOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", dismiss);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", dismiss);
+    };
+  }, [statusOpen]);
 
   const refresh = useCallback(async () => {
     try {
@@ -120,6 +149,16 @@ function App() {
     [rows, search],
   );
   const online = voice.connection === "online";
+  const token = voice.tokenStatus;
+  const tokenLabel =
+    token.state === "valid" && token.expiresAt && token.expiresAt <= statusTime
+      ? "Expired"
+      : {
+          "not-issued": "Not issued",
+          valid: "Active",
+          refreshing: "Refreshing",
+          "refresh-failed": "Refresh failed",
+        }[token.state];
   const running = !!voice.call;
   const pressing = (value) => {
     if (running && voice.call.phase === "active") voice.digit(value);
@@ -176,14 +215,6 @@ function App() {
               <p>Keep this page open to receive calls.</p>
             </div>
           </div>
-          <div className="operator">
-            <div className="avatar avatar-dark">IW</div>
-            <div>
-              <strong>Dispatch desk</strong>
-              <span>Iron Wing Dispatching</span>
-            </div>
-            <ShieldCheck size={16} />
-          </div>
         </div>
       </aside>
       <main className="main">
@@ -194,14 +225,65 @@ function App() {
             <strong>{view === "calls" ? "Phone" : "Messages"}</strong>
           </div>
           <div className="topbar-right">
-            <span className={`connection-dot ${online ? "connected" : ""}`} />
-            <span>
-              {online
-                ? "Phone connected"
-                : voice.connection === "connecting"
-                  ? "Connecting"
-                  : "Phone offline"}
-            </span>
+            <div className="status-control" ref={statusRef}>
+              <button
+                className="status-trigger"
+                aria-expanded={statusOpen}
+                aria-controls="phone-status-details"
+                onClick={() => setStatusOpen((open) => !open)}
+              >
+                <span
+                  className={`connection-dot ${online ? "connected" : ""}`}
+                />
+                {online
+                  ? "Phone connected"
+                  : voice.connection === "connecting"
+                    ? "Connecting"
+                    : "Phone offline"}
+                <ChevronDown size={14} />
+              </button>
+              {statusOpen && (
+                <section
+                  className="status-popover"
+                  id="phone-status-details"
+                  aria-label="Phone connection details"
+                >
+                  <div className="status-popover-heading">
+                    <strong>Phone status</strong>
+                    <span className={online ? "status-online" : ""}>
+                      {online
+                        ? "Connected"
+                        : voice.connection === "connecting"
+                          ? "Connecting"
+                          : "Offline"}
+                    </span>
+                  </div>
+                  <div className="status-detail">
+                    <span>Access token</span>
+                    <strong>{tokenLabel}</strong>
+                  </div>
+                  <div className="status-detail">
+                    <span>Expires</span>
+                    <strong>
+                      {token.expiresAt ? formatDate(token.expiresAt) : "—"}
+                    </strong>
+                  </div>
+                  <div className="status-detail">
+                    <span>Last refreshed</span>
+                    <strong>
+                      {token.lastRefreshedAt
+                        ? formatDate(token.lastRefreshedAt)
+                        : "Not yet"}
+                    </strong>
+                  </div>
+                  <p>
+                    {token.state === "refresh-failed"
+                      ? "Token refresh failed. Check the phone connection."
+                      : "The phone refreshes its token automatically before it expires."}
+                  </p>
+                </section>
+              )}
+            </div>
             <button
               className="icon-button top-settings"
               title="Audio settings"
@@ -210,7 +292,6 @@ function App() {
             >
               <Settings2 size={18} />
             </button>
-            <div className="avatar avatar-small">IW</div>
           </div>
         </header>
         <div className="page">
@@ -232,12 +313,6 @@ function App() {
             <div className="heading-actions">
               <button className="button button-light" onClick={refresh}>
                 <RefreshCw size={15} /> Refresh
-              </button>
-              <button
-                className="button button-outline"
-                onClick={() => setAudioOpen(true)}
-              >
-                <Settings2 size={15} /> Audio settings
               </button>
             </div>
           </div>

@@ -9,6 +9,16 @@ async function getToken() {
   return data;
 }
 
+function tokenExpiration(token) {
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const { exp } = JSON.parse(atob(payload));
+    return Number.isFinite(exp) ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
 export function useVoice() {
   const deviceRef = useRef(null);
   const callRef = useRef(null);
@@ -17,6 +27,11 @@ export function useVoice() {
   const dialingRef = useRef(false);
   const [connection, setConnection] = useState("offline");
   const [identity, setIdentity] = useState("");
+  const [tokenStatus, setTokenStatus] = useState({
+    state: "not-issued",
+    expiresAt: null,
+    lastRefreshedAt: null,
+  });
   const [call, setCall] = useState(null);
   const [error, setError] = useState("");
   const [muted, setMuted] = useState(false);
@@ -80,6 +95,11 @@ export function useVoice() {
     try {
       const data = await getToken();
       setIdentity(data.identity);
+      setTokenStatus({
+        state: "valid",
+        expiresAt: tokenExpiration(data.token),
+        lastRefreshedAt: null,
+      });
       device = new Device(data.token, { codecPreferences: ["opus", "pcmu"] });
       deviceRef.current = device;
       device.on("registered", () => setConnection("online"));
@@ -99,10 +119,20 @@ export function useVoice() {
         );
       });
       device.on("tokenWillExpire", async () => {
+        setTokenStatus((current) => ({ ...current, state: "refreshing" }));
         try {
           const refreshed = await getToken();
           device.updateToken(refreshed.token);
+          setTokenStatus({
+            state: "valid",
+            expiresAt: tokenExpiration(refreshed.token),
+            lastRefreshedAt: Date.now(),
+          });
         } catch (err) {
+          setTokenStatus((current) => ({
+            ...current,
+            state: "refresh-failed",
+          }));
           setError(err.message);
         }
       });
@@ -209,6 +239,7 @@ export function useVoice() {
   return {
     connection,
     identity,
+    tokenStatus,
     call,
     error,
     setError,
