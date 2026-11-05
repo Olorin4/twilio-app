@@ -371,16 +371,46 @@ function App() {
         </div>
         <nav aria-label="Main navigation">
           <button
-            className={view !== "contacts" ? "nav-link selected" : "nav-link"}
+            className={view === "calls" ? "nav-link selected" : "nav-link"}
             onClick={() => {
-              if (view === "contacts") setView("calls");
+              setView("calls");
               setSearch("");
               setPage(1);
             }}
           >
             <Phone size={18} />
-            <span>Phone</span>
-            {view !== "contacts" && <span className="nav-active" />}
+            <span>Calls</span>
+            {unviewed.calls > 0 ? (
+              <span
+                className="unviewed-count"
+                aria-label={`${unviewed.calls} unviewed calls`}
+              >
+                {unviewed.calls}
+              </span>
+            ) : (
+              view === "calls" && <span className="nav-active" />
+            )}
+          </button>
+          <button
+            className={view === "messages" ? "nav-link selected" : "nav-link"}
+            onClick={() => {
+              setView("messages");
+              setSearch("");
+              setPage(1);
+            }}
+          >
+            <MessageSquare size={18} />
+            <span>Messages</span>
+            {unviewed.messages > 0 ? (
+              <span
+                className="unviewed-count"
+                aria-label={`${unviewed.messages} unviewed messages`}
+              >
+                {unviewed.messages}
+              </span>
+            ) : (
+              view === "messages" && <span className="nav-active" />
+            )}
           </button>
           <button
             className={view === "contacts" ? "nav-link selected" : "nav-link"}
@@ -560,13 +590,19 @@ function App() {
           <div className="page-heading">
             <div>
               <h1>
-                {view === "contacts" ? "Contacts" : "Phone"}
+                {view === "calls"
+                  ? "Calls"
+                  : view === "messages"
+                    ? "Messages"
+                    : "Contacts"}
                 <span className="heading-period">.</span>
               </h1>
               <p>
-                {view === "contacts"
-                  ? "Your people, one call away."
-                  : "Your calls and conversations, all in one place."}
+                {view === "calls"
+                  ? "Your calls and conversations, all in one place."
+                  : view === "messages"
+                    ? "Send and receive messages from your number."
+                    : "Your people, one call away."}
               </p>
             </div>
           </div>
@@ -836,16 +872,7 @@ function App() {
                   setPage(1);
                   setSearch(value);
                 }}
-                tabs={
-                  <>
-                    <button
-                      className={view === "calls" ? "active" : ""}
-                      onClick={() => {
-                        setView("calls");
-                        setSearch("");
-                        setPage(1);
-                      }}
-                    >
+              >
                       <Phone size={15} /> Calls
                       {unviewed.calls > 0 && (
                         <span
