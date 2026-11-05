@@ -14,7 +14,8 @@
     "build": "vite build",
     "migrate:contacts": "node scripts/migrate-contacts.js",
     "migrate:message-delivery": "node scripts/migrate-message-delivery.js",
-    "migrate:activity-views": "node scripts/migrate-activity-views.js"
+    "migrate:activity-views": "node scripts/migrate-activity-views.js",
+    "migrate:twilio-reconciliation": "node scripts/migrate-twilio-reconciliation.js"
   },
   "repository": {
     "type": "git",

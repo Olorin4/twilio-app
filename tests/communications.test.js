@@ -9,8 +9,22 @@ const { smsResponse } = require("../src/smsResponse");
 const { logMessage } = require("../src/logManager");
 
 afterEach(() => {
+  delete process.env.TWILIO_WEBHOOK_BASE_URL;
   jest.useRealTimers();
   jest.clearAllMocks();
+});
+
+test("dialed call legs receive signed-status callback URLs", () => {
+  process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.com";
+  jest.useFakeTimers().setSystemTime(new Date("2026-01-01T15:00:00Z"));
+  const incoming = voiceResponse({ To: "+15551234567" });
+  const outgoing = voiceResponse({ To: "+15557654321" });
+  for (const twiml of [incoming, outgoing]) {
+    expect(twiml).toContain('statusCallback="https://example.com/call-status"');
+    expect(twiml).toContain(
+      'statusCallbackEvent="initiated ringing answered completed"',
+    );
+  }
 });
 
 test("outgoing calls dial with the configured caller ID outside office hours", () => {
@@ -22,7 +36,9 @@ test("outgoing calls dial with the configured caller ID outside office hours", (
 
 test("incoming calls route to the browser during office hours", () => {
   jest.useFakeTimers().setSystemTime(new Date("2026-01-01T15:00:00Z"));
-  expect(voiceResponse({ To: "+15551234567" })).toContain("<Client>operator</Client>");
+  expect(voiceResponse({ To: "+15551234567" })).toContain(
+    "<Client>operator</Client>",
+  );
 });
 
 test.each([
@@ -42,7 +58,12 @@ test.each([
 });
 
 test("incoming SMS is saved and acknowledged with TwiML", async () => {
-  const body = { MessageSid: "SM123", From: "+15557654321", To: "+15551234567", Body: "Hello" };
+  const body = {
+    MessageSid: "SM123",
+    From: "+15557654321",
+    To: "+15551234567",
+    Body: "Hello",
+  };
   const res = { type: jest.fn(), send: jest.fn(), sendStatus: jest.fn() };
   await smsResponse({ body }, res);
   expect(logMessage).toHaveBeenCalledWith(body);

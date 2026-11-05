@@ -15,6 +15,8 @@ const { sendSms } = require("./sendSms");
 const conversations = require("./conversations");
 const { stream } = require("./messageEvents");
 const activityViews = require("./activityViews");
+const callEvents = require("./callEvents");
+const reconciliation = require("./reconciliation");
 
 // Debugging
 console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
@@ -62,6 +64,8 @@ router.post("/sms", validateWebhook, smsResponse);
 router.get("/message-logs", getMessageLogs);
 router.post("/messages", sendSms);
 router.post("/sms-status", validateWebhook, conversations.statusCallback);
+router.post("/call-status", validateWebhook, callEvents.callback);
+router.post("/reconcile", reconciliation.handleRequest);
 router.get("/message-events", stream);
 router.get("/conversations", conversations.list);
 router.get("/conversation", conversations.thread);

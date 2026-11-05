@@ -16,17 +16,33 @@ exports.voiceResponse = function voiceResponse(requestBody) {
   let twiml = new VoiceResponse();
 
   const identity = getIdentity(); // Get the latest identity
+  const callbackBase = (process.env.TWILIO_WEBHOOK_BASE_URL || "").replace(
+    /\/$/,
+    "",
+  );
+  const callbackOptions = callbackBase
+    ? {
+        statusCallback: callbackBase + "/call-status",
+        statusCallbackEvent: "initiated ringing answered completed",
+        statusCallbackMethod: "POST",
+      }
+    : {};
   console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
-  const currentHour = Number(new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    hourCycle: "h23",
-  }).format(new Date()));
+  const currentHour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      hourCycle: "h23",
+    }).format(new Date()),
+  );
   const businessHoursStart = 7;
   const businessHoursEnd = 18;
 
-  if (toNumberOrClientName == callerId && (currentHour < businessHoursStart || currentHour >= businessHoursEnd)) {
+  if (
+    toNumberOrClientName == callerId &&
+    (currentHour < businessHoursStart || currentHour >= businessHoursEnd)
+  ) {
     // If the call is outside business hours, play the closed message
     console.log("🟠 [DEBUG] Outside business hours. Playing closed message.");
     twiml.say(
@@ -37,7 +53,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
     console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
     if (identity) {
       let dial = twiml.dial({ timeout: 20 });
-      dial.client(identity);
+      dial.client(callbackOptions, identity);
     }
 
     // **This message only plays if no one answers within 20 seconds**
@@ -50,7 +66,7 @@ exports.voiceResponse = function voiceResponse(requestBody) {
     const attr = isAValidPhoneNumber(toNumberOrClientName)
       ? "number"
       : "client";
-    dial[attr]({}, toNumberOrClientName);
+    dial[attr](callbackOptions, toNumberOrClientName);
   }
 
   console.log("📞 Generated TwiML:", twiml.toString());

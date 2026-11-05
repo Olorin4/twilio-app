@@ -114,6 +114,20 @@ Run `npm run migrate:activity-views` before using unread activity tracking.
 Incoming calls and messages after the migration are unviewed until acknowledged;
 older history is treated as viewed. The migration is safe to rerun.
 
+Run `npm run migrate:twilio-reconciliation` before starting a release with call
+callbacks and reconciliation. This migration creates call-leg and sync checkpoint
+tables; the first reconciliation looks back at least one day, and subsequent
+runs retain a one-day overlap and resume after downtime. Manual refresh syncs
+with Twilio; a recovery sync also runs every 15 minutes. The previous one-minute
+polling remains enabled by default during rollout. After verifying incoming and
+outgoing signed call callbacks in the deployed app, set
+`TWILIO_CALL_WEBHOOKS_VERIFIED=true` and restart to disable that polling.
+Incoming and outbound
+dialed call legs report progress to `/call-status` using signed webhooks. An
+incoming call routed straight to an office-closed greeting has no dialed client
+leg and cannot be identified as missed by that leg. Historical calls without a
+recovered child leg may also lack a missed-call indicator.
+
 or with PM2:
 
 ```sh

@@ -133,9 +133,10 @@ exports.getCallLogs = async (req, res) => {
              cl.to_number, 
              cl.direction,
              cl.status,
+             (cl.direction = 'inbound' AND EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.status IN ('busy', 'failed', 'no-answer', 'canceled') AND NOT leg.answered) AND NOT EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.answered)) AS missed,
              (cl.direction = 'inbound' AND cl.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
               AND NOT EXISTS (SELECT 1 FROM activity_views v WHERE v.kind = 'call' AND v.item_id = cl.id)) AS unviewed,
-             cl.duration,
+             COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.answered AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration) AS duration,
              (cl.from_number = $1) AS outgoing,
              cl.timestamp,
              d.first_name AS driver_first_name, 

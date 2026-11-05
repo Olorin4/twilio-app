@@ -11,7 +11,7 @@ const ranks = {
   undelivered: 5,
   canceled: 5,
 };
-async function saveStatus(sid, status, errorCode) {
+async function saveStatus(sid, status, errorCode, notify = true) {
   if (!/^SM[a-f0-9]{32}$/i.test(sid || "") || !(status in ranks)) return false;
   await pool.query(
     `INSERT INTO message_delivery (message_sid, status, status_rank, error_code)
@@ -20,7 +20,7 @@ async function saveStatus(sid, status, errorCode) {
     WHERE message_delivery.status_rank < EXCLUDED.status_rank`,
     [sid, status, ranks[status], errorCode || null],
   );
-  publish();
+  if (notify) publish();
   return true;
 }
 async function statusCallback(req, res) {
