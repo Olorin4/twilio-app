@@ -10,6 +10,7 @@ export default defineConfig({
         "/call-logs",
         "/activity-counts",
         "/activity-views",
+        "/reconcile",
         "/message-logs",
         "/message-events",
         "/conversations",

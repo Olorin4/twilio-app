@@ -1,15 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  BookUser,
-  Mail,
-  Pencil,
-  Phone,
-  Plus,
-  Search,
-  Trash2,
-  X,
-} from "lucide-react";
+import { BookUser, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import Pagination from "./Pagination";
+import ActivityTable from "./ActivityTable";
 
 const emptyContact = { name: "", phone: "", company: "", email: "", notes: "" };
 const initialLetters = (name) =>
@@ -127,37 +119,30 @@ export default function Contacts({ onDial }) {
 
   return (
     <>
-      <section
-        className="contacts-card card"
-        aria-labelledby="contacts-heading"
-      >
-        <div className="contacts-header">
-          <div>
-            <div className="card-kicker">YOUR ADDRESS BOOK</div>
-            <h2 id="contacts-heading">
-              Contacts <span className="contacts-count">{contacts.length}</span>
-            </h2>
-            <p>Keep the people you call close at hand.</p>
-          </div>
+      <ActivityTable
+        kicker="YOUR ADDRESS BOOK"
+        title={
+          <>
+            Contacts <span className="contacts-count">{contacts.length}</span>
+          </>
+        }
+        description="Keep the people you call close at hand."
+        headingAction={
           <button
             className="button button-green"
             onClick={() => openEditor(null)}
           >
             <Plus size={16} /> Add contact
           </button>
-          <div className="search contacts-search">
-            <Search size={15} />
-            <input
-              aria-label="Search contacts"
-              placeholder="Search contacts"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-        </div>
+        }
+        searchLabel="Search contacts"
+        searchPlaceholder="Search contacts"
+        searchValue={query}
+        onSearchChange={(value) => {
+          setQuery(value);
+          setPage(1);
+        }}
+      >
         {error && (
           <div className="list-notice" role="alert">
             {error} <button onClick={load}>Retry</button>
@@ -251,7 +236,7 @@ export default function Contacts({ onDial }) {
             setPageSize(size);
           }}
         />
-      </section>
+      </ActivityTable>
       {editing && (
         <div
           className="modal-backdrop"

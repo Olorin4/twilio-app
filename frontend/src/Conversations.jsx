@@ -17,7 +17,11 @@ function time(value) {
       })
     : "Date unavailable";
 }
-export default function Conversations({ contacts, search }) {
+export default function Conversations({
+  contacts,
+  search,
+  refreshRevision = 0,
+}) {
   const [list, setList] = useState([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -92,6 +96,9 @@ export default function Conversations({ contacts, search }) {
     setFeedback("");
     load();
   }, [phone, load]);
+  useEffect(() => {
+    if (refreshRevision) load();
+  }, [refreshRevision, load]);
   useEffect(() => {
     const stream = new EventSource("/message-events");
     stream.addEventListener("ready", load);

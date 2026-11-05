@@ -7,7 +7,6 @@ import {
   CornerDownLeft,
   Delete,
   Headphones,
-  History,
   MessageSquare,
   Mic,
   MicOff,
@@ -15,7 +14,6 @@ import {
   PhoneIncoming,
   PhoneOff,
   RefreshCw,
-  Search,
   Send,
   Settings2,
   ShieldCheck,
@@ -27,6 +25,7 @@ import { useVoice } from "./useVoice";
 import Contacts from "./Contacts";
 import Conversations from "./Conversations";
 import Pagination from "./Pagination";
+import ActivityTable from "./ActivityTable";
 import "./styles.css";
 
 const keypad = [
@@ -116,6 +115,10 @@ function App() {
   const [smsFeedback, setSmsFeedback] = useState(null);
   const smsInFlight = useRef(false);
   const [loadError, setLoadError] = useState("");
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState("");
+  const syncInFlight = useRef(false);
   const [unviewed, setUnviewed] = useState({ calls: 0, messages: 0 });
   const [loading, setLoading] = useState(true);
   const [audioOpen, setAudioOpen] = useState(false);
@@ -237,6 +240,30 @@ function App() {
       setLoadError("Could not mark the call as viewed. Please try again.");
     }
   };
+  const syncActivity = async () => {
+    if (syncInFlight.current) return;
+    syncInFlight.current = true;
+    setSyncing(true);
+    setSyncFeedback("");
+    try {
+      const response = await fetch("/reconcile", { method: "POST" });
+      if (!response.ok)
+        throw new Error("Could not sync with Twilio. Please try again.");
+      await Promise.all([refresh(), refreshCounts()]);
+      setRefreshRevision((current) => current + 1);
+      setSyncFeedback("Synced with Twilio.");
+    } catch {
+      setSyncFeedback("Could not sync with Twilio. Please try again.");
+    } finally {
+      syncInFlight.current = false;
+      setSyncing(false);
+    }
+  };
+  useEffect(() => {
+    if (!syncFeedback) return;
+    const timer = setTimeout(() => setSyncFeedback(""), 5000);
+    return () => clearTimeout(timer);
+  }, [syncFeedback]);
   const sendMessage = async (event) => {
     if (event) event.preventDefault();
     if (smsInFlight.current) return;
@@ -344,28 +371,16 @@ function App() {
         </div>
         <nav aria-label="Main navigation">
           <button
-            className={view === "calls" ? "nav-link selected" : "nav-link"}
+            className={view !== "contacts" ? "nav-link selected" : "nav-link"}
             onClick={() => {
-              setView("calls");
+              if (view === "contacts") setView("calls");
               setSearch("");
               setPage(1);
             }}
           >
             <Phone size={18} />
-            <span>Calls</span>
-            {view === "calls" && <span className="nav-active" />}
-          </button>
-          <button
-            className={view === "messages" ? "nav-link selected" : "nav-link"}
-            onClick={() => {
-              setView("messages");
-              setSearch("");
-              setPage(1);
-            }}
-          >
-            <MessageSquare size={18} />
-            <span>Messages</span>
-            {view === "messages" && <span className="nav-active" />}
+            <span>Phone</span>
+            {view !== "contacts" && <span className="nav-active" />}
           </button>
           <button
             className={view === "contacts" ? "nav-link selected" : "nav-link"}
@@ -545,28 +560,15 @@ function App() {
           <div className="page-heading">
             <div>
               <h1>
-                {view === "calls"
-                  ? "Calls"
-                  : view === "messages"
-                    ? "Messages"
-                    : "Contacts"}
+                {view === "contacts" ? "Contacts" : "Phone"}
                 <span className="heading-period">.</span>
               </h1>
               <p>
-                {view === "calls"
-                  ? "Your calls and conversations, all in one place."
-                  : view === "messages"
-                    ? "Send and receive messages from your number."
-                    : "Your people, one call away."}
+                {view === "contacts"
+                  ? "Your people, one call away."
+                  : "Your calls and conversations, all in one place."}
               </p>
             </div>
-            {view !== "contacts" && (
-              <div className="heading-actions">
-                <button className="button button-light" onClick={refresh}>
-                  <RefreshCw size={15} /> Refresh
-                </button>
-              </div>
-            )}
           </div>
           {voice.error && (
             <div className="notice error" role="alert">
@@ -797,75 +799,95 @@ function App() {
                 }}
               />
             ) : (
-              <section className="activity-card card">
-                <div className="activity-heading">
-                  <div>
-                    <div className="card-kicker">YOUR ACTIVITY</div>
-                    <h2>
-                      {view === "calls" ? "Call history" : "Message history"}
-                    </h2>
-                    <p>
-                      {view === "calls"
-                        ? "Your latest conversations at a glance."
-                        : "Your latest sent and received messages."}
-                    </p>
-                  </div>
-                  <div className="activity-icon">
-                    <History size={19} />
-                  </div>
-                </div>
-                <div className="activity-tabs">
+              <ActivityTable
+                kicker="YOUR ACTIVITY"
+                title={view === "calls" ? "Call history" : "Message history"}
+                description={
+                  view === "calls"
+                    ? "Your latest conversations at a glance."
+                    : "Your latest sent and received messages."
+                }
+                headingAction={
                   <button
-                    className={view === "calls" ? "active" : ""}
-                    onClick={() => {
-                      setView("calls");
-                      setSearch("");
-                      setPage(1);
-                    }}
+                    className="activity-icon activity-refresh"
+                    type="button"
+                    aria-label={
+                      syncing
+                        ? "Syncing with Twilio"
+                        : "Sync activity with Twilio"
+                    }
+                    title={
+                      syncing
+                        ? "Syncing with Twilio"
+                        : "Sync activity with Twilio"
+                    }
+                    disabled={syncing}
+                    onClick={syncActivity}
                   >
-                    <Phone size={15} /> Calls
-                    {unviewed.calls > 0 && (
-                      <span
-                        className="unviewed-count"
-                        aria-label={`${unviewed.calls} unviewed calls`}
-                      >
-                        {unviewed.calls}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    className={view === "messages" ? "active" : ""}
-                    onClick={() => {
-                      setView("messages");
-                      setSearch("");
-                      setPage(1);
-                    }}
-                  >
-                    <MessageSquare size={15} /> Messages
-                    {unviewed.messages > 0 && (
-                      <span
-                        className="unviewed-count"
-                        aria-label={`${unviewed.messages} unviewed messages`}
-                      >
-                        {unviewed.messages}
-                      </span>
-                    )}
-                  </button>
-                  <div className="search activity-search">
-                    <Search size={15} />
-                    <input
-                      aria-label="Search activity"
-                      placeholder="Search"
-                      value={search}
-                      onChange={(e) => {
-                        setPage(1);
-                        setSearch(e.target.value);
-                      }}
+                    <RefreshCw
+                      size={19}
+                      className={syncing ? "sync-spinning" : ""}
                     />
+                  </button>
+                }
+                searchLabel="Search activity"
+                searchValue={search}
+                onSearchChange={(value) => {
+                  setPage(1);
+                  setSearch(value);
+                }}
+                tabs={
+                  <>
+                    <button
+                      className={view === "calls" ? "active" : ""}
+                      onClick={() => {
+                        setView("calls");
+                        setSearch("");
+                        setPage(1);
+                      }}
+                    >
+                      <Phone size={15} /> Calls
+                      {unviewed.calls > 0 && (
+                        <span
+                          className="unviewed-count"
+                          aria-label={`${unviewed.calls} unviewed calls`}
+                        >
+                          {unviewed.calls}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      className={view === "messages" ? "active" : ""}
+                      onClick={() => {
+                        setView("messages");
+                        setSearch("");
+                        setPage(1);
+                      }}
+                    >
+                      <MessageSquare size={15} /> Messages
+                      {unviewed.messages > 0 && (
+                        <span
+                          className="unviewed-count"
+                          aria-label={`${unviewed.messages} unviewed messages`}
+                        >
+                          {unviewed.messages}
+                        </span>
+                      )}
+                    </button>
+                  </>
+                }
+              >
+                {syncFeedback && (
+                  <div className="list-notice" role="status">
+                    {syncFeedback}
                   </div>
-                </div>
+                )}
                 {view === "messages" ? (
-                  <Conversations contacts={contacts} search={search} />
+                  <Conversations
+                    contacts={contacts}
+                    search={search}
+                    refreshRevision={refreshRevision}
+                  />
                 ) : (
                   <>
                     {loadError && (
@@ -905,10 +927,11 @@ function App() {
                           const phone = activityNumber(row, view);
                           const contact = contactFor(phone);
                           const missed =
-                            row.direction === "inbound" &&
-                            ["no-answer", "busy", "canceled"].includes(
-                              row.status,
-                            );
+                            row.missed ||
+                            (row.direction === "inbound" &&
+                              ["no-answer", "busy", "canceled"].includes(
+                                row.status,
+                              ));
                           const name =
                             contact?.name || phone || "Unknown number";
                           return (
@@ -1004,7 +1027,7 @@ function App() {
                     />
                   </>
                 )}
-              </section>
+              </ActivityTable>
             )}
           </div>
         </div>
