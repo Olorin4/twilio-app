@@ -6,6 +6,7 @@ export default function ActivityTable({
   title,
   description,
   headingAction,
+  headingNotice,
   searchLabel,
   searchPlaceholder,
   searchValue,
@@ -20,7 +21,10 @@ export default function ActivityTable({
           <h2>{title}</h2>
           <p>{description}</p>
         </div>
-        {headingAction}
+        <div className="activity-heading-action">
+          {headingAction}
+          {headingNotice}
+        </div>
       </div>
       <div className="activity-tabs">
         <SearchBar

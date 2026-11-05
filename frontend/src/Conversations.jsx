@@ -21,6 +21,7 @@ export default function Conversations({
   contacts,
   search,
   refreshRevision = 0,
+  onErrorChange,
 }) {
   const [list, setList] = useState([]);
   const [page, setPage] = useState(1);
@@ -29,7 +30,6 @@ export default function Conversations({
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
   const [body, setBody] = useState("");
-  const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [sending, setSending] = useState(false);
   const inFlight = useRef(false);
@@ -84,11 +84,18 @@ export default function Conversations({
             throw new Error("Could not mark messages as viewed.");
         }
       }
-      setError("");
+      onErrorChange("");
     } catch (err) {
-      if (version === requestVersion.current) setError(err.message);
+      if (version === requestVersion.current) onErrorChange(err.message);
     }
-  }, []);
+  }, [onErrorChange]);
+  useEffect(
+    () => () => {
+      requestVersion.current++;
+      onErrorChange("");
+    },
+    [onErrorChange],
+  );
   useEffect(() => {
     loadedOlder.current = false;
     setMessages([]);
@@ -126,7 +133,7 @@ export default function Conversations({
       ]);
       setHasMore(data.hasMore);
     } catch (err) {
-      setError(err.message);
+      onErrorChange(err.message);
     }
   };
   const send = async (event) => {
@@ -181,11 +188,6 @@ export default function Conversations({
   );
   return (
     <div className="conversations">
-      {error && (
-        <div className="list-notice" role="alert">
-          {error} <button onClick={load}>Retry</button>
-        </div>
-      )}
       {!phone ? (
         <>
           <div className="conversation-list">

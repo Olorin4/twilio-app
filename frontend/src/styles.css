@@ -111,6 +111,9 @@ nav {
   border-radius: 50%;
   background: #b5d89f;
 }
+.nav-link .unviewed-count {
+  margin-left: auto;
+}
 .sidebar-bottom {
   margin-top: auto;
 }
@@ -616,6 +619,31 @@ h1 {
 .activity-heading {
   padding: 25px 28px 22px;
 }
+.activity-heading-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  min-width: 0;
+  max-width: min(220px, 50%);
+}
+.heading-notice {
+  color: #a44e48;
+  font-size: 11px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.heading-notice-success {
+  color: #426e45;
+}
+.heading-notice button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #426e45;
+  cursor: pointer;
+  text-decoration: underline;
+}
 .activity-heading p {
   margin-top: 7px;
   font-size: 12px;
@@ -626,37 +654,6 @@ h1 {
   gap: 28px;
   padding: 0 28px;
   border-bottom: 1px solid #edf1eb;
-}
-.activity-tabs button {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  position: relative;
-  border: 0;
-  background: none;
-  color: #9aa99c;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 13px 0;
-}
-.activity-tabs button.active {
-  color: #365d3c;
-}
-.activity-tabs button.active:after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: #719d6f;
-}
-.activity-tabs button span:not(.unviewed-count) {
-  border-radius: 5px;
-  padding: 2px 6px;
-  background: #f1f5ef;
-  color: #8a9c8b;
-  font-size: 10px;
 }
 .list-toolbar {
   display: flex;

@@ -135,6 +135,13 @@ export default function Contacts({ onDial }) {
             <Plus size={16} /> Add contact
           </button>
         }
+        headingNotice={
+          error && (
+            <div className="heading-notice" role="alert">
+              {error} <button onClick={load}>Retry</button>
+            </div>
+          )
+        }
         searchLabel="Search contacts"
         searchPlaceholder="Search contacts"
         searchValue={query}
@@ -143,11 +150,6 @@ export default function Contacts({ onDial }) {
           setPage(1);
         }}
       >
-        {error && (
-          <div className="list-notice" role="alert">
-            {error} <button onClick={load}>Retry</button>
-          </div>
-        )}
         {loading ? (
           <div className="empty">Loading contacts…</div>
         ) : error && contacts.length === 0 ? null : filtered.length === 0 ? (

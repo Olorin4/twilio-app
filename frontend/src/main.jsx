@@ -115,6 +115,7 @@ function App() {
   const [smsFeedback, setSmsFeedback] = useState(null);
   const smsInFlight = useRef(false);
   const [loadError, setLoadError] = useState("");
+  const [conversationError, setConversationError] = useState("");
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState("");
@@ -866,6 +867,35 @@ function App() {
                     />
                   </button>
                 }
+                headingNotice={
+                  <>
+                    {loadError && (
+                      <div className="heading-notice" role="alert">
+                        {loadError} <button onClick={refresh}>Retry</button>
+                      </div>
+                    )}
+                    {view === "messages" && conversationError && (
+                      <div className="heading-notice" role="alert">
+                        {conversationError}{" "}
+                        <button
+                          onClick={() =>
+                            setRefreshRevision((current) => current + 1)
+                          }
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {syncFeedback && (
+                      <div
+                        className={`heading-notice ${syncFeedback.startsWith("Synced") ? "heading-notice-success" : ""}`}
+                        role="status"
+                      >
+                        {syncFeedback}
+                      </div>
+                    )}
+                  </>
+                }
                 searchLabel="Search activity"
                 searchValue={search}
                 onSearchChange={(value) => {
@@ -873,55 +903,15 @@ function App() {
                   setSearch(value);
                 }}
               >
-                      <Phone size={15} /> Calls
-                      {unviewed.calls > 0 && (
-                        <span
-                          className="unviewed-count"
-                          aria-label={`${unviewed.calls} unviewed calls`}
-                        >
-                          {unviewed.calls}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      className={view === "messages" ? "active" : ""}
-                      onClick={() => {
-                        setView("messages");
-                        setSearch("");
-                        setPage(1);
-                      }}
-                    >
-                      <MessageSquare size={15} /> Messages
-                      {unviewed.messages > 0 && (
-                        <span
-                          className="unviewed-count"
-                          aria-label={`${unviewed.messages} unviewed messages`}
-                        >
-                          {unviewed.messages}
-                        </span>
-                      )}
-                    </button>
-                  </>
-                }
-              >
-                {syncFeedback && (
-                  <div className="list-notice" role="status">
-                    {syncFeedback}
-                  </div>
-                )}
                 {view === "messages" ? (
                   <Conversations
                     contacts={contacts}
                     search={search}
                     refreshRevision={refreshRevision}
+                    onErrorChange={setConversationError}
                   />
                 ) : (
                   <>
-                    {loadError && (
-                      <div className="list-notice" role="alert">
-                        {loadError} <button onClick={refresh}>Retry</button>
-                      </div>
-                    )}
                     {loading ? (
                       <div className="empty">Loading activity…</div>
                     ) : !filtered.length ? (
