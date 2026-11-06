@@ -612,6 +612,10 @@ function App() {
                     </span>
                   </div>
                   <div className="status-detail">
+                    <span>Phone number</span>
+                    <strong>{voice.phoneNumber || "—"}</strong>
+                  </div>
+                  <div className="status-detail">
                     <span>Access token</span>
                     <strong>{tokenLabel}</strong>
                   </div>
@@ -803,11 +807,6 @@ function App() {
                           : "Connect your phone to get started"}
                     </span>
                   </div>
-                  {voice.phoneNumber && (
-                    <p className="selected-phone-number">
-                      From {voice.phoneNumber}
-                    </p>
-                  )}
                   {!online && (
                     <button
                       className="connect-button"

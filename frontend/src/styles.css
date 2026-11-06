@@ -136,7 +136,6 @@ nav {
 .settings-numbers { display: grid; gap: 10px; }
 .settings-numbers label { display: flex; align-items: center; gap: 8px; }
 .settings-error { color: #a44e48; }
-.selected-phone-number { margin: 8px 0; font-size: 11px; color: #617467; }
 .nav-active {
   margin-left: auto;
   width: 6px;
