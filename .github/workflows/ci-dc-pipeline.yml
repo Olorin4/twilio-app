@@ -1,87 +1,104 @@
 name: CI/CD Pipeline
 
+# CI (tests + frontend build) runs on every push and pull request.
+# Deployment is manual only: Actions -> CI/CD Pipeline -> Run workflow on
+# master. The app runs as the `twilio-app` Docker container on the VPS and is
+# built from source there (see docs/workspaces-and-communications-design.md,
+# "Deployment"). The workflow never writes or replaces the server's .env.
+#
+# Repository secrets required for the deploy job only:
+#   DEPLOY_HOST         VPS hostname or IP
+#   DEPLOY_USER         SSH user that owns ~/apps/twilio-app
+#   DEPLOY_SSH_KEY      private key for that user (use a dedicated deploy key)
+#   DEPLOY_KNOWN_HOSTS  output of `ssh-keyscan -H <host>`, checked in advance
+
 on:
   push:
     branches:
-      - master # Runs when pushing to the master branch
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-    if: github.actor == 'Olorin4'
+  test:
     runs-on: ubuntu-latest
-
     steps:
-      # Step 1: Check out the code
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-      # Step 2: Set up Node.js
-      - name: Read Node.js version from .nvmrc
-        run: echo "NODE_VERSION=$(cat .nvmrc)" >> $GITHUB_ENV
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
+          cache: npm
 
-      # Step 3: Install dependencies
-      - name: Install dependencies
-        run: npm install
+      - run: npm ci
 
-      # Step 4: Run tests (skips failure if no tests exist)
       - name: Run tests
-        run: npm test --passWithNoTests
+        run: npm test
 
-      # Step 5: Generate .env file from GitHub Secrets
-      - name: Generate .env file
-        run: |
-          echo "PORT=${{ secrets.PORT }}" >> .env
-          echo "SERVER_IP=${{ secrets.SERVER_IP }}" >> .env
-          echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" >> .env
-          echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" >> .env
-          echo "TWILIO_TWIML_APP_SID=${{ secrets.TWILIO_TWIML_APP_SID }}" >> .env
-          echo "TWILIO_CALLER_ID=${{ secrets.TWILIO_CALLER_ID }}" >> .env
-          echo "TWILIO_API_KEY=${{ secrets.TWILIO_API_KEY }}" >> .env
-          echo "TWILIO_API_SECRET=${{ secrets.TWILIO_API_SECRET }}" >> .env
-          echo "DB_URL=${{ secrets.DB_URL }}" >> .env
-          echo "EMAIL_HOST=${{ secrets.EMAIL_HOST }}" >> .env
-          echo "EMAIL_USER=${{ secrets.EMAIL_USER }}" >> .env
-          echo "EMAIL_PASS=${{ secrets.EMAIL_PASS }}" >> .env
-          echo "EMAIL_FROM=${{ secrets.EMAIL_FROM }}" >> .env
-          echo "EMAIL_PORT=${{ secrets.EMAIL_PORT }}" >> .env
+      - name: Build frontend
+        run: npm run build
 
-      # Step 6: Deploy to Server (test)
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_AWS_SERVER_KEY }}
+  deploy:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-twilio-app
+      cancel-in-progress: false
+    env:
+      APP_DIR: apps/twilio-app
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Deploy to Server
+      - name: Configure SSH
         env:
-          SERVER_IP: ${{ secrets.SERVER_IP }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
-          # Add server to known hosts
-          ssh-keyscan -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
-          echo "🚀 Transferring files to the server using rsync..."
-          rsync -avz --exclude='node_modules' --exclude='.git' --exclude='.github' --exclude='logs' ./ nick-kalas@$SERVER_IP:/home/nick-kalas/apps/twilio-voip
+      - name: Sync source (leaves the server .env untouched)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          rsync -az --delete \
+            --exclude='/.env' \
+            --filter='P /.env.development' --filter='P /.env.test' \
+            --exclude='.git' --exclude='node_modules' --exclude='dist' \
+            -e "ssh -i ~/.ssh/deploy_key -o BatchMode=yes" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$APP_DIR/"
 
-          echo "🚀 Installing dependencies and restarting PM2..."
-          ssh nick-kalas@$SERVER_IP << 'EOF'
-
-            # Source nvm and use the correct node version
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            nvm use
-
-            cd /home/nick-kalas/apps/twilio-voip
-            
-            echo "🚀 Installing dependencies..."
-            npm install --omit=dev
-
-            echo "🚀 Restarting PM2 application..."
-            export NODE_TLS_REJECT_UNAUTHORIZED=0
-            pm2 restart twilio-voip || pm2 start index.js --name twilio-voip
-            pm2 save
-            
-            echo "✅ Deployment completed successfully."
+      - name: Build and restart twilio-app, roll back on failure
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "SHORT_SHA=$SHORT_SHA APP_DIR=$APP_DIR bash -s" <<'EOF'
+          set -euo pipefail
+          cd "$APP_DIR"
+          # Keep the running image so a failed deploy can be undone.
+          docker tag twilio-app:latest "twilio-app:before-$SHORT_SHA"
+          docker compose up -d --build
+          sleep 10
+          # Any HTTP response below 500 (401 without a login is expected)
+          # means the app is serving; a refused connection or 5xx is a failure.
+          if docker exec twilio-app node -e "require('http').get('http://127.0.0.1:3001/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"; then
+            docker tag twilio-app:latest "twilio-app:release-$SHORT_SHA"
+            echo "Deployed $SHORT_SHA"
+          else
+            echo "Health check failed; rolling back to the previous image" >&2
+            docker tag "twilio-app:before-$SHORT_SHA" twilio-app:latest
+            docker compose up -d --no-build
+            exit 1
+          fi
           EOF
