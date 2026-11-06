@@ -1,80 +1,16 @@
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches:
-      - master # Runs when pushing to the master branch
-
-jobs:
-  build:
-    if: github.actor == 'Olorin4'
-    runs-on: ubuntu-latest
-
-    steps:
-      # Step 1: Check out the code
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      # Step 2: Set up Node.js
-      - name: Read Node.js version from .nvmrc
-        run: echo "NODE_VERSION=$(cat .nvmrc)" >> $GITHUB_ENV
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      # Step 3: Install dependencies
-      - name: Install dependencies
-        run: npm install
-
-      # Step 4: Run tests (skips failure if no tests exist)
-      - name: Run tests
-        run: npm test --passWithNoTests
-
-      # Step 5: Generate .env file from GitHub Secrets
-      - name: Generate .env file
-        run: |
-          echo "PORT=${{ secrets.PORT }}" >> .env
-          echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" >> .env
-          echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" >> .env
-          echo "TWILIO_TWIML_APP_SID=${{ secrets.TWILIO_TWIML_APP_SID }}" >> .env
-          echo "TWILIO_CALLER_ID=${{ secrets.TWILIO_CALLER_ID }}" >> .env
-          echo "TWILIO_IDENTITY=${{ secrets.TWILIO_IDENTITY }}" >> .env
-          echo "TWILIO_API_KEY=${{ secrets.TWILIO_API_KEY }}" >> .env
-          echo "TWILIO_API_SECRET=${{ secrets.TWILIO_API_SECRET }}" >> .env
-          echo "DB_NAME=${{ secrets.DB_NAME }}" >> .env
-          echo "DB_HOST=${{ secrets.DB_HOST }}" >> .env
-          echo "DB_USER=${{ secrets.DB_USER }}" >> .env
-          echo "DB_PASS=${{ secrets.DB_PASS }}" >> .env
-          echo "DB_PORT=${{ secrets.DB_PORT }}" >> .env
-          echo "EMAIL_HOST=${{ secrets.EMAIL_HOST }}" >> .env
-          echo "EMAIL_USER=${{ secrets.EMAIL_USER }}" >> .env
-          echo "EMAIL_PASS=${{ secrets.EMAIL_PASS }}" >> .env
-          echo "EMAIL_FROM=${{ secrets.EMAIL_FROM }}" >> .env
-          echo "EMAIL_PORT=${{ secrets.EMAIL_PORT }}" >> .env
-
-      # Step 6: Deploy to Server (test)
-      - name: Deploy to Server
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_AWS_SERVER_KEY }}
-          SERVER_IP: ${{ secrets.SERVER_IP }}
-        run: |
-          echo "$SSH_PRIVATE_KEY" > private_key.pem
-          chmod 600 private_key.pem
-
-          echo "🚀 Transferring files to the server using rsync..."
-          rsync -avz --exclude='node_modules' --exclude='.git' --exclude='.github' --exclude='tests' --exclude='logs' -e "ssh -i private_key.pem -o StrictHostKeyChecking=no" ./ nick-kalas@$SERVER_IP:/home/nick-kalas/apps/twilio-voip
-
-          echo "🚀 Installing dependencies and restarting PM2..."
-          ssh -i private_key.pem -o StrictHostKeyChecking=no nick-kalas@$SERVER_IP << 'EOF'
-            cd /home/nick-kalas/apps/twilio-voip
-            if [ -f package-lock.json ]; then
-              echo "🚀 package-lock.json exists, checking for updates..."
-              npm install --omit=dev
-            else
-              echo "✅ No dependency changes detected, skipping npm install."
-            fi
-            pm2 restart twilio-voip || pm2 start server.js --name twilio-voip
-            pm2 save
-            echo "✅ Deployment completed successfully."
-          EOF
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # Mergify squash-merges Dependabot PRs once the `test` check passes (see
+    # .mergify.yml), so only minor and patch updates are proposed. Review major
+    # upgrades by hand.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+    commit-message:
+      prefix: "deps"
