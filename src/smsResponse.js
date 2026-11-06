@@ -14,7 +14,9 @@ exports.smsResponse = async (req, res) => {
   console.log(`Received message from ${from}: ${body}`);
 
   try {
-    await logMessage(req.body);
+    if (req.providerConnection)
+      await logMessage(req.body, req.providerConnection);
+    else await logMessage(req.body);
   } catch (error) {
     console.error("Error saving incoming SMS:", error.message);
     return res.sendStatus(500);

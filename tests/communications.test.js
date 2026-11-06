@@ -40,6 +40,34 @@ test("incoming calls route to the browser during office hours", () => {
     "<Client>operator</Client>",
   );
 });
+test("workspace calls identify the connection and called number in TwiML", () => {
+  process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.com";
+  jest.useFakeTimers().setSystemTime(new Date("2026-01-01T15:00:00Z"));
+  const id = "00000000-0000-4000-8000-000000000002";
+  const twiml = voiceResponse(
+    { To: "+15550000002" },
+    { id, phoneNumber: "+15550000002" },
+  );
+  expect(twiml).toContain(
+    `<Identity>connection_${id.replace(/-/g, "")}</Identity>`,
+  );
+  expect(twiml).toContain(
+    '<Parameter name="CalledNumber" value="+15550000002"/>',
+  );
+  expect(twiml).toContain(`https://example.com/webhooks/${id}/call-status`);
+});
+test("another workspace does not inherit Iron Wing business hours or greeting", () => {
+  jest.useFakeTimers().setSystemTime(new Date("2026-01-01T05:00:00Z"));
+  const provider = {
+    id: "00000000-0000-4000-8000-000000000002",
+    workspaceId: "00000000-0000-4000-8000-000000000003",
+    phoneNumber: "+15550000002",
+  };
+  const twiml = voiceResponse({ To: provider.phoneNumber }, provider);
+  expect(twiml).toContain("<Identity>connection_");
+  expect(twiml).not.toContain("Iron Wing");
+  expect(twiml).not.toContain("office is currently closed");
+});
 
 test.each([
   ["2026-01-01T11:59:00Z", false],

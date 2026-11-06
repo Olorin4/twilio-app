@@ -1,6 +1,8 @@
 const { Router } = require("express");
 const { randomUUID } = require("crypto");
 const pool = require("./db");
+const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const workspaceId = (req) => req.workspace?.id || IRON_WING_WORKSPACE_ID;
 
 const router = Router();
 const columns =
@@ -49,7 +51,8 @@ function sendError(res, error) {
 router.get("/", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT ${columns} FROM phone_contacts ORDER BY lower(name), id`,
+      `SELECT ${columns} FROM phone_contacts WHERE workspace_id = $1 ORDER BY lower(name), id`,
+      [workspaceId(req)],
     );
     return res.json(result.rows);
   } catch (error) {
@@ -64,7 +67,7 @@ router.post("/", async (req, res) => {
   if (error) return res.status(400).json({ error });
   try {
     const result = await pool.query(
-      `INSERT INTO phone_contacts (id, name, phone, company, email, notes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING ${columns}`,
+      `INSERT INTO phone_contacts (id, name, phone, company, email, notes, workspace_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${columns}`,
       [
         randomUUID(),
         values.name,
@@ -72,6 +75,7 @@ router.post("/", async (req, res) => {
         values.company,
         values.email,
         values.notes,
+        workspaceId(req),
       ],
     );
     return res.status(201).json(result.rows[0]);
@@ -89,7 +93,7 @@ router.put("/:id", async (req, res) => {
   if (error) return res.status(400).json({ error });
   try {
     const result = await pool.query(
-      `UPDATE phone_contacts SET name = $2, phone = $3, company = $4, email = $5, notes = $6, updated_at = now() WHERE id = $1 RETURNING ${columns}`,
+      `UPDATE phone_contacts SET name = $2, phone = $3, company = $4, email = $5, notes = $6, updated_at = now() WHERE id = $1 AND workspace_id = $7 RETURNING ${columns}`,
       [
         req.params.id,
         values.name,
@@ -97,6 +101,7 @@ router.put("/:id", async (req, res) => {
         values.company,
         values.email,
         values.notes,
+        workspaceId(req),
       ],
     );
     return result.rows.length
@@ -112,8 +117,8 @@ router.delete("/:id", async (req, res) => {
     return res.status(400).json({ error: "Invalid contact ID." });
   try {
     const result = await pool.query(
-      "DELETE FROM phone_contacts WHERE id = $1 RETURNING id",
-      [req.params.id],
+      "DELETE FROM phone_contacts WHERE id = $1 AND workspace_id = $2 RETURNING id",
+      [req.params.id, workspaceId(req)],
     );
     return result.rows.length
       ? res.sendStatus(204)

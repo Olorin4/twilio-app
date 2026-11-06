@@ -15,7 +15,14 @@ test("status callback records valid Twilio status and notifies clients", async (
     expect.stringContaining(
       "message_delivery.status_rank < EXCLUDED.status_rank",
     ),
-    ["SM" + "1".repeat(32), "delivered", 5, null],
+    [
+      "SM" + "1".repeat(32),
+      "delivered",
+      5,
+      null,
+      "00000000-0000-4000-8000-000000000001",
+      null,
+    ],
   );
   expect(publish).toHaveBeenCalled();
   expect(res.sendStatus).toHaveBeenCalledWith(204);

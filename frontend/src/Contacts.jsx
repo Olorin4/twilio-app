@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { BookUser, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import Pagination from "./Pagination";
 import ActivityTable from "./ActivityTable";
+import { apiFetch } from "./api";
 
 const emptyContact = { name: "", phone: "", company: "", email: "", notes: "" };
 const initialLetters = (name) =>
@@ -14,7 +15,7 @@ const initialLetters = (name) =>
     .toUpperCase();
 
 async function request(url, options) {
-  const response = await fetch(url, options);
+  const response = await apiFetch(url, options);
   if (response.status === 204) return null;
   const data = await response.json().catch(() => ({}));
   if (!response.ok)

@@ -15,7 +15,8 @@
     "migrate:contacts": "node scripts/migrate-contacts.js",
     "migrate:message-delivery": "node scripts/migrate-message-delivery.js",
     "migrate:activity-views": "node scripts/migrate-activity-views.js",
-    "migrate:twilio-reconciliation": "node scripts/migrate-twilio-reconciliation.js"
+    "migrate:twilio-reconciliation": "node scripts/migrate-twilio-reconciliation.js",
+    "migrate:workspaces-foundation": "node scripts/migrate-workspaces-foundation.js"
   },
   "repository": {
     "type": "git",
@@ -33,7 +34,7 @@
   "author": "Twilio Developer Education",
   "license": "MIT",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.12.0 <25"
   },
   "dependencies": {
     "@twilio/voice-sdk": "^2.16.0",

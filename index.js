@@ -5,8 +5,7 @@ const path = require("path");
 const express = require("express");
 const bodyParser = require("body-parser");
 const router = require("./src/router");
-const { reconcile } = require("./src/reconciliation");
-const { syncCallLogs, syncSmsLogs } = require("./src/logManager");
+const { reconcile, reconcileAll } = require("./src/reconciliation");
 const { requireLogin } = require("./src/security");
 
 // Create Express webapp
@@ -19,7 +18,10 @@ app.use((req, res, next) => {
     (req.path === "/voice" ||
       req.path === "/sms" ||
       req.path === "/sms-status" ||
-      req.path === "/call-status")
+      req.path === "/call-status" ||
+      /^\/webhooks\/[0-9a-f-]{36}\/(voice|sms|sms-status|call-status)$/i.test(
+        req.path,
+      ))
   )
     return next();
   return requireLogin(req, res, next);
@@ -37,14 +39,19 @@ if (!global.cleanupScheduled) {
   global.cleanupScheduled = true; // Prevent multiple intervals
   setInterval(
     () =>
-      reconcile().catch((error) =>
+      reconcileAll().catch((error) =>
         console.error("Twilio reconciliation failed:", error.message),
       ),
     15 * 60 * 1000,
   );
   if (process.env.TWILIO_CALL_WEBHOOKS_VERIFIED !== "true") {
-    setInterval(syncCallLogs, 60 * 1000);
-    setInterval(syncSmsLogs, 60 * 1000);
+    setInterval(
+      () =>
+        reconcile().catch((error) =>
+          console.error("Twilio reconciliation failed:", error.message),
+        ),
+      60 * 1000,
+    );
   }
   // setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
   console.log("🔄 Auto-sync for calls & messages scheduled.");

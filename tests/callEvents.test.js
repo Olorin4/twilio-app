@@ -14,7 +14,16 @@ test("valid call callback persists its parent and announces the update", async (
   await callback({ body }, res);
   expect(pool.query).toHaveBeenCalledWith(
     expect.stringContaining("twilio_call_legs.answered OR EXCLUDED.answered"),
-    [body.CallSid, body.ParentCallSid, "no-answer", 5, false, null],
+    [
+      body.CallSid,
+      body.ParentCallSid,
+      "no-answer",
+      5,
+      false,
+      null,
+      "00000000-0000-4000-8000-000000000001",
+      null,
+    ],
   );
   expect(publish).toHaveBeenCalledTimes(1);
   expect(res.sendStatus).toHaveBeenCalledWith(204);

@@ -1,6 +1,8 @@
 jest.mock("../src/db", () => ({ query: jest.fn() }));
 jest.mock("../src/messageEvents", () => ({ publish: jest.fn() }));
-jest.mock("../src/conversations", () => ({ numbers: () => ["+15551234567"] }));
+jest.mock("../src/conversations", () => ({
+  numbersFor: async () => ["+15551234567"],
+}));
 const pool = require("../src/db");
 const { publish } = require("../src/messageEvents");
 const { counts, markCall, markConversation } = require("../src/activityViews");
@@ -16,7 +18,10 @@ test("counts return numeric totals for configured lines", async () => {
   pool.query.mockResolvedValueOnce({ rows: [{ calls: "3", messages: "12" }] });
   const res = response();
   await counts({}, res);
-  expect(pool.query.mock.calls[0][1]).toEqual([["+15551234567"]]);
+  expect(pool.query.mock.calls[0][1]).toEqual([
+    ["+15551234567"],
+    "00000000-0000-4000-8000-000000000001",
+  ]);
   expect(res.json).toHaveBeenCalledWith({ calls: 3, messages: 12 });
 });
 test("marking a call is idempotent and publishes only a change", async () => {
@@ -43,6 +48,8 @@ test("conversation acknowledgement validates and limits its snapshot", async () 
     "+15557654321",
     ["+15551234567"],
     "123",
+    "00000000-0000-4000-8000-000000000001",
+    null,
   ]);
   expect(publish).toHaveBeenCalledTimes(1);
 });

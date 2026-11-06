@@ -11,6 +11,7 @@ export default defineConfig({
         "/activity-counts",
         "/activity-views",
         "/reconcile",
+        "/settings",
         "/message-logs",
         "/message-events",
         "/conversations",

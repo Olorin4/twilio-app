@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, MessageSquare, Send, UserRound } from "lucide-react";
 import Pagination from "./Pagination";
+import { apiFetch } from "./api";
 
 function nameFor(phone, contacts) {
   const matches = contacts.filter((contact) => contact.phone === phone);
@@ -27,6 +28,7 @@ export default function Conversations({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [phone, setPhone] = useState("");
+  const [localNumber, setLocalNumber] = useState("");
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
   const [body, setBody] = useState("");
@@ -34,17 +36,19 @@ export default function Conversations({
   const [sending, setSending] = useState(false);
   const inFlight = useRef(false);
   const requestVersion = useRef(0);
-  const selected = useRef(phone);
+  const selected = useRef({ phone, localNumber });
   const loadedOlder = useRef(false);
-  selected.current = phone;
+  selected.current = { phone, localNumber };
   const load = useCallback(async () => {
     const version = ++requestVersion.current;
     try {
-      const target = selected.current;
+      const { phone: target, localNumber: targetLocal } = selected.current;
       const [listResponse, threadResponse] = await Promise.all([
-        fetch("/conversations"),
+        apiFetch("/conversations"),
         target
-          ? fetch(`/conversation?${new URLSearchParams({ phone: target })}`)
+          ? apiFetch(
+              `/conversation?${new URLSearchParams({ phone: target, localNumber: targetLocal })}`,
+            )
           : Promise.resolve(null),
       ]);
       if (!listResponse.ok || (threadResponse && !threadResponse.ok))
@@ -71,12 +75,17 @@ export default function Conversations({
             BigInt(message.id) > BigInt(max) ? String(message.id) : max,
           "0",
         );
-        if (throughId !== "0" && selected.current === target) {
-          const response = await fetch("/activity-views/conversation", {
+        if (
+          throughId !== "0" &&
+          selected.current.phone === target &&
+          selected.current.localNumber === targetLocal
+        ) {
+          const response = await apiFetch("/activity-views/conversation", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               phone: target,
+              localNumber: targetLocal,
               throughId: String(throughId),
             }),
           });
@@ -102,7 +111,7 @@ export default function Conversations({
     setHasMore(false);
     setFeedback("");
     load();
-  }, [phone, load]);
+  }, [phone, localNumber, load]);
   useEffect(() => {
     if (refreshRevision) load();
   }, [refreshRevision, load]);
@@ -120,12 +129,16 @@ export default function Conversations({
     if (!messages.length) return;
     const target = phone;
     try {
-      const response = await fetch(
-        `/conversation?${new URLSearchParams({ phone: target, before: String(messages[0].id) })}`,
+      const response = await apiFetch(
+        `/conversation?${new URLSearchParams({ phone: target, localNumber, before: String(messages[0].id) })}`,
       );
       if (!response.ok) throw new Error("Could not load older messages.");
       const data = await response.json();
-      if (selected.current !== target) return;
+      if (
+        selected.current.phone !== target ||
+        selected.current.localNumber !== localNumber
+      )
+        return;
       loadedOlder.current = true;
       setMessages((current) => [
         ...data.messages.map((item) => ({ ...item, _older: true })),
@@ -145,10 +158,10 @@ export default function Conversations({
     try {
       let response;
       try {
-        response = await fetch("/messages", {
+        response = await apiFetch("/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: phone, body }),
+          body: JSON.stringify({ to: phone, body, localNumber }),
         });
       } catch {
         throw new Error(
@@ -206,8 +219,11 @@ export default function Conversations({
                 return (
                   <button
                     className={`conversation-row ${Number(item.unviewed_count) > 0 ? "unviewed-row" : ""}`}
-                    key={item.phone}
-                    onClick={() => setPhone(item.phone)}
+                    key={`${item.local_number}:${item.phone}`}
+                    onClick={() => {
+                      setLocalNumber(item.local_number);
+                      setPhone(item.phone);
+                    }}
                   >
                     <span
                       className={`avatar ${name !== item.phone ? "avatar-contact" : "avatar-unknown"}`}
@@ -220,7 +236,10 @@ export default function Conversations({
                     </span>
                     <span className="row-main">
                       <strong>{name}</strong>
-                      <span>{item.body || "[No message content]"}</span>
+                      <span>
+                        {item.body || "[No message content]"} ·{" "}
+                        {item.local_number}
+                      </span>
                     </span>
                     {Number(item.unviewed_count) > 0 && (
                       <span
@@ -257,13 +276,18 @@ export default function Conversations({
             <button
               className="icon-button"
               aria-label="Back to conversations"
-              onClick={() => setPhone("")}
+              onClick={() => {
+                setPhone("");
+                setLocalNumber("");
+              }}
             >
               <ArrowLeft size={18} />
             </button>
             <div>
               <strong>{nameFor(phone, contacts)}</strong>
-              <span>{phone}</span>
+              <span>
+                {phone} · {localNumber}
+              </span>
             </div>
           </div>
           <div className="thread-messages">

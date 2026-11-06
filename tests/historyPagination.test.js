@@ -23,6 +23,7 @@ test.each([getCallLogs, getMessageLogs])(
       "alex",
       10,
       11,
+      "00000000-0000-4000-8000-000000000001",
     ]);
     expect(res.set).toHaveBeenCalledWith("X-Has-More", "true");
     expect(res.json.mock.calls[0][0]).toHaveLength(10);
@@ -56,6 +57,7 @@ test.each([getCallLogs, getMessageLogs])(
       "",
       40,
       21,
+      "00000000-0000-4000-8000-000000000001",
     ]);
     expect(res.set).toHaveBeenCalledWith("X-Has-More", "true");
     expect(res.json.mock.calls[0][0]).toHaveLength(20);

@@ -3,7 +3,9 @@ jest.mock("../src/token", () => ({
   client: { messages: { create: jest.fn() } },
 }));
 jest.mock("../src/db", () => ({ query: jest.fn() }));
+jest.mock("../src/providerContext", () => ({ getProvider: jest.fn() }));
 const { client } = require("../src/token");
+const { getProvider } = require("../src/providerContext");
 const pool = require("../src/db");
 const { sendSms } = require("../src/sendSms");
 
@@ -15,7 +17,16 @@ function request(body, contentType = "application/json") {
   };
   return { req, res };
 }
-beforeEach(() => jest.resetAllMocks());
+beforeEach(() => {
+  jest.resetAllMocks();
+  getProvider.mockResolvedValue({
+    legacy: true,
+    phoneNumber: "+15550001111",
+    workspaceId: "00000000-0000-4000-8000-000000000001",
+    smsEnabled: true,
+    client,
+  });
+});
 
 test("accepts a valid message and records the Twilio SID", async () => {
   client.messages.create.mockResolvedValue({ sid: "SM123", status: "queued" });

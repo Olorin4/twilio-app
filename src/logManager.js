@@ -6,25 +6,34 @@ const twilio = require("twilio");
 const { accountSid, authToken } = require("./token");
 const pool = require("./db");
 const { publish } = require("./messageEvents");
+const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
 
 const client = twilio(accountSid, authToken);
 
-exports.logMessage = async (message) => {
+exports.logMessage = async (message, connection) => {
   await pool.query(
-    `INSERT INTO message_logs (message_sid, from_number, to_number, body, timestamp)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO message_logs (message_sid, from_number, to_number, body, timestamp, workspace_id, provider_connection_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (message_sid) DO NOTHING;`,
-    [message.MessageSid, message.From, message.To, message.Body, new Date()],
+    [
+      message.MessageSid,
+      message.From,
+      message.To,
+      message.Body,
+      new Date(),
+      connection?.workspaceId || IRON_WING_WORKSPACE_ID,
+      connection?.id || null,
+    ],
   );
   publish();
 };
 
-exports.logCall = async (callData) => {
+exports.logCall = async (callData, connection) => {
   try {
     console.log("📞 [DEBUG] Logging call:", callData);
     await pool.query(
-      `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id, provider_connection_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (call_sid) DO NOTHING;`,
       [
         callData.CallSid,
@@ -34,6 +43,8 @@ exports.logCall = async (callData) => {
         callData.CallStatus,
         callData.Duration || 0,
         callData.Direction || "unknown",
+        connection?.workspaceId || IRON_WING_WORKSPACE_ID,
+        connection?.id || null,
       ],
     );
     console.log("✅ [DEBUG] Call logged successfully.");
@@ -133,11 +144,11 @@ exports.getCallLogs = async (req, res) => {
              cl.to_number, 
              cl.direction,
              cl.status,
-             (cl.direction = 'inbound' AND EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.status IN ('busy', 'failed', 'no-answer', 'canceled') AND NOT leg.answered) AND NOT EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.answered)) AS missed,
-             (cl.direction = 'inbound' AND cl.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
+             (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.status IN ('busy', 'failed', 'no-answer', 'canceled') AND NOT leg.answered) AND NOT EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered)) AS missed,
+             (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND cl.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
               AND NOT EXISTS (SELECT 1 FROM activity_views v WHERE v.kind = 'call' AND v.item_id = cl.id)) AS unviewed,
-             COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.answered AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration) AS duration,
-             (cl.from_number = $1) AS outgoing,
+             COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration) AS duration,
+             (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AS outgoing,
              cl.timestamp,
              d.first_name AS driver_first_name, 
              d.last_name AS driver_last_name, 
@@ -145,8 +156,8 @@ exports.getCallLogs = async (req, res) => {
       FROM call_logs cl
       LEFT JOIN driver d ON cl.driver_id = d.id
       LEFT JOIN company c ON d.company_id = c.id
-      WHERE $2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
-         OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0)
+      WHERE cl.workspace_id = $5 AND ($2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
+         OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0))
       ORDER BY cl.timestamp DESC NULLS LAST, cl.id DESC
       LIMIT $4 OFFSET $3;
     `,
@@ -155,6 +166,7 @@ exports.getCallLogs = async (req, res) => {
         params.search,
         params.offset,
         params.pageSize + 1,
+        req.workspace?.id || IRON_WING_WORKSPACE_ID,
       ],
     );
 
@@ -190,8 +202,8 @@ exports.getMessageLogs = async (req, res) => {
       FROM message_logs m
       LEFT JOIN driver d ON m.driver_id = d.id
       LEFT JOIN company c ON d.company_id = c.id
-      WHERE $2 = '' OR position($2 in lower(concat_ws(' ', m.from_number, m.to_number, m.body, d.first_name, d.last_name, c.name))) > 0
-         OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.phone IN (m.from_number, m.to_number) AND position($2 in lower(pc.name)) > 0)
+      WHERE m.workspace_id = $5 AND ($2 = '' OR position($2 in lower(concat_ws(' ', m.from_number, m.to_number, m.body, d.first_name, d.last_name, c.name))) > 0
+         OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (m.from_number, m.to_number) AND position($2 in lower(pc.name)) > 0))
       ORDER BY m.timestamp DESC NULLS LAST, m.id DESC
       LIMIT $4 OFFSET $3;
     `,
@@ -200,6 +212,7 @@ exports.getMessageLogs = async (req, res) => {
         params.search,
         params.offset,
         params.pageSize + 1,
+        req.workspace?.id || IRON_WING_WORKSPACE_ID,
       ],
     );
 

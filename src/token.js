@@ -67,6 +67,26 @@ function tokenGenerator() {
   };
 }
 
+function tokenForProvider(provider) {
+  if (provider.legacy) return tokenGenerator();
+  if (!provider.voiceEnabled)
+    throw new Error("This number does not support voice calls.");
+  const providerIdentity = `connection_${provider.id.replace(/-/g, "")}`;
+  const accessToken = new AccessToken(
+    provider.accountSid,
+    provider.apiKeySid,
+    provider.apiKeySecret,
+    { identity: providerIdentity },
+  );
+  accessToken.addGrant(
+    new VoiceGrant({
+      outgoingApplicationSid: provider.twimlAppSid,
+      incomingAllow: true,
+    }),
+  );
+  return { identity: providerIdentity, token: accessToken.toJwt() };
+}
+
 // Export credentials and tokenGenerator
 module.exports = {
   accountSid,
@@ -77,5 +97,6 @@ module.exports = {
   callerId,
   client,
   tokenGenerator,
+  tokenForProvider,
   getIdentity: () => identity || process.env.TWILIO_IDENTITY,
 };

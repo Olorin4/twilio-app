@@ -4,7 +4,11 @@ jest.mock("../src/callEvents", () => ({ saveLeg: jest.fn() }));
 jest.mock("../src/conversations", () => ({ saveStatus: jest.fn() }));
 jest.mock("../src/messageEvents", () => ({ publish: jest.fn() }));
 const pool = require("../src/db");
-const { syncStream } = require("../src/reconciliation");
+const {
+  syncStream,
+  reconcileWorkspace,
+  reconcileAll,
+} = require("../src/reconciliation");
 beforeEach(() => jest.clearAllMocks());
 test("processes every page and advances checkpoint only after successful processing", async () => {
   pool.query
@@ -35,15 +39,27 @@ test("processes every page and advances checkpoint only after successful process
 test("a failed later page does not advance the checkpoint", async () => {
   pool.query.mockResolvedValueOnce({ rows: [{ synced_through: new Date() }] });
   const api = {
-    page: jest
-      .fn()
-      .mockResolvedValue({
-        instances: [],
-        nextPage: jest.fn().mockRejectedValue(new Error("Twilio unavailable")),
-      }),
+    page: jest.fn().mockResolvedValue({
+      instances: [],
+      nextPage: jest.fn().mockRejectedValue(new Error("Twilio unavailable")),
+    }),
   };
   await expect(syncStream("messages", api, jest.fn())).rejects.toThrow(
     "Twilio unavailable",
   );
   expect(pool.query).toHaveBeenCalledTimes(1);
+});
+test("a workspace without connections is skipped instead of failing", async () => {
+  pool.query.mockResolvedValueOnce({ rows: [] });
+  await expect(
+    reconcileWorkspace("00000000-0000-4000-8000-000000000002"),
+  ).resolves.toBe(0);
+});
+test("an empty workspace does not make the scheduled run fail", async () => {
+  pool.query
+    .mockResolvedValueOnce({
+      rows: [{ id: "00000000-0000-4000-8000-000000000002" }],
+    })
+    .mockResolvedValueOnce({ rows: [] });
+  await expect(reconcileAll()).resolves.toBeUndefined();
 });

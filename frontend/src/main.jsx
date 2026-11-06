@@ -26,6 +26,13 @@ import Contacts from "./Contacts";
 import Conversations from "./Conversations";
 import Pagination from "./Pagination";
 import ActivityTable from "./ActivityTable";
+import {
+  apiFetch,
+  setApiWorkspace,
+  getApiWorkspace,
+  IRON_WING_WORKSPACE_ID,
+} from "./api";
+import WorkspaceSettings from "./WorkspaceSettings";
 import "./styles.css";
 
 const keypad = [
@@ -98,7 +105,14 @@ const formatDuration = (value) => {
 };
 
 function App() {
-  const voice = useVoice();
+  const [workspaceId, setWorkspaceId] = useState(IRON_WING_WORKSPACE_ID);
+  const [workspaces, setWorkspaces] = useState([
+    { id: IRON_WING_WORKSPACE_ID, name: "Iron Wing" },
+  ]);
+  const [workspaceUnread, setWorkspaceUnread] = useState({});
+  const voice = useVoice(
+    workspaces.find((workspace) => workspace.id === workspaceId),
+  );
   const [view, setView] = useState("calls");
   const [number, setNumber] = useState("");
   const [search, setSearch] = useState("");
@@ -177,8 +191,8 @@ function App() {
         search,
       });
       const [callResponse, messageResponse] = await Promise.all([
-        fetch(`/call-logs?${query}`),
-        fetch(`/message-logs?${query}`),
+        apiFetch(`/call-logs?${query}`),
+        apiFetch(`/message-logs?${query}`),
       ]);
       if (!callResponse.ok || !messageResponse.ok)
         throw new Error("Could not load recent activity. Please try again.");
@@ -199,7 +213,7 @@ function App() {
     } finally {
       if (requestId === activityRequest.current) setLoading(false);
     }
-  }, [page, pageSize, search]);
+  }, [page, pageSize, search, workspaceId]);
   useEffect(() => {
     setLoading(true);
     refresh();
@@ -207,31 +221,60 @@ function App() {
     return () => clearInterval(interval);
   }, [refresh]);
   const refreshCounts = useCallback(async () => {
+    const target = getApiWorkspace();
     try {
-      const response = await fetch("/activity-counts");
-      if (response.ok) setUnviewed(await response.json());
+      const response = await apiFetch("/activity-counts");
+      if (response.ok) {
+        const data = await response.json();
+        if (target === getApiWorkspace()) setUnviewed(data);
+      }
     } catch {
       // Keep the last known counts until the next refresh.
     }
-  }, []);
+  }, [workspaceId]);
+  const refreshWorkspaceCounts = useCallback(async () => {
+    const results = await Promise.all(
+      workspaces.map(async (workspace) => {
+        try {
+          const response = await apiFetch("/activity-counts", {
+            headers: { "X-Workspace-Id": workspace.id },
+          });
+          if (!response.ok) return null;
+          const counts = await response.json();
+          return [workspace.id, counts.calls + counts.messages];
+        } catch {
+          return null;
+        }
+      }),
+    );
+    setWorkspaceUnread((previous) => ({
+      ...previous,
+      ...Object.fromEntries(results.filter(Boolean)),
+    }));
+  }, [workspaces]);
   useEffect(() => {
     refreshCounts();
+    refreshWorkspaceCounts();
     const stream = new EventSource("/message-events");
     const update = () => {
       refreshCounts();
+      refreshWorkspaceCounts();
       refresh();
     };
     stream.addEventListener("messages", update);
     stream.addEventListener("ready", refreshCounts);
+    stream.addEventListener("ready", refreshWorkspaceCounts);
     const timer = setInterval(refreshCounts, 60000);
+    const workspaceTimer = setInterval(refreshWorkspaceCounts, 60000);
     return () => {
       stream.close();
       clearInterval(timer);
+      clearInterval(workspaceTimer);
     };
-  }, [refresh, refreshCounts]);
+  }, [refresh, refreshCounts, refreshWorkspaceCounts]);
   const markCallViewed = async (id) => {
     try {
-      const response = await fetch(`/activity-views/calls/${id}`, {
+      const response = await apiFetch(`/activity-views/calls/${id}`, {
         method: "POST",
       });
       if (!response.ok) throw new Error();
@@ -247,7 +290,7 @@ function App() {
     setSyncing(true);
     setSyncFeedback("");
     try {
-      const response = await fetch("/reconcile", { method: "POST" });
+      const response = await apiFetch("/reconcile", { method: "POST" });
       if (!response.ok)
         throw new Error("Could not sync with Twilio. Please try again.");
       await Promise.all([refresh(), refreshCounts()]);
@@ -274,10 +317,14 @@ function App() {
     try {
       let response;
       try {
-        response = await fetch("/messages", {
+        response = await apiFetch("/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: number, body: smsBody }),
+          body: JSON.stringify({
+            to: number,
+            body: smsBody,
+            ...(voice.phoneNumber ? { localNumber: voice.phoneNumber } : {}),
+          }),
         });
       } catch {
         throw new Error(
@@ -308,16 +355,44 @@ function App() {
     }
   };
   const refreshContacts = useCallback(async () => {
+    const target = getApiWorkspace();
     try {
-      const response = await fetch("/contacts");
-      if (response.ok) setContacts(await response.json());
+      const response = await apiFetch("/contacts");
+      if (response.ok) {
+        const data = await response.json();
+        if (target === getApiWorkspace()) setContacts(data);
+      }
     } catch {
       // History remains usable if contacts are temporarily unavailable.
     }
   }, []);
   useEffect(() => {
     refreshContacts();
-  }, [refreshContacts, view]);
+  }, [refreshContacts, view, workspaceId]);
+  const loadWorkspaces = useCallback(async () => {
+    const response = await apiFetch("/settings/workspaces");
+    if (!response.ok) throw new Error("Could not load workspaces.");
+    setWorkspaces(await response.json());
+  }, []);
+  useEffect(() => {
+    loadWorkspaces().catch(() => {});
+  }, [loadWorkspaces]);
+  const switchWorkspace = (id) => {
+    if (!id || id === workspaceId || !voice.canSwitch()) return;
+    activityRequest.current++;
+    setApiWorkspace(id);
+    setWorkspaceId(id);
+    setCalls([]);
+    setMessages([]);
+    setContacts([]);
+    setUnviewed({ calls: 0, messages: 0 });
+    setSearch("");
+    setPage(1);
+    setNumber("");
+    setSmsBody("");
+    setSmsOpen(false);
+    setSmsFeedback(null);
+  };
   const contactFor = (phone) => {
     const normalized = normalizePhone(phone);
     if (!/^\+[1-9]\d{7,14}$/.test(normalized)) return null;
@@ -363,11 +438,58 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            <span>IW</span>
+            <span>
+              {(
+                workspaces.find((item) => item.id === workspaceId)?.name ||
+                "Iron Wing"
+              )
+                .split(/\s+/)
+                .slice(0, 2)
+                .map((word) => word[0])
+                .join("")
+                .toUpperCase()}
+            </span>
           </div>
           <div>
-            <strong>IRON WING</strong>
-            <small>DISPATCHING</small>
+            <strong>
+              {workspaces.find((item) => item.id === workspaceId)?.name ||
+                "Iron Wing"}
+            </strong>
+            <label className="workspace-select">
+              <span className="sr-only">Workspace</span>
+              <select
+                aria-label="Workspace"
+                value={workspaceId}
+                disabled={
+                  !!voice.call ||
+                  voice.connection === "connecting" ||
+                  smsSending ||
+                  syncing
+                }
+                onChange={(event) => switchWorkspace(event.target.value)}
+              >
+                {workspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                    {workspaceUnread[workspace.id]
+                      ? ` (${workspaceUnread[workspace.id]})`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {workspaces.some(
+              (workspace) =>
+                workspace.id !== workspaceId &&
+                workspaceUnread[workspace.id] > 0,
+            ) && (
+              <span
+                className="other-workspace-unread"
+                aria-label="Other workspaces have unviewed activity"
+              >
+                ●
+              </span>
+            )}
           </div>
         </div>
         <nav aria-label="Main navigation">
@@ -424,6 +546,18 @@ function App() {
             <UsersRound size={18} />
             <span>Contacts</span>
             {view === "contacts" && <span className="nav-active" />}
+          </button>
+          <button
+            className={view === "settings" ? "nav-link selected" : "nav-link"}
+            onClick={() => {
+              setView("settings");
+              setSearch("");
+              setPage(1);
+            }}
+          >
+            <Settings2 size={18} />
+            <span>Settings</span>
+            {view === "settings" && <span className="nav-active" />}
           </button>
         </nav>
         <div className="sidebar-bottom">
@@ -591,19 +725,23 @@ function App() {
           <div className="page-heading">
             <div>
               <h1>
-                {view === "calls"
-                  ? "Calls"
-                  : view === "messages"
-                    ? "Messages"
-                    : "Contacts"}
+                {view === "settings"
+                  ? "Settings"
+                  : view === "calls"
+                    ? "Calls"
+                    : view === "messages"
+                      ? "Messages"
+                      : "Contacts"}
                 <span className="heading-period">.</span>
               </h1>
               <p>
-                {view === "calls"
-                  ? "Your calls and conversations, all in one place."
-                  : view === "messages"
-                    ? "Send and receive messages from your number."
-                    : "Your people, one call away."}
+                {view === "settings"
+                  ? "Manage workspaces and Twilio connections."
+                  : view === "calls"
+                    ? "Your calls and conversations, all in one place."
+                    : view === "messages"
+                      ? "Send and receive messages from your number."
+                      : "Your people, one call away."}
               </p>
             </div>
           </div>
@@ -618,435 +756,497 @@ function App() {
               </button>
             </div>
           )}
-          <div className="content-grid">
-            <div className="communication-panel">
-              <section className="dial-card card" aria-label="Phone dialer">
-                <div className={`phone-status ${online ? "ready" : ""}`}>
-                  <span className="status-pulse" />
-                  <span>
-                    {online
-                      ? "Ready to make and receive calls and messages"
-                      : voice.connection === "connecting"
-                        ? "Connecting to your phone…"
-                        : "Connect your phone to get started"}
-                  </span>
-                </div>
-                {!online && (
-                  <button
-                    className="connect-button"
-                    disabled={voice.connection === "connecting"}
-                    onClick={voice.start}
-                  >
-                    <AudioLines size={17} />
-                    {voice.connection === "connecting"
-                      ? "Connecting…"
-                      : "Connect phone"}
-                  </button>
+          {view === "settings" && voice.call && (
+            <div className="notice" role="status">
+              <span>
+                {voice.call.workspaceName}: {voice.call.number} ·{" "}
+                {voice.call.phase}
+              </span>
+              {voice.call.direction === "incoming" &&
+                voice.call.phase === "ringing" && (
+                  <button onClick={voice.accept}>Answer</button>
                 )}
-                <div className="dial-field">
-                  <label htmlFor="dial-number">PHONE NUMBER</label>
-                  <div className="input-wrap">
-                    {!number && (
-                      <button
-                        aria-label="Add plus prefix"
-                        disabled={!!number || running}
-                        onClick={() => setNumber("+")}
-                      >
-                        +
-                      </button>
-                    )}
-                    <input
-                      id="dial-number"
-                      type="tel"
-                      autoComplete="tel"
-                      value={number}
-                      disabled={running}
-                      onChange={(event) => setNumber(event.target.value)}
-                      onKeyDown={keyDown}
-                      placeholder="Enter a phone number"
-                    />
-                    <button
-                      aria-label="Delete last digit"
-                      disabled={!number || running}
-                      onClick={() => setNumber((n) => n.slice(0, -1))}
-                    >
-                      <Delete size={19} />
-                    </button>
-                  </div>
-                </div>
-                <div className="keypad-area">
-                  <div
-                    className="keypad"
-                    inert={smsOpen ? true : undefined}
-                    aria-label={
-                      voice.call?.phase === "active"
-                        ? "Call keypad"
-                        : "Dial pad"
-                    }
-                  >
-                    {keypad.map(([value, letters]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        disabled={running && voice.call.phase !== "active"}
-                        onClick={() => pressing(value)}
-                        aria-label={`Digit ${value}`}
-                      >
-                        <span>{value}</span>
-                        <small>{letters || "\u00a0"}</small>
-                      </button>
-                    ))}
-                  </div>
-                  {smsOpen && (
-                    <div className="sms-editor">
-                      <div className="sms-editor-heading">
-                        <label htmlFor="sms-body">Message</label>
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label="Close message editor"
-                          onClick={() => setSmsOpen(false)}
-                        >
-                          <X size={18} />
-                        </button>
-                      </div>
-                      <textarea
-                        id="sms-body"
-                        autoFocus
-                        maxLength={1600}
-                        value={smsBody}
-                        onChange={(event) => setSmsBody(event.target.value)}
-                        placeholder="Write your message"
-                      />
-                      <small>
-                        {smsBody.length}/1600 characters · Only message
-                        recipients who have consented.
-                      </small>
-                    </div>
-                  )}
-                </div>
-                <div className="dial-buttons">
-                  {running ? (
-                    <div className="call-actions">
-                      <button className="hangup-button" onClick={voice.hangup}>
-                        <PhoneOff size={18} />{" "}
-                        {voice.call.direction === "incoming" &&
-                        voice.call.phase === "ringing"
-                          ? "Decline"
-                          : "End call"}
-                      </button>
-                      {voice.call.phase === "active" && (
-                        <button
-                          className="mute-button"
-                          onClick={voice.toggleMute}
-                        >
-                          {voice.muted ? (
-                            <MicOff size={17} />
-                          ) : (
-                            <Mic size={17} />
-                          )}{" "}
-                          {voice.muted ? "Unmute" : "Mute"}
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      className="call-button"
-                      disabled={!online || !number.trim()}
-                      onClick={() => voice.dial(number)}
-                    >
-                      <Phone size={18} /> Call number
-                    </button>
-                  )}
-                  <button
-                    className="button sms-button"
-                    type="button"
-                    disabled={
-                      smsSending ||
-                      running ||
-                      (smsOpen && (!number.trim() || !smsBody.trim()))
-                    }
-                    onClick={() => (smsOpen ? sendMessage() : setSmsOpen(true))}
-                  >
-                    <Send size={16} />{" "}
-                    {smsSending ? "Sending…" : "Send message"}
-                  </button>
-                </div>
-                {smsFeedback && (
-                  <p
-                    className={
-                      smsFeedback.success ? "sms-success" : "contact-form-error"
-                    }
-                    role="status"
-                  >
-                    {smsFeedback.text}
-                  </p>
-                )}
-                {voice.call && (
-                  <div className="call-panel" role="status">
-                    <div>
-                      <span className="live-dot" />{" "}
-                      {voice.call.direction === "incoming" &&
-                      voice.call.phase === "ringing"
-                        ? "INCOMING CALL"
-                        : voice.call.phase === "active"
-                          ? "CALL IN PROGRESS"
-                          : "CONNECTING"}
-                    </div>
-                    <strong>{voice.call.number}</strong>
-                    {voice.call.direction === "incoming" &&
-                      voice.call.phase === "ringing" && (
-                        <button onClick={voice.accept}>
-                          <PhoneIncoming size={15} /> Answer call
-                        </button>
-                      )}
-                    {voice.call.phase === "active" && (
-                      <div className="level-row">
-                        <span>Mic</span>
-                        <i>
-                          <b
-                            style={{
-                              width: `${Math.min(100, voice.levels.input * 100)}%`,
-                            }}
-                          />
-                        </i>
-                        <span>Speaker</span>
-                        <i>
-                          <b
-                            style={{
-                              width: `${Math.min(100, voice.levels.output * 100)}%`,
-                            }}
-                          />
-                        </i>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="dial-footer">
-                  <ShieldCheck size={14} />
-                  <span>Connected securely with Twilio</span>
-                </div>
-              </section>
+              <button onClick={voice.hangup}>End call</button>
             </div>
-            {view === "contacts" ? (
-              <Contacts
-                onDial={(phone) => {
-                  setNumber(phone);
-                  setView("calls");
-                }}
-              />
-            ) : (
-              <ActivityTable
-                kicker="YOUR ACTIVITY"
-                title={view === "calls" ? "Call history" : "Message history"}
-                description={
-                  view === "calls"
-                    ? "Your latest conversations at a glance."
-                    : "Your latest sent and received messages."
-                }
-                headingAction={
-                  <button
-                    className="activity-icon activity-refresh"
-                    type="button"
-                    aria-label={
-                      syncing
-                        ? "Syncing with Twilio"
-                        : "Sync activity with Twilio"
-                    }
-                    title={
-                      syncing
-                        ? "Syncing with Twilio"
-                        : "Sync activity with Twilio"
-                    }
-                    disabled={syncing}
-                    onClick={syncActivity}
-                  >
-                    <RefreshCw
-                      size={19}
-                      className={syncing ? "sync-spinning" : ""}
-                    />
-                  </button>
-                }
-                headingNotice={
-                  <>
-                    {loadError && (
-                      <div className="heading-notice" role="alert">
-                        {loadError} <button onClick={refresh}>Retry</button>
-                      </div>
-                    )}
-                    {view === "messages" && conversationError && (
-                      <div className="heading-notice" role="alert">
-                        {conversationError}{" "}
+          )}
+          {view === "settings" ? (
+            <WorkspaceSettings
+              workspaceId={workspaceId}
+              busy={
+                !!voice.call ||
+                voice.connection === "connecting" ||
+                smsSending ||
+                syncing
+              }
+              onWorkspaceCreated={loadWorkspaces}
+              onNumberChangeStart={voice.stop}
+              onNumberChangeEnd={voice.resume}
+              onNumberChanged={async () => {
+                setNumber("");
+                setSmsBody("");
+                setSmsOpen(false);
+                await loadWorkspaces();
+                await refreshContacts();
+              }}
+            />
+          ) : (
+            <div className="content-grid">
+              <div className="communication-panel">
+                <section className="dial-card card" aria-label="Phone dialer">
+                  <div className={`phone-status ${online ? "ready" : ""}`}>
+                    <span className="status-pulse" />
+                    <span>
+                      {online
+                        ? "Ready to make and receive calls and messages"
+                        : voice.connection === "connecting"
+                          ? "Connecting to your phone…"
+                          : "Connect your phone to get started"}
+                    </span>
+                  </div>
+                  {voice.phoneNumber && (
+                    <p className="selected-phone-number">
+                      From {voice.phoneNumber}
+                    </p>
+                  )}
+                  {!online && (
+                    <button
+                      className="connect-button"
+                      disabled={voice.connection === "connecting"}
+                      onClick={voice.start}
+                    >
+                      <AudioLines size={17} />
+                      {voice.connection === "connecting"
+                        ? "Connecting…"
+                        : "Connect phone"}
+                    </button>
+                  )}
+                  <div className="dial-field">
+                    <label htmlFor="dial-number">PHONE NUMBER</label>
+                    <div className="input-wrap">
+                      {!number && (
                         <button
-                          onClick={() =>
-                            setRefreshRevision((current) => current + 1)
-                          }
+                          aria-label="Add plus prefix"
+                          disabled={!!number || running}
+                          onClick={() => setNumber("+")}
                         >
-                          Retry
+                          +
                         </button>
-                      </div>
-                    )}
-                    {syncFeedback && (
-                      <div
-                        className={`heading-notice ${syncFeedback.startsWith("Synced") ? "heading-notice-success" : ""}`}
-                        role="status"
+                      )}
+                      <input
+                        id="dial-number"
+                        type="tel"
+                        autoComplete="tel"
+                        value={number}
+                        disabled={running}
+                        onChange={(event) => setNumber(event.target.value)}
+                        onKeyDown={keyDown}
+                        placeholder="Enter a phone number"
+                      />
+                      <button
+                        aria-label="Delete last digit"
+                        disabled={!number || running}
+                        onClick={() => setNumber((n) => n.slice(0, -1))}
                       >
-                        {syncFeedback}
+                        <Delete size={19} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="keypad-area">
+                    <div
+                      className="keypad"
+                      inert={smsOpen ? true : undefined}
+                      aria-label={
+                        voice.call?.phase === "active"
+                          ? "Call keypad"
+                          : "Dial pad"
+                      }
+                    >
+                      {keypad.map(([value, letters]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          disabled={running && voice.call.phase !== "active"}
+                          onClick={() => pressing(value)}
+                          aria-label={`Digit ${value}`}
+                        >
+                          <span>{value}</span>
+                          <small>{letters || "\u00a0"}</small>
+                        </button>
+                      ))}
+                    </div>
+                    {smsOpen && (
+                      <div className="sms-editor">
+                        <div className="sms-editor-heading">
+                          <label htmlFor="sms-body">Message</label>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label="Close message editor"
+                            onClick={() => setSmsOpen(false)}
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+                        <textarea
+                          id="sms-body"
+                          autoFocus
+                          maxLength={1600}
+                          value={smsBody}
+                          onChange={(event) => setSmsBody(event.target.value)}
+                          placeholder="Write your message"
+                        />
+                        <small>
+                          {smsBody.length}/1600 characters · Only message
+                          recipients who have consented.
+                        </small>
                       </div>
                     )}
-                  </>
-                }
-                searchLabel="Search activity"
-                searchValue={search}
-                onSearchChange={(value) => {
-                  setPage(1);
-                  setSearch(value);
-                }}
-              >
-                {view === "messages" ? (
-                  <Conversations
-                    contacts={contacts}
-                    search={search}
-                    refreshRevision={refreshRevision}
-                    onErrorChange={setConversationError}
-                  />
-                ) : (
-                  <>
-                    {loading ? (
-                      <div className="empty">Loading activity…</div>
-                    ) : !filtered.length ? (
-                      <div className="empty">
-                        <div className="empty-icon">
-                          {view === "calls" ? (
-                            <Phone size={23} />
-                          ) : (
-                            <MessageSquare size={23} />
-                          )}
-                        </div>
-                        <strong>
-                          {search
-                            ? "No matching activity"
-                            : view === "calls"
-                              ? "No calls yet"
-                              : "No messages yet"}
-                        </strong>
-                        <span>
-                          {search
-                            ? "Try a different search."
-                            : view === "calls"
-                              ? "Your recent calls will appear here."
-                              : "Your messages will appear here."}
-                        </span>
+                  </div>
+                  <div className="dial-buttons">
+                    {running ? (
+                      <div className="call-actions">
+                        <button
+                          className="hangup-button"
+                          onClick={voice.hangup}
+                        >
+                          <PhoneOff size={18} />{" "}
+                          {voice.call.direction === "incoming" &&
+                          voice.call.phase === "ringing"
+                            ? "Decline"
+                            : "End call"}
+                        </button>
+                        {voice.call.phase === "active" && (
+                          <button
+                            className="mute-button"
+                            onClick={voice.toggleMute}
+                          >
+                            {voice.muted ? (
+                              <MicOff size={17} />
+                            ) : (
+                              <Mic size={17} />
+                            )}{" "}
+                            {voice.muted ? "Unmute" : "Mute"}
+                          </button>
+                        )}
                       </div>
                     ) : (
-                      <div className="activity-list">
-                        {filtered.map((row, index) => {
-                          const phone = activityNumber(row, view);
-                          const contact = contactFor(phone);
-                          const missed =
-                            row.missed ||
-                            (row.direction === "inbound" &&
-                              ["no-answer", "busy", "canceled"].includes(
-                                row.status,
-                              ));
-                          const name =
-                            contact?.name || phone || "Unknown number";
-                          return (
-                            <div
-                              className={`activity-row ${row.unviewed ? "unviewed-row" : ""}`}
-                              key={row.id ?? index}
-                            >
+                      <button
+                        className="call-button"
+                        disabled={!online || !number.trim()}
+                        onClick={() => voice.dial(number)}
+                      >
+                        <Phone size={18} /> Call number
+                      </button>
+                    )}
+                    <button
+                      className="button sms-button"
+                      type="button"
+                      disabled={
+                        smsSending ||
+                        running ||
+                        (smsOpen && (!number.trim() || !smsBody.trim()))
+                      }
+                      onClick={() =>
+                        smsOpen ? sendMessage() : setSmsOpen(true)
+                      }
+                    >
+                      <Send size={16} />{" "}
+                      {smsSending ? "Sending…" : "Send message"}
+                    </button>
+                  </div>
+                  {smsFeedback && (
+                    <p
+                      className={
+                        smsFeedback.success
+                          ? "sms-success"
+                          : "contact-form-error"
+                      }
+                      role="status"
+                    >
+                      {smsFeedback.text}
+                    </p>
+                  )}
+                  {voice.call && (
+                    <div className="call-panel" role="status">
+                      <div>
+                        <span className="live-dot" />{" "}
+                        {voice.call.direction === "incoming" &&
+                        voice.call.phase === "ringing"
+                          ? "INCOMING CALL"
+                          : voice.call.phase === "active"
+                            ? "CALL IN PROGRESS"
+                            : "CONNECTING"}
+                      </div>
+                      <strong>{voice.call.number}</strong>
+                      {voice.call.workspaceName && (
+                        <span>
+                          {voice.call.workspaceName}
+                          {voice.call.localNumber
+                            ? ` · ${voice.call.localNumber}`
+                            : ""}
+                        </span>
+                      )}
+                      {voice.call.direction === "incoming" &&
+                        voice.call.phase === "ringing" && (
+                          <button onClick={voice.accept}>
+                            <PhoneIncoming size={15} /> Answer call
+                          </button>
+                        )}
+                      {voice.call.phase === "active" && (
+                        <div className="level-row">
+                          <span>Mic</span>
+                          <i>
+                            <b
+                              style={{
+                                width: `${Math.min(100, voice.levels.input * 100)}%`,
+                              }}
+                            />
+                          </i>
+                          <span>Speaker</span>
+                          <i>
+                            <b
+                              style={{
+                                width: `${Math.min(100, voice.levels.output * 100)}%`,
+                              }}
+                            />
+                          </i>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="dial-footer">
+                    <ShieldCheck size={14} />
+                    <span>Connected securely with Twilio</span>
+                  </div>
+                </section>
+              </div>
+              {view === "contacts" ? (
+                <Contacts
+                  key={workspaceId}
+                  onDial={(phone) => {
+                    setNumber(phone);
+                    setView("calls");
+                  }}
+                />
+              ) : (
+                <ActivityTable
+                  kicker="YOUR ACTIVITY"
+                  title={view === "calls" ? "Call history" : "Message history"}
+                  description={
+                    view === "calls"
+                      ? "Your latest conversations at a glance."
+                      : "Your latest sent and received messages."
+                  }
+                  headingAction={
+                    <button
+                      className="activity-icon activity-refresh"
+                      type="button"
+                      aria-label={
+                        syncing
+                          ? "Syncing with Twilio"
+                          : "Sync activity with Twilio"
+                      }
+                      title={
+                        syncing
+                          ? "Syncing with Twilio"
+                          : "Sync activity with Twilio"
+                      }
+                      disabled={syncing}
+                      onClick={syncActivity}
+                    >
+                      <RefreshCw
+                        size={19}
+                        className={syncing ? "sync-spinning" : ""}
+                      />
+                    </button>
+                  }
+                  headingNotice={
+                    <>
+                      {loadError && (
+                        <div className="heading-notice" role="alert">
+                          {loadError} <button onClick={refresh}>Retry</button>
+                        </div>
+                      )}
+                      {view === "messages" && conversationError && (
+                        <div className="heading-notice" role="alert">
+                          {conversationError}{" "}
+                          <button
+                            onClick={() =>
+                              setRefreshRevision((current) => current + 1)
+                            }
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
+                      {syncFeedback && (
+                        <div
+                          className={`heading-notice ${syncFeedback.startsWith("Synced") ? "heading-notice-success" : ""}`}
+                          role="status"
+                        >
+                          {syncFeedback}
+                        </div>
+                      )}
+                    </>
+                  }
+                  searchLabel="Search activity"
+                  searchValue={search}
+                  onSearchChange={(value) => {
+                    setPage(1);
+                    setSearch(value);
+                  }}
+                >
+                  {view === "messages" ? (
+                    <Conversations
+                      key={workspaceId}
+                      contacts={contacts}
+                      search={search}
+                      refreshRevision={refreshRevision}
+                      onErrorChange={setConversationError}
+                    />
+                  ) : (
+                    <>
+                      {loading ? (
+                        <div className="empty">Loading activity…</div>
+                      ) : !filtered.length ? (
+                        <div className="empty">
+                          <div className="empty-icon">
+                            {view === "calls" ? (
+                              <Phone size={23} />
+                            ) : (
+                              <MessageSquare size={23} />
+                            )}
+                          </div>
+                          <strong>
+                            {search
+                              ? "No matching activity"
+                              : view === "calls"
+                                ? "No calls yet"
+                                : "No messages yet"}
+                          </strong>
+                          <span>
+                            {search
+                              ? "Try a different search."
+                              : view === "calls"
+                                ? "Your recent calls will appear here."
+                                : "Your messages will appear here."}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="activity-list">
+                          {filtered.map((row, index) => {
+                            const phone = activityNumber(row, view);
+                            const contact = contactFor(phone);
+                            const missed =
+                              row.missed ||
+                              (row.direction === "inbound" &&
+                                !row.outgoing &&
+                                ["no-answer", "busy", "canceled"].includes(
+                                  row.status,
+                                ));
+                            const name =
+                              contact?.name || phone || "Unknown number";
+                            return (
                               <div
-                                className={`avatar ${contact ? "avatar-contact" : "avatar-unknown"}`}
+                                className={`activity-row ${row.unviewed ? "unviewed-row" : ""}`}
+                                key={row.id ?? index}
                               >
-                                {contact ? (
-                                  contact.name.trim().charAt(0).toUpperCase()
-                                ) : (
-                                  <UserRound
-                                    size={20}
-                                    aria-label="Unknown contact"
-                                  />
-                                )}
-                              </div>
-                              <div className="row-main">
-                                <strong>{name}</strong>
-                                <span>
-                                  {view === "calls" ? (
-                                    <>
-                                      {missed ? (
-                                        <CornerDownLeft
-                                          size={13}
-                                          className="missed-call-icon"
-                                          aria-label="Missed call"
-                                        />
-                                      ) : (
-                                        <ArrowDownLeft size={13} />
-                                      )}{" "}
-                                      {phone || "Unknown"}
-                                      {row.company_name
-                                        ? ` · ${row.company_name}`
-                                        : ""}
-                                    </>
+                                <div
+                                  className={`avatar ${contact ? "avatar-contact" : "avatar-unknown"}`}
+                                >
+                                  {contact ? (
+                                    contact.name.trim().charAt(0).toUpperCase()
                                   ) : (
-                                    <>
-                                      {row.outgoing ? "Sent · " : "Received · "}
-                                      {row.body || "[No message content]"}
-                                    </>
-                                  )}
-                                </span>
-                              </div>
-                              <div className="row-end">
-                                {row.unviewed && (
-                                  <button
-                                    className="mark-viewed"
-                                    onClick={() => markCallViewed(row.id)}
-                                  >
-                                    Mark viewed
-                                  </button>
-                                )}
-                                <div className="activity-meta">
-                                  <time>
-                                    {formatActivityDate(row.timestamp)}
-                                  </time>
-                                  {view === "calls" && (
-                                    <span>{formatDuration(row.duration)}</span>
+                                    <UserRound
+                                      size={20}
+                                      aria-label="Unknown contact"
+                                    />
                                   )}
                                 </div>
-                                {view === "calls" && phone && (
-                                  <button
-                                    className="quick-call"
-                                    aria-label={`Dial ${phone}`}
-                                    onClick={() => {
-                                      setNumber(phone);
-                                      setView("calls");
-                                    }}
-                                  >
-                                    <Phone size={15} />
-                                  </button>
-                                )}
+                                <div className="row-main">
+                                  <strong>{name}</strong>
+                                  <span>
+                                    {view === "calls" ? (
+                                      <>
+                                        {missed ? (
+                                          <CornerDownLeft
+                                            size={13}
+                                            className="missed-call-icon"
+                                            aria-label="Missed call"
+                                          />
+                                        ) : (
+                                          <ArrowDownLeft size={13} />
+                                        )}{" "}
+                                        {phone || "Unknown"}
+                                        {row.company_name
+                                          ? ` · ${row.company_name}`
+                                          : ""}
+                                      </>
+                                    ) : (
+                                      <>
+                                        {row.outgoing
+                                          ? "Sent · "
+                                          : "Received · "}
+                                        {row.body || "[No message content]"}
+                                      </>
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="row-end">
+                                  {row.unviewed && (
+                                    <button
+                                      className="mark-viewed"
+                                      onClick={() => markCallViewed(row.id)}
+                                    >
+                                      Mark viewed
+                                    </button>
+                                  )}
+                                  <div className="activity-meta">
+                                    <time>
+                                      {formatActivityDate(row.timestamp)}
+                                    </time>
+                                    {view === "calls" && (
+                                      <span>
+                                        {formatDuration(row.duration)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {view === "calls" && phone && (
+                                    <button
+                                      className="quick-call"
+                                      aria-label={`Dial ${phone}`}
+                                      onClick={() => {
+                                        setNumber(phone);
+                                        setView("calls");
+                                      }}
+                                    >
+                                      <Phone size={15} />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                    <Pagination
-                      label="Call history pagination"
-                      page={page}
-                      pageSize={pageSize}
-                      hasMore={hasMore.calls}
-                      loading={loading}
-                      onPageChange={setPage}
-                      onPageSizeChange={(size) => {
-                        setPage(1);
-                        setPageSize(size);
-                      }}
-                    />
-                  </>
-                )}
-              </ActivityTable>
-            )}
-          </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <Pagination
+                        label="Call history pagination"
+                        page={page}
+                        pageSize={pageSize}
+                        hasMore={hasMore.calls}
+                        loading={loading}
+                        onPageChange={setPage}
+                        onPageSizeChange={(size) => {
+                          setPage(1);
+                          setPageSize(size);
+                        }}
+                      />
+                    </>
+                  )}
+                </ActivityTable>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </div>
