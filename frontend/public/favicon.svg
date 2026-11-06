@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Iron Wing">
+  <rect x="11" y="11" width="42" height="42" rx="9" transform="rotate(45 32 32)" fill="#142622" stroke="#819488" stroke-width="3"/>
+  <g fill="none" stroke="#e7eee4" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19 24V40"/>
+    <path d="M26 24L30 40L36 28L42 40L46 24"/>
+  </g>
+</svg>
