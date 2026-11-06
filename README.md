@@ -24,7 +24,7 @@ This project was originally based on [Twilio’s Quickstart Voice App](https://g
 ✅ **Frontend Integration** – Built UI to display call & message logs in real-time.  
 ✅ **Database Optimization** – Prevents duplicate logs using `ON CONFLICT DO NOTHING`.  
 ✅ **Authentication (Planned)** – Working on adding JWT-based authentication.  
-✅ **Error Handling & Debugging** – Uses `pm2 logs` for server monitoring.
+✅ **Error Handling & Debugging** – Uses `docker logs twilio-app` for server monitoring.
 
 > 💡 **What I Learned**: Working on this project deepened my knowledge of **Twilio APIs, Express.js, PostgreSQL, and real-time event handling.**
 
@@ -40,7 +40,7 @@ This project was originally based on [Twilio’s Quickstart Voice App](https://g
 | PostgreSQL            | Database                 |
 | Webhooks              | Real-time updates        |
 | JavaScript (Frontend) | Fetch API for UI updates |
-| PM2                   | Process monitoring       |
+| Docker                | Container deployment     |
 
 ---
 
@@ -95,7 +95,7 @@ npm start
 ```
 
 The production server serves the generated `dist` directory. Docker builds it
-automatically. Node.js 22.12 or newer is required. To work on the frontend,
+automatically. Node.js 22.12 or newer (below 25) is required. To work on the frontend,
 start the backend with `npm start` and run `npm run dev` in a second terminal;
 Vite proxies the app's API requests to port 3001.
 
@@ -128,11 +128,21 @@ incoming call routed straight to an office-closed greeting has no dialed client
 leg and cannot be identified as missed by that leg. Historical calls without a
 recovered child leg may also lack a missed-call indicator.
 
-or with PM2:
+### Running with Docker
+
+In production the app runs as a Docker container built from this repository:
 
 ```sh
-pm2 start index.js --name twilio-voip
+docker network create edge   # once; the compose file joins this external network
+docker compose up -d --build
+docker logs -f twilio-app
 ```
+
+The container reads its configuration from the `.env` file next to
+`docker-compose.yml` and listens on port 3001 without publishing a host port,
+so it expects a reverse proxy on the `edge` network. See the Deployment section
+of `docs/workspaces-and-communications-design.md` for the production procedure
+and rollback.
 
 ---
 
