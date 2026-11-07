@@ -52,6 +52,7 @@ const keypad = [
 const clockZones = [
   ["America/New_York", "Eastern"],
   ["America/Chicago", "Central"],
+  ["America/Denver", "Mountain"],
   ["America/Los_Angeles", "Pacific"],
   ["Europe/Athens", "Greece"],
 ];
