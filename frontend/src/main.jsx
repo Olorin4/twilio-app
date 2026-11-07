@@ -59,30 +59,81 @@ const clockZones = [
 function TimeClock() {
   const [zone, setZone] = useState("America/New_York");
   const [now, setNow] = useState(() => Date.now());
+  const [open, setOpen] = useState(false);
+  const clockRef = useRef(null);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event) => {
+      if (
+        event.key === "Escape" ||
+        (event.type === "pointerdown" &&
+          !clockRef.current?.contains(event.target))
+      )
+        setOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", dismiss);
+    };
+  }, [open]);
+  const abbreviation = (value) =>
+    new Intl.DateTimeFormat(value === "Europe/Athens" ? "en-GB" : "en-US", {
+      timeZone: value,
+      timeZoneName: "short",
+    })
+      .formatToParts(now)
+      .find((part) => part.type === "timeZoneName")?.value;
   return (
-    <div className="time-clock">
-      <select
-        aria-label="Clock time zone"
-        value={zone}
-        onChange={(event) => setZone(event.target.value)}
+    <div className="time-clock" ref={clockRef}>
+      <button
+        className="status-trigger clock-trigger"
+        type="button"
+        aria-label={`Clock time zone: ${clockZones.find(([value]) => value === zone)[1]}, ${abbreviation(zone)}`}
+        aria-expanded={open}
+        aria-controls="clock-zones"
+        onClick={() => setOpen((current) => !current)}
       >
-        {clockZones.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <time dateTime={new Date(now).toISOString()}>
-        {new Intl.DateTimeFormat("en-US", {
-          timeZone: zone,
-          hour: "numeric",
-          minute: "2-digit",
-        }).format(now)}
-      </time>
+        <span>{abbreviation(zone)}</span>
+        <time dateTime={new Date(now).toISOString()}>
+          {new Intl.DateTimeFormat("en-US", {
+            timeZone: zone,
+            hour: "numeric",
+            minute: "2-digit",
+          }).format(now)}
+        </time>
+        <ChevronDown size={14} />
+      </button>
+      {open && (
+        <div
+          className="status-popover clock-popover"
+          id="clock-zones"
+          aria-label="Clock time zones"
+        >
+          {clockZones.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={
+                zone === value ? "clock-option selected" : "clock-option"
+              }
+              aria-label={`${label}: ${abbreviation(value)}`}
+              aria-pressed={zone === value}
+              onClick={() => {
+                setZone(value);
+                setOpen(false);
+              }}
+            >
+              {abbreviation(value)}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
