@@ -130,6 +130,7 @@ function App() {
   const smsInFlight = useRef(false);
   const [loadError, setLoadError] = useState("");
   const [conversationError, setConversationError] = useState("");
+  const [conversationList, setConversationList] = useState(null);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState("");
@@ -385,6 +386,7 @@ function App() {
     setCalls([]);
     setMessages([]);
     setContacts([]);
+    setConversationList(null);
     setUnviewed({ calls: 0, messages: 0 });
     setSearch("");
     setPage(1);
@@ -1100,6 +1102,8 @@ function App() {
                       key={workspaceId}
                       contacts={contacts}
                       search={search}
+                      list={conversationList}
+                      onListChange={setConversationList}
                       refreshRevision={refreshRevision}
                       onErrorChange={setConversationError}
                     />

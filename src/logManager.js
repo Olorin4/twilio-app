@@ -31,7 +31,7 @@ exports.logMessage = async (message, connection) => {
 exports.logCall = async (callData, connection) => {
   try {
     console.log("📞 [DEBUG] Logging call:", callData);
-    await pool.query(
+    const result = await pool.query(
       `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id, provider_connection_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (call_sid) DO NOTHING;`,
@@ -47,6 +47,7 @@ exports.logCall = async (callData, connection) => {
         connection?.id || null,
       ],
     );
+    if (result.rowCount) publish();
     console.log("✅ [DEBUG] Call logged successfully.");
   } catch (err) {
     console.error("❌ [ERROR] Failed to log call:", err.message);

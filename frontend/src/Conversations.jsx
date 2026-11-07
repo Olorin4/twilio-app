@@ -21,10 +21,11 @@ function time(value) {
 export default function Conversations({
   contacts,
   search,
+  list,
+  onListChange,
   refreshRevision = 0,
   onErrorChange,
 }) {
-  const [list, setList] = useState([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [phone, setPhone] = useState("");
@@ -56,7 +57,7 @@ export default function Conversations({
       const listData = await listResponse.json();
       const threadData = threadResponse ? await threadResponse.json() : null;
       if (version !== requestVersion.current) return;
-      setList(listData);
+      onListChange(listData);
       if (threadData) {
         setMessages((previous) => {
           const recentIds = new Set(
@@ -97,7 +98,7 @@ export default function Conversations({
     } catch (err) {
       if (version === requestVersion.current) onErrorChange(err.message);
     }
-  }, [onErrorChange]);
+  }, [onErrorChange, onListChange]);
   useEffect(
     () => () => {
       requestVersion.current++;
@@ -185,7 +186,7 @@ export default function Conversations({
       inFlight.current = false;
     }
   };
-  const filtered = list.filter((item) =>
+  const filtered = (list || []).filter((item) =>
     `${nameFor(item.phone, contacts)} ${item.phone} ${item.body || ""}`
       .toLowerCase()
       .includes(search.toLowerCase()),
@@ -204,7 +205,9 @@ export default function Conversations({
       {!phone ? (
         <>
           <div className="conversation-list">
-            {!filtered.length ? (
+            {list === null ? (
+              <div className="empty">Loading conversations…</div>
+            ) : !filtered.length ? (
               <div className="empty">
                 <MessageSquare size={23} />
                 <strong>
