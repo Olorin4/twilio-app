@@ -193,6 +193,19 @@ const formatDuration = (value) => {
 };
 
 function App() {
+  const [, setDeviceTimeZone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  useEffect(() => {
+    const updateTimeZone = () =>
+      setDeviceTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    window.addEventListener("focus", updateTimeZone);
+    document.addEventListener("visibilitychange", updateTimeZone);
+    return () => {
+      window.removeEventListener("focus", updateTimeZone);
+      document.removeEventListener("visibilitychange", updateTimeZone);
+    };
+  }, []);
   const [workspaceId, setWorkspaceId] = useState(IRON_WING_WORKSPACE_ID);
   const [workspaces, setWorkspaces] = useState([
     { id: IRON_WING_WORKSPACE_ID, name: "Iron Wing" },
