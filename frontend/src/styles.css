@@ -205,6 +205,25 @@ nav {
   color: #77867b;
   font-size: 12px;
 }
+.time-clock {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #617467;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.time-clock select {
+  max-width: 84px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.time-clock time {
+  font-variant-numeric: tabular-nums;
+}
 .status-control {
   position: relative;
 }

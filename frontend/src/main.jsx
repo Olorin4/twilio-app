@@ -49,6 +49,43 @@ const keypad = [
   ["0", "+"],
   ["#", ""],
 ];
+const clockZones = [
+  ["America/New_York", "Eastern"],
+  ["America/Chicago", "Central"],
+  ["America/Los_Angeles", "Pacific"],
+  ["Europe/Athens", "Greece"],
+];
+
+function TimeClock() {
+  const [zone, setZone] = useState("America/New_York");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <div className="time-clock">
+      <select
+        aria-label="Clock time zone"
+        value={zone}
+        onChange={(event) => setZone(event.target.value)}
+      >
+        {clockZones.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <time dateTime={new Date(now).toISOString()}>
+        {new Intl.DateTimeFormat("en-US", {
+          timeZone: zone,
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(now)}
+      </time>
+    </div>
+  );
+}
 const normalizePhone = (value) => String(value || "").replace(/[\s().-]/g, "");
 const activityNumber = (row, view) => {
   if (view === "messages")
@@ -580,6 +617,7 @@ function App() {
       <main className="main">
         <header className="topbar">
           <div className="topbar-right">
+            <TimeClock />
             <div className="status-control" ref={statusRef}>
               <button
                 className="status-trigger"
