@@ -56,8 +56,7 @@ const clockZones = [
   ["Europe/Athens", "Greece"],
 ];
 
-function TimeClock() {
-  const [zone, setZone] = useState("America/New_York");
+function TimeClock({ zone, onZoneChange }) {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
   const clockRef = useRef(null);
@@ -125,7 +124,7 @@ function TimeClock() {
               aria-label={`${label}: ${abbreviation(value)}`}
               aria-pressed={zone === value}
               onClick={() => {
-                setZone(value);
+                onZoneChange(value);
                 setOpen(false);
               }}
             >
@@ -166,11 +165,12 @@ const formatDate = (value) => {
   );
 };
 
-const formatActivityDate = (value) => {
+const formatActivityDate = (value, timeZone) => {
   const date = new Date(value);
   if (!value || Number.isNaN(date.getTime()))
     return "Date and time unavailable";
   return date.toLocaleString([], {
+    timeZone,
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -193,19 +193,7 @@ const formatDuration = (value) => {
 };
 
 function App() {
-  const [, setDeviceTimeZone] = useState(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-  );
-  useEffect(() => {
-    const updateTimeZone = () =>
-      setDeviceTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-    window.addEventListener("focus", updateTimeZone);
-    document.addEventListener("visibilitychange", updateTimeZone);
-    return () => {
-      window.removeEventListener("focus", updateTimeZone);
-      document.removeEventListener("visibilitychange", updateTimeZone);
-    };
-  }, []);
+  const [timeZone, setTimeZone] = useState("America/New_York");
   const [workspaceId, setWorkspaceId] = useState(IRON_WING_WORKSPACE_ID);
   const [workspaces, setWorkspaces] = useState([
     { id: IRON_WING_WORKSPACE_ID, name: "Iron Wing" },
@@ -681,7 +669,7 @@ function App() {
       <main className="main">
         <header className="topbar">
           <div className="topbar-right">
-            <TimeClock />
+            <TimeClock zone={timeZone} onZoneChange={setTimeZone} />
             <div className="status-control" ref={statusRef}>
               <button
                 className="status-trigger"
@@ -1202,6 +1190,7 @@ function App() {
                   {view === "messages" ? (
                     <Conversations
                       key={workspaceId}
+                      timeZone={timeZone}
                       contacts={contacts}
                       search={search}
                       list={conversationList}
@@ -1308,7 +1297,10 @@ function App() {
                                   )}
                                   <div className="activity-meta">
                                     <time>
-                                      {formatActivityDate(row.timestamp)}
+                                      {formatActivityDate(
+                                        row.timestamp,
+                                        timeZone,
+                                      )}
                                     </time>
                                     {view === "calls" && (
                                       <span>

@@ -7,10 +7,11 @@ function nameFor(phone, contacts) {
   const matches = contacts.filter((contact) => contact.phone === phone);
   return matches.length === 1 ? matches[0].name : phone;
 }
-function time(value) {
+function time(value, timeZone) {
   const date = new Date(value);
   return value && !Number.isNaN(date.getTime())
     ? date.toLocaleString([], {
+        timeZone,
         month: "short",
         day: "numeric",
         hour: "numeric",
@@ -19,6 +20,7 @@ function time(value) {
     : "Date unavailable";
 }
 export default function Conversations({
+  timeZone,
   contacts,
   search,
   list,
@@ -252,7 +254,7 @@ export default function Conversations({
                         {item.unviewed_count}
                       </span>
                     )}
-                    <time>{time(item.timestamp)}</time>
+                    <time>{time(item.timestamp, timeZone)}</time>
                   </button>
                 );
               })
@@ -306,7 +308,7 @@ export default function Conversations({
               >
                 <div>{message.body || "[No message content]"}</div>
                 <small>
-                  {time(message.timestamp)}
+                  {time(message.timestamp, timeZone)}
                   {message.outgoing && message.status
                     ? ` · ${message.status}`
                     : ""}
