@@ -19,7 +19,8 @@ app.use((req, res, next) => {
       req.path === "/sms" ||
       req.path === "/sms-status" ||
       req.path === "/call-status" ||
-      /^\/webhooks\/[0-9a-f-]{36}\/(voice|sms|sms-status|call-status)$/i.test(
+      /^\/announcement\/(missed|closed)(\/complete)?$/.test(req.path) ||
+      /^\/webhooks\/[0-9a-f-]{36}\/(voice|sms|sms-status|call-status|announcement\/(missed|closed)(\/complete)?)$/i.test(
         req.path,
       ))
   )

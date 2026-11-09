@@ -16,6 +16,7 @@ const conversations = require("./conversations");
 const { stream } = require("./messageEvents");
 const activityViews = require("./activityViews");
 const callEvents = require("./callEvents");
+const callAnnouncements = require("./callAnnouncements");
 const reconciliation = require("./reconciliation");
 const workspaceSettings = require("./workspaceSettings");
 const { resolveWorkspace } = require("./workspaceContext");
@@ -97,6 +98,16 @@ router.post(
   "/webhooks/:connectionId/call-status",
   authenticateConnectionWebhook,
   callEvents.callback,
+);
+router.post(
+  "/webhooks/:connectionId/announcement/:kind/:phase?",
+  authenticateConnectionWebhook,
+  callAnnouncements.handle,
+);
+router.post(
+  "/announcement/:kind/:phase?",
+  validateWebhook,
+  callAnnouncements.handle,
 );
 
 router.use(

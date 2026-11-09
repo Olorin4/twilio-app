@@ -790,23 +790,56 @@ h1 {
   border-bottom: 1px solid #f0f3ef;
   padding: 15px 0;
 }
-.call-expand {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid #e6eee3;
-  border-radius: 7px;
-  color: #6e916d;
-  background: #fff;
+.call-group-row {
+  position: relative;
+  cursor: pointer;
+  transition: background-color 500ms;
+}
+.call-group-row:hover,
+.call-group-row-expanded {
+  background: #f6f8f6;
+}
+.call-group-row.unviewed-row:hover,
+.call-group-row.unviewed-row.call-group-row-expanded {
+  background: #e4f1e1;
+}
+.call-row-toggle {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
   cursor: pointer;
 }
-.call-chevron-open {
-  transform: rotate(180deg);
+.call-row-toggle:focus-visible {
+  outline: 2px solid #719b73;
+  outline-offset: -2px;
+}
+.call-group-row > :not(.call-row-toggle) {
+  position: relative;
+  pointer-events: none;
+}
+.call-group-row .row-end button {
+  pointer-events: auto;
+}
+.call-timeline-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 300ms ease-out, opacity 300ms ease-out;
+}
+.call-timeline-reveal-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.call-timeline-clip {
+  min-height: 0;
+  overflow: hidden;
 }
 .call-timeline {
   padding: 4px 0 12px 50px;
   border-bottom: 1px solid #f0f3ef;
+  background: #f6f8f6;
 }
 .call-timeline-item {
   display: flex;
@@ -830,6 +863,12 @@ h1 {
 }
 .call-timeline-duration {
   white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-group-row,
+  .call-timeline-reveal {
+    transition: none;
+  }
 }
 .unviewed-row {
   background: #edf6eb;
@@ -918,6 +957,10 @@ h1 {
 }
 .quick-call:hover {
   background: #f1f7ee;
+}
+.quick-call:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 .activity-foot {
   display: flex;
@@ -1365,6 +1408,8 @@ h1 {
     margin-left: 50px;
     width: calc(100% - 50px);
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   .activity-meta {
     text-align: left;

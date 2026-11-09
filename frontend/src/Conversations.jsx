@@ -27,17 +27,25 @@ export default function Conversations({
   onListChange,
   refreshRevision = 0,
   onErrorChange,
+  initialConversation = null,
+  activeNumber = "",
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [phone, setPhone] = useState("");
-  const [localNumber, setLocalNumber] = useState("");
+  const [phone, setPhone] = useState(initialConversation?.phone || "");
+  const [localNumber, setLocalNumber] = useState(
+    initialConversation?.localNumber || "",
+  );
   const [messages, setMessages] = useState([]);
+  const [threadLoaded, setThreadLoaded] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [body, setBody] = useState("");
   const [feedback, setFeedback] = useState("");
   const [sending, setSending] = useState(false);
   const inFlight = useRef(false);
+  const senderMismatch = Boolean(
+    activeNumber && localNumber && activeNumber !== localNumber,
+  );
   const requestVersion = useRef(0);
   const selected = useRef({ phone, localNumber });
   const loadedOlder = useRef(false);
@@ -61,6 +69,12 @@ export default function Conversations({
       if (version !== requestVersion.current) return;
       onListChange(listData);
       if (threadData) {
+        if (
+          selected.current.phone !== target ||
+          selected.current.localNumber !== targetLocal
+        )
+          return;
+        setThreadLoaded(true);
         setMessages((previous) => {
           const recentIds = new Set(
             threadData.messages.map((message) => message.id),
@@ -111,8 +125,10 @@ export default function Conversations({
   useEffect(() => {
     loadedOlder.current = false;
     setMessages([]);
+    setThreadLoaded(false);
     setHasMore(false);
     setFeedback("");
+    setBody("");
     load();
   }, [phone, localNumber, load]);
   useEffect(() => {
@@ -154,7 +170,14 @@ export default function Conversations({
   };
   const send = async (event) => {
     event.preventDefault();
-    if (inFlight.current || !body.trim() || !phone) return;
+    if (
+      inFlight.current ||
+      !body.trim() ||
+      !phone ||
+      senderMismatch ||
+      !threadLoaded
+    )
+      return;
     inFlight.current = true;
     setSending(true);
     setFeedback("");
@@ -316,6 +339,11 @@ export default function Conversations({
                 </small>
               </div>
             ))}
+            {threadLoaded && !messages.length && !hasMore && (
+              <div className="empty">
+                No messages yet. Start the conversation below.
+              </div>
+            )}
           </div>
           <form className="thread-compose" onSubmit={send}>
             <label htmlFor="thread-message">Reply</label>
@@ -333,11 +361,18 @@ export default function Conversations({
               </small>
               <button
                 className="button button-green"
-                disabled={sending || !body.trim()}
+                disabled={
+                  sending || !body.trim() || senderMismatch || !threadLoaded
+                }
               >
                 <Send size={15} /> {sending ? "Sending…" : "Send"}
               </button>
             </div>
+            {senderMismatch && (
+              <p role="status">
+                Select {localNumber} as the sending number before replying.
+              </p>
+            )}
             {feedback && <p role="status">{feedback}</p>}
           </form>
         </section>

@@ -146,10 +146,20 @@ exports.getCallLogs = async (req, res) => {
              COALESCE((SELECT leg.status FROM twilio_call_legs leg WHERE (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id ORDER BY leg.updated_at DESC LIMIT 1), cl.status) AS status,
              (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.status IN ('busy', 'failed', 'no-answer', 'canceled') AND NOT leg.answered) AND NOT EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered)) AS missed,
              EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered) AS answered,
+             (SELECT json_build_object('kind', a.kind, 'initiated', a.initiated_at IS NOT NULL, 'completed', a.completed_at IS NOT NULL) FROM call_announcements a WHERE a.call_sid = cl.call_sid AND a.workspace_id = cl.workspace_id AND a.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id) AS announcement,
              (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND cl.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
               AND NOT EXISTS (SELECT 1 FROM activity_views v WHERE v.kind = 'call' AND v.item_id = cl.id)) AS unviewed,
              COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND (leg.answered OR cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration) AS duration,
              (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AS outgoing,
+             CASE WHEN cl.from_number LIKE 'client:%' THEN
+               (SELECT child.from_number FROM twilio_call_legs leg JOIN call_logs child ON child.call_sid = leg.call_sid
+                AND child.workspace_id = cl.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
+                WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id
+                  AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
+                  AND child.from_number ~ '^[+][1-9][0-9]{1,14}$'
+                ORDER BY leg.updated_at DESC LIMIT 1)
+             WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number
+             ELSE cl.to_number END AS local_number,
              cl.timestamp,
              d.first_name AS driver_first_name, 
              d.last_name AS driver_last_name, 

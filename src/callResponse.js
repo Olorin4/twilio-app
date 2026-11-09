@@ -38,6 +38,12 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
         statusCallbackMethod: "POST",
       }
     : {};
+  const announcementBase = callbackBase
+    ? callbackBase +
+      (provider && !provider.legacy
+        ? `/webhooks/${provider.id}/announcement`
+        : "/announcement")
+    : "";
   console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
   const currentHour = Number(
@@ -57,14 +63,19 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
   ) {
     // If the call is outside business hours, play the closed message
     console.log("🟠 [DEBUG] Outside business hours. Playing closed message.");
-    twiml.say(
-      "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
-    );
+    if (announcementBase) twiml.redirect(`${announcementBase}/closed`);
+    else
+      twiml.say(
+        "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
+      );
   } else if (toNumberOrClientName == connectionCallerId) {
     // Call is within business hours, attempt to connect to the client
     console.log("🟢 [DEBUG] Attempting to route call to browser-client...");
     if (identity) {
-      let dial = twiml.dial({ timeout: 20 });
+      let dial = twiml.dial({
+        timeout: 20,
+        ...(announcementBase ? { action: `${announcementBase}/missed` } : {}),
+      });
       if (provider && !provider.legacy) {
         const target = dial.client(callbackOptions);
         target.identity(identity);
@@ -73,11 +84,13 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
     }
 
     // **This message only plays if no one answers within 20 seconds**
-    twiml.say(
-      isIronWing
-        ? "Hello! Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon."
-        : "Hello! Thank you for calling. One of our representatives will call you back soon.",
-    );
+    if (!announcementBase || !identity) {
+      twiml.say(
+        isIronWing
+          ? "Hello! Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon."
+          : "Hello! Thank you for calling. One of our representatives will call you back soon.",
+      );
+    }
   } else if (requestBody.To) {
     // Outgoing call logic
     let dial = twiml.dial({ callerId: connectionCallerId });

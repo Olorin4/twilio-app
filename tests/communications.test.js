@@ -25,6 +25,18 @@ test("dialed call legs receive signed-status callback URLs", () => {
       'statusCallbackEvent="initiated ringing answered completed"',
     );
   }
+  expect(incoming).toContain(
+    'action="https://example.com/announcement/missed"',
+  );
+  expect(incoming).not.toContain("One of our representatives");
+});
+
+test("after-hours calls route to the tracked closed message", () => {
+  process.env.TWILIO_WEBHOOK_BASE_URL = "https://example.com";
+  jest.useFakeTimers().setSystemTime(new Date("2026-01-01T05:00:00Z"));
+  expect(voiceResponse({ To: "+15551234567" })).toContain(
+    "https://example.com/announcement/closed",
+  );
 });
 
 test("outgoing calls dial with the configured caller ID outside office hours", () => {

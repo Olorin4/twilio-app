@@ -114,6 +114,12 @@ Run `npm run migrate:activity-views` before using unread activity tracking.
 Incoming calls and messages after the migration are unviewed until acknowledged;
 older history is treated as viewed. The migration is safe to rerun.
 
+Run `npm run migrate:call-announcements` against the intended database before
+starting the version with automated-message tracking. The additive migration is
+safe to rerun; older calls retain an unknown message status. Initiated means the
+app returned instructions to play a greeting, and completed means Twilio reached
+the instruction after the greeting; neither proves the caller listened.
+
 Run `npm run migrate:twilio-reconciliation` before starting a release with call
 callbacks and reconciliation. This migration creates call-leg and sync checkpoint
 tables; the first reconciliation looks back at least one day, and subsequent
