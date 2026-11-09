@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowDownLeft,
+  ArrowUpRight,
   AudioLines,
   ChevronDown,
   CornerDownLeft,
@@ -1269,8 +1270,16 @@ function App() {
                                             className="missed-call-icon"
                                             aria-label="Missed call"
                                           />
+                                        ) : row.outgoing ? (
+                                          <ArrowUpRight
+                                            size={13}
+                                            aria-label="Outgoing call"
+                                          />
                                         ) : (
-                                          <ArrowDownLeft size={13} />
+                                          <ArrowDownLeft
+                                            size={13}
+                                            aria-label="Incoming call"
+                                          />
                                         )}{" "}
                                         {phone || "Unknown"}
                                         {row.company_name
