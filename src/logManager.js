@@ -157,7 +157,17 @@ exports.getCallLogs = async (req, res) => {
       FROM call_logs cl
       LEFT JOIN driver d ON cl.driver_id = d.id
       LEFT JOIN company c ON d.company_id = c.id
-      WHERE cl.workspace_id = $5 AND ($2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
+      WHERE cl.workspace_id = $5
+        AND NOT EXISTS (
+          SELECT 1 FROM twilio_call_legs leg
+          JOIN call_logs parent ON parent.call_sid = leg.parent_call_sid
+            AND parent.workspace_id = cl.workspace_id
+            AND parent.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
+          WHERE leg.call_sid = cl.call_sid
+            AND leg.workspace_id = cl.workspace_id
+            AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
+        )
+        AND ($2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0))
       ORDER BY cl.timestamp DESC NULLS LAST, cl.id DESC
       LIMIT $4 OFFSET $3;
