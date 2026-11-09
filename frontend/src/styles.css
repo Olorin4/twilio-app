@@ -790,6 +790,47 @@ h1 {
   border-bottom: 1px solid #f0f3ef;
   padding: 15px 0;
 }
+.call-expand {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e6eee3;
+  border-radius: 7px;
+  color: #6e916d;
+  background: #fff;
+  cursor: pointer;
+}
+.call-chevron-open {
+  transform: rotate(180deg);
+}
+.call-timeline {
+  padding: 4px 0 12px 50px;
+  border-bottom: 1px solid #f0f3ef;
+}
+.call-timeline-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  color: #728579;
+  font-size: 11px;
+}
+.call-timeline-item > svg {
+  flex: none;
+  color: #87a984;
+}
+.call-timeline-item > svg.missed-call-icon {
+  color: #dc4545;
+}
+.call-timeline-detail {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+}
+.call-timeline-duration {
+  white-space: nowrap;
+}
 .unviewed-row {
   background: #edf6eb;
   box-shadow: inset 3px 0 #5a955e;

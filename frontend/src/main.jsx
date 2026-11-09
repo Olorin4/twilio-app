@@ -194,6 +194,41 @@ const formatDuration = (value) => {
     : `${minutes}:${remainder}`;
 };
 
+const isMissedCall = (row) =>
+  row.missed ||
+  (row.direction === "inbound" &&
+    !row.outgoing &&
+    ["no-answer", "busy", "canceled"].includes(row.status));
+const callOutcome = (row) => {
+  if (isMissedCall(row)) return "Missed";
+  if (row.status === "completed" && row.answered) return "Answered";
+  const labels = {
+    completed: "Completed",
+    "no-answer": "No answer",
+    busy: "Busy",
+    failed: "Failed",
+    canceled: "Canceled",
+    "in-progress": "In progress",
+    ringing: "Ringing",
+    queued: "Queued",
+    initiated: "Connecting",
+  };
+  return labels[row.status] || "Unknown status";
+};
+function CallDirection({ row }) {
+  return isMissedCall(row) ? (
+    <CornerDownLeft
+      size={13}
+      className="missed-call-icon"
+      aria-label="Missed call"
+    />
+  ) : row.outgoing ? (
+    <ArrowUpRight size={13} aria-label="Outgoing call" />
+  ) : (
+    <ArrowDownLeft size={13} aria-label="Incoming call" />
+  );
+}
+
 function App() {
   const [timeZone, setTimeZone] = useState("America/New_York");
   const [workspaceId, setWorkspaceId] = useState(IRON_WING_WORKSPACE_ID);
@@ -208,6 +243,7 @@ function App() {
   const [number, setNumber] = useState("");
   const [search, setSearch] = useState("");
   const [calls, setCalls] = useState([]);
+  const [expandedCalls, setExpandedCalls] = useState({});
   const [messages, setMessages] = useState([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -283,7 +319,7 @@ function App() {
         search,
       });
       const [callResponse, messageResponse] = await Promise.all([
-        apiFetch(`/call-logs?${query}`),
+        apiFetch(`/call-logs?${query}&grouped=true`),
         apiFetch(`/message-logs?${query}`),
       ]);
       if (!callResponse.ok || !messageResponse.ok)
@@ -475,6 +511,7 @@ function App() {
     setApiWorkspace(id);
     setWorkspaceId(id);
     setCalls([]);
+    setExpandedCalls({});
     setMessages([]);
     setContacts([]);
     setConversationList(null);
@@ -1230,107 +1267,147 @@ function App() {
                         </div>
                       ) : (
                         <div className="activity-list">
-                          {filtered.map((row, index) => {
-                            const phone = activityNumber(row, view);
+                          {filtered.map((group) => {
+                            const row = group.calls[0];
+                            const phone = activityNumber(row, "calls");
                             const contact = contactFor(phone);
-                            const missed =
-                              row.missed ||
-                              (row.direction === "inbound" &&
-                                !row.outgoing &&
-                                ["no-answer", "busy", "canceled"].includes(
-                                  row.status,
-                                ));
                             const name =
                               contact?.name || phone || "Unknown number";
+                            const expanded = Boolean(
+                              expandedCalls[group.group_key],
+                            );
+                            const hasUnviewed = group.calls.some(
+                              (call) => call.unviewed,
+                            );
                             return (
-                              <div
-                                className={`activity-row ${row.unviewed ? "unviewed-row" : ""}`}
-                                key={row.id ?? index}
-                              >
+                              <div className="call-group" key={group.group_key}>
                                 <div
-                                  className={`avatar ${contact ? "avatar-contact" : "avatar-unknown"}`}
+                                  className={`activity-row ${hasUnviewed ? "unviewed-row" : ""}`}
                                 >
-                                  {contact ? (
-                                    contact.name.trim().charAt(0).toUpperCase()
-                                  ) : (
-                                    <UserRound
-                                      size={20}
-                                      aria-label="Unknown contact"
-                                    />
-                                  )}
-                                </div>
-                                <div className="row-main">
-                                  <strong>{name}</strong>
-                                  <span>
-                                    {view === "calls" ? (
-                                      <>
-                                        {missed ? (
-                                          <CornerDownLeft
-                                            size={13}
-                                            className="missed-call-icon"
-                                            aria-label="Missed call"
-                                          />
-                                        ) : row.outgoing ? (
-                                          <ArrowUpRight
-                                            size={13}
-                                            aria-label="Outgoing call"
-                                          />
-                                        ) : (
-                                          <ArrowDownLeft
-                                            size={13}
-                                            aria-label="Incoming call"
-                                          />
-                                        )}{" "}
-                                        {phone || "Unknown"}
-                                        {row.company_name
-                                          ? ` · ${row.company_name}`
-                                          : ""}
-                                      </>
+                                  <div
+                                    className={`avatar ${contact ? "avatar-contact" : "avatar-unknown"}`}
+                                  >
+                                    {contact ? (
+                                      contact.name
+                                        .trim()
+                                        .charAt(0)
+                                        .toUpperCase()
                                     ) : (
-                                      <>
-                                        {row.outgoing
-                                          ? "Sent · "
-                                          : "Received · "}
-                                        {row.body || "[No message content]"}
-                                      </>
+                                      <UserRound
+                                        size={20}
+                                        aria-label="Unknown contact"
+                                      />
                                     )}
-                                  </span>
-                                </div>
-                                <div className="row-end">
-                                  {row.unviewed && (
-                                    <button
-                                      className="mark-viewed"
-                                      onClick={() => markCallViewed(row.id)}
-                                    >
-                                      Mark viewed
-                                    </button>
-                                  )}
-                                  <div className="activity-meta">
-                                    <time>
-                                      {formatActivityDate(
-                                        row.timestamp,
-                                        timeZone,
-                                      )}
-                                    </time>
-                                    {view === "calls" && (
+                                  </div>
+                                  <div className="row-main">
+                                    <strong>{name}</strong>
+                                    <span>
+                                      <CallDirection row={row} />{" "}
+                                      {phone || "Unknown"} · {callOutcome(row)}
+                                    </span>
+                                    {group.calls.length > 1 && (
                                       <span>
-                                        {formatDuration(row.duration)}
+                                        {group.calls.length} calls
+                                        {hasUnviewed ? " · Unviewed call" : ""}
                                       </span>
                                     )}
                                   </div>
-                                  {view === "calls" && phone && (
+                                  <div className="row-end">
+                                    {group.calls.length === 1 &&
+                                      row.unviewed && (
+                                        <button
+                                          className="mark-viewed"
+                                          onClick={() => markCallViewed(row.id)}
+                                        >
+                                          Mark viewed
+                                        </button>
+                                      )}
+                                    <div className="activity-meta">
+                                      <time>
+                                        {formatActivityDate(
+                                          row.timestamp,
+                                          timeZone,
+                                        )}
+                                      </time>
+                                      <span>
+                                        {formatDuration(row.duration)}
+                                      </span>
+                                    </div>
                                     <button
-                                      className="quick-call"
-                                      aria-label={`Dial ${phone}`}
-                                      onClick={() => {
-                                        setNumber(phone);
-                                        setView("calls");
-                                      }}
+                                      className="call-expand"
+                                      aria-expanded={expanded}
+                                      aria-label={`${expanded ? "Hide" : "Show"} call history for ${name}`}
+                                      onClick={() =>
+                                        setExpandedCalls((current) => ({
+                                          ...current,
+                                          [group.group_key]:
+                                            !current[group.group_key],
+                                        }))
+                                      }
                                     >
-                                      <Phone size={15} />
+                                      <ChevronDown
+                                        size={16}
+                                        className={
+                                          expanded ? "call-chevron-open" : ""
+                                        }
+                                      />
                                     </button>
-                                  )}
+                                    {phone && (
+                                      <button
+                                        className="quick-call"
+                                        aria-label={`Dial ${phone}`}
+                                        onClick={() => {
+                                          setNumber(phone);
+                                          setView("calls");
+                                        }}
+                                      >
+                                        <Phone size={15} />
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
+                                {expanded && (
+                                  <div
+                                    className="call-timeline"
+                                    aria-label={`Call history for ${name}`}
+                                  >
+                                    {group.calls.map((call) => (
+                                      <div
+                                        className={`call-timeline-item ${call.unviewed ? "unviewed-row" : ""}`}
+                                        key={call.id}
+                                      >
+                                        <CallDirection row={call} />
+                                        <div className="call-timeline-detail">
+                                          <strong>
+                                            {call.outgoing
+                                              ? "Outgoing"
+                                              : "Incoming"}{" "}
+                                            · {callOutcome(call)}
+                                          </strong>
+                                          <time>
+                                            {formatActivityDate(
+                                              call.timestamp,
+                                              timeZone,
+                                            )}
+                                          </time>
+                                        </div>
+                                        <span className="call-timeline-duration">
+                                          {formatDuration(call.duration)}
+                                        </span>
+                                        {call.unviewed && (
+                                          <button
+                                            className="mark-viewed"
+                                            onClick={() =>
+                                              markCallViewed(call.id)
+                                            }
+                                          >
+                                            Mark viewed
+                                          </button>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}

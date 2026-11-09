@@ -6,6 +6,28 @@ const { getCallLogs, getMessageLogs } = require("../src/logManager");
 
 beforeEach(() => jest.clearAllMocks());
 
+test("grouped call history paginates contacts and retains their calls", async () => {
+  const calls = [{ id: 3 }, { id: 2 }, { id: 1 }];
+  pool.query.mockResolvedValue({
+    rows: [
+      { group_key: "phone:+15550000001", calls },
+      ...Array.from({ length: 10 }, (_, id) => ({
+        group_key: `phone:${id}`,
+        calls: [{ id }],
+      })),
+    ],
+  });
+  const res = {
+    set: jest.fn(),
+    json: jest.fn(),
+    status: jest.fn().mockReturnThis(),
+  };
+  await getCallLogs({ query: { grouped: "true" } }, res);
+  expect(res.set).toHaveBeenCalledWith("X-Has-More", "true");
+  expect(res.json.mock.calls[0][0]).toHaveLength(10);
+  expect(res.json.mock.calls[0][0][0].calls).toEqual(calls);
+});
+
 test.each([getCallLogs, getMessageLogs])(
   "paginates history and indicates a following page",
   async (handler) => {

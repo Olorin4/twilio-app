@@ -138,17 +138,17 @@ exports.getCallLogs = async (req, res) => {
   try {
     console.log("📥 [DEBUG] Fetching call log from postgreSQL...");
 
-    const result = await pool.query(
-      `
+    const callQuery = `
       SELECT cl.id, 
              cl.from_number, 
              cl.to_number, 
              cl.direction,
-             cl.status,
+             COALESCE((SELECT leg.status FROM twilio_call_legs leg WHERE (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id ORDER BY leg.updated_at DESC LIMIT 1), cl.status) AS status,
              (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.status IN ('busy', 'failed', 'no-answer', 'canceled') AND NOT leg.answered) AND NOT EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered)) AS missed,
+             EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered) AS answered,
              (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND cl.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
               AND NOT EXISTS (SELECT 1 FROM activity_views v WHERE v.kind = 'call' AND v.item_id = cl.id)) AS unviewed,
-             COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration) AS duration,
+             COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND (leg.answered OR cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration) AS duration,
              (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AS outgoing,
              cl.timestamp,
              d.first_name AS driver_first_name, 
@@ -169,17 +169,37 @@ exports.getCallLogs = async (req, res) => {
         )
         AND ($2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0))
-      ORDER BY cl.timestamp DESC NULLS LAST, cl.id DESC
-      LIMIT $4 OFFSET $3;
-    `,
-      [
-        process.env.TWILIO_CALLER_ID,
-        params.search,
-        params.offset,
-        params.pageSize + 1,
-        req.workspace?.id || IRON_WING_WORKSPACE_ID,
-      ],
-    );
+    `;
+    const grouped = req.query?.grouped === "true";
+    const query = grouped
+      ? `WITH calls AS (${callQuery}), keyed AS (
+          SELECT calls.*, CASE
+            WHEN COALESCE(CASE WHEN direction LIKE 'outbound%' OR outgoing THEN to_number ELSE from_number END, '') = ''
+              THEN 'unknown:' || id::text
+            ELSE 'phone:' || regexp_replace(CASE WHEN direction LIKE 'outbound%' OR outgoing THEN to_number ELSE from_number END, '[[:space:]().-]', '', 'g')
+          END AS group_key FROM calls
+        ), groups AS (
+          SELECT group_key, MAX(timestamp) AS latest, MAX(id) AS newest_id
+          FROM keyed GROUP BY group_key
+          ORDER BY latest DESC NULLS LAST, newest_id DESC
+          LIMIT $4 OFFSET $3
+        )
+        SELECT groups.group_key, json_agg(
+          jsonb_set(to_jsonb(keyed) - 'group_key', '{timestamp}',
+            COALESCE(to_jsonb(keyed.timestamp AT TIME ZONE 'UTC'), 'null'::jsonb))
+          ORDER BY keyed.timestamp DESC NULLS LAST, keyed.id DESC
+        ) AS calls
+        FROM groups JOIN keyed USING (group_key)
+        GROUP BY groups.group_key, groups.latest, groups.newest_id
+        ORDER BY groups.latest DESC NULLS LAST, groups.newest_id DESC`
+      : `${callQuery} ORDER BY cl.timestamp DESC NULLS LAST, cl.id DESC LIMIT $4 OFFSET $3`;
+    const result = await pool.query(query, [
+      process.env.TWILIO_CALLER_ID,
+      params.search,
+      params.offset,
+      params.pageSize + 1,
+      req.workspace?.id || IRON_WING_WORKSPACE_ID,
+    ]);
 
     res.set("X-Has-More", String(result.rows.length > params.pageSize));
     res.json(result.rows.slice(0, params.pageSize));
