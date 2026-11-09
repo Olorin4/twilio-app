@@ -1327,10 +1327,9 @@ function App() {
                                     <span>
                                       <CallDirection row={row} />{" "}
                                       {phone || "Unknown"} · {callOutcome(row)}
+                                      {announcementLabel(row) &&
+                                        ` · ${announcementLabel(row)}`}
                                     </span>
-                                    {announcementLabel(row) && (
-                                      <span>{announcementLabel(row)}</span>
-                                    )}
                                     {group.calls.length > 1 && (
                                       <span>
                                         {group.calls.length} calls
@@ -1417,12 +1416,9 @@ function App() {
                                                 ? "Outgoing"
                                                 : "Incoming"}{" "}
                                               · {callOutcome(call)}
+                                              {announcementLabel(call) &&
+                                                ` · ${announcementLabel(call)}`}
                                             </strong>
-                                            {announcementLabel(call) && (
-                                              <span>
-                                                {announcementLabel(call)}
-                                              </span>
-                                            )}
                                             <time>
                                               {formatCallDate(
                                                 call.timestamp,
