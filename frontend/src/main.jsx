@@ -14,6 +14,7 @@ import {
   Phone,
   PhoneIncoming,
   PhoneOff,
+  Power,
   RefreshCw,
   Send,
   Settings2,
@@ -736,7 +737,32 @@ function App() {
                 >
                   <div className="status-popover-heading">
                     <strong>Phone status</strong>
-                    <span className={online ? "status-online" : ""}>
+                    <span
+                      className={`connection-status ${online ? "status-online" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="connection-toggle"
+                        aria-label={
+                          online
+                            ? "Disconnect phone in all workspaces"
+                            : "Connect phone"
+                        }
+                        title={
+                          !voice.canSwitch()
+                            ? "Unavailable during a call or while connecting"
+                            : online
+                              ? "Disconnect phone in all workspaces"
+                              : "Connect phone"
+                        }
+                        disabled={
+                          !voice.canSwitch() ||
+                          voice.connection === "connecting"
+                        }
+                        onClick={online ? voice.stop : voice.start}
+                      >
+                        <Power size={15} />
+                      </button>
                       {online
                         ? "Connected"
                         : voice.connection === "connecting"
