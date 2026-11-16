@@ -218,7 +218,13 @@ function createSession({
   function applyInterrupt(heard) {
     if (finished || !history) return;
     const lastSpoken = transcript.findLast((entry) => entry.role === "agent");
-    if (lastSpoken) lastSpoken.text = heard;
+    // The greeting cannot be interrupted, so it is never the line cut short.
+    if (lastSpoken && lastSpoken !== transcript[0]) {
+      // A reply the caller heard none of was never part of the call: drop it
+      // rather than keep a blank line.
+      if (heard) lastSpoken.text = heard;
+      else transcript.splice(transcript.indexOf(lastSpoken), 1);
+    }
     const index = history.findLastIndex((m) => m.role === "assistant");
     if (index < 0) return;
     const message = history[index];

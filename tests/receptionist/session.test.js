@@ -495,3 +495,44 @@ test("an agent that reports no usage does not break the end of the call", async 
   await flush();
   expect(onFinished.mock.calls[0][0].usage).toEqual([]);
 });
+
+test("a reply cut off before the caller heard any of it leaves no blank line", async () => {
+  // Seen on a real call: the caller paused between sentences, Jack started
+  // to answer, and the caller carried on before a word of it was spoken.
+  const s = start();
+  agent.runTurn.mockImplementationOnce(reply("Good to meet you, Nick."));
+  await s.handle(prompt("Hi, I'm Nick. I run one dry van."));
+  await s.handle({
+    type: "interrupt",
+    utteranceUntilInterrupt: "",
+    durationUntilInterruptMs: 0,
+  });
+  await s.handle(prompt("And I'm looking for a dispatcher."));
+  // The next turn is not told about a reply the caller never heard.
+  expect(JSON.stringify(agent.runTurn.mock.calls[1][0])).not.toContain(
+    "Good to meet you",
+  );
+  s.closed();
+  await flush();
+  const { transcript } = onFinished.mock.calls[0][0];
+  expect(transcript).toEqual([
+    { role: "agent", text: GREETING },
+    { role: "caller", text: "Hi, I'm Nick. I run one dry van." },
+    { role: "caller", text: "And I'm looking for a dispatcher." },
+    { role: "agent", text: "Sure." },
+  ]);
+});
+
+test("an interruption with nothing heard never removes the greeting", async () => {
+  const s = start();
+  await s.handle({
+    type: "interrupt",
+    utteranceUntilInterrupt: "",
+    durationUntilInterruptMs: 0,
+  });
+  s.closed();
+  await flush();
+  expect(onFinished.mock.calls[0][0].transcript).toEqual([
+    { role: "agent", text: GREETING },
+  ]);
+});
