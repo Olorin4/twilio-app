@@ -4,6 +4,7 @@ and then exporting them for use in router.js. */
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
 const { callerId, getIdentity } = require("./token");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const { getConfig, isOpen } = require("./receptionist/config");
 
 // Debugging twilio credentials imports
 // console.log("✔ Debugging handler.js credentials:");
@@ -46,20 +47,10 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
     : "";
   console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
 
-  const currentHour = Number(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      hour: "numeric",
-      hourCycle: "h23",
-    }).format(new Date()),
-  );
-  const businessHoursStart = 7;
-  const businessHoursEnd = 18;
-
   if (
     isIronWing &&
     toNumberOrClientName == connectionCallerId &&
-    (currentHour < businessHoursStart || currentHour >= businessHoursEnd)
+    !isOpen(new Date(), getConfig().hours)
   ) {
     // If the call is outside business hours, play the closed message
     console.log("🟠 [DEBUG] Outside business hours. Playing closed message.");
