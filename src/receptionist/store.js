@@ -94,7 +94,7 @@ async function setStatus(workspaceId, callSid, status) {
 async function countNew(workspaceId) {
   const result = await pool.query(
     `SELECT count(*) FROM receptionist_calls
-     WHERE workspace_id = $1 AND status = 'new' AND outcome IN ('lead', 'not_a_lead')`,
+     WHERE workspace_id = $1 AND status = 'new' AND outcome IN ('lead', 'not_a_lead', 'failed')`,
     [workspaceId],
   );
   return Number(result.rows[0].count);

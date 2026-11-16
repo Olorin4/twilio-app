@@ -76,10 +76,10 @@ test("listCalls hides calls still in progress and reports stale ones as failed",
   expect(params).toEqual([ws, 50]);
 });
 
-test("countNew counts unhandled leads and messages only", async () => {
+test("countNew counts unhandled calls that are owed a callback", async () => {
   pool.query.mockResolvedValue({ rows: [{ count: "4" }] });
   expect(await store.countNew(ws)).toBe(4);
   expect(pool.query.mock.calls[0][0]).toMatch(
-    /status = 'new' AND outcome IN \('lead', 'not_a_lead'\)/,
+    /status = 'new' AND outcome IN \('lead', 'not_a_lead', 'failed'\)/,
   );
 });
