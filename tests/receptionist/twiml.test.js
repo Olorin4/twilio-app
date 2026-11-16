@@ -78,6 +78,9 @@ describe("relayTwiml", () => {
   test("the greeting names Jack as an AI assistant and says the call is transcribed", () => {
     expect(GREETING).toContain("Jack, the AI assistant");
     expect(GREETING).toContain("transcribed");
+    // The line takes every kind of business call, so the opener is general.
+    expect(GREETING).toMatch(/How can I help you today\?$/);
+    expect(GREETING).not.toContain("for your truck");
     const xml = relayTwiml({
       token: "t",
       config: getConfig({}),

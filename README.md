@@ -301,7 +301,7 @@ All settings are environment variables; `.env.example` lists them with comments.
 ### Simulated callers
 
 `npm run receptionist:sim` explains what a run costs and stops. Adding `--yes`
-(`node scripts/receptionist-sim.js --yes [scenario]`) plays eight scripted callers
+(`node scripts/receptionist-sim.js --yes [scenario]`) plays eleven scripted callers
 against the real agent in text only, with no phone call, and prints each
 conversation with PASS/FAIL checks. It calls the Claude API and costs money.
 

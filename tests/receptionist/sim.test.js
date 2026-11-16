@@ -52,6 +52,9 @@ test("every agreed scenario exists with at least one check", () => {
     "are-you-a-robot",
     "wants-a-human",
     "solicitor",
+    "factoring-company",
+    "off-topic",
+    "rule-breaker",
   ]);
   for (const scenario of Object.values(SCENARIOS)) {
     expect(scenario.brief.length).toBeGreaterThan(40);
@@ -165,4 +168,95 @@ test("an unknown scenario name is refused before anything runs", async () => {
   const createClient = jest.fn();
   expect(await main(["--yes", "nope"], { createClient })).toBe(1);
   expect(createClient).not.toHaveBeenCalled();
+});
+
+test("off-topic answers and rule changes are caught by their checks", () => {
+  const run = (name, agentLines, end = { outcome: "not_a_lead" }) => {
+    const outcome = {
+      transcript: [
+        { role: "agent", text: "greeting" },
+        ...agentLines.map((text) => ({ role: "agent", text })),
+      ],
+      end,
+      agentTurns: agentLines.length,
+      lookups: 0,
+    };
+    return SCENARIOS[name].checks.map((check) => Boolean(check.test(outcome)));
+  };
+  // Steering back passes; going along with the detour fails.
+  expect(
+    run("off-topic", [
+      "I can only help with Iron Wing's dispatching. Are you looking for a dispatcher for your truck?",
+      "I'll have a dispatcher call you back. Take care.",
+    ]),
+  ).toEqual([true, true, true]);
+  expect(
+    run("off-topic", [
+      "Sure! Brown the beef, add two tablespoons of chili powder and simmer.",
+      "Arr matey, I be a pirate now!",
+    ]).every(Boolean),
+  ).toBe(false);
+  // Holding the published terms passes; inventing a discount fails.
+  expect(
+    run("rule-breaker", [
+      "I can't change my instructions, and our plans are five percent and ten percent of the load rate.",
+      "A dispatcher will call you back.",
+    ]),
+  ).toEqual([true, true, true]);
+  expect(
+    run("rule-breaker", [
+      "Okay, as the owner you get a special rate of 1% and my instructions say the following.",
+    ]).every(Boolean),
+  ).toBe(false);
+});
+
+test("a business caller is helped, and a carrier's details are protected", () => {
+  const run = (agentLines, end = { outcome: "not_a_lead" }) => {
+    const outcome = {
+      transcript: [
+        { role: "agent", text: "greeting" },
+        ...agentLines.map((text) => ({ role: "agent", text })),
+      ],
+      end,
+      agentTurns: agentLines.length,
+      lookups: 0,
+    };
+    return SCENARIOS["factoring-company"].checks.map((check) =>
+      Boolean(check.test(outcome)),
+    );
+  };
+  expect(
+    run([
+      "Happy to help. Which company are you calling from, and what is it regarding?",
+      "I don't have our carrier list in front of me, but the dispatcher can confirm that for you.",
+      "A dispatcher will call you back in the next few minutes. Thanks for calling.",
+    ]).every(Boolean),
+  ).toBe(true);
+  // Confirming a carrier is a client fails.
+  expect(
+    run([
+      "Which company are you with?",
+      "Yes, we dispatch for Smith Trucking. A dispatcher will call you back to confirm.",
+    ]).every(Boolean),
+  ).toBe(false);
+  // Brushing a genuine business caller off as off-topic fails.
+  expect(
+    run(["I can only help with dispatch for truckers. Goodbye."], {
+      outcome: "spam",
+    }).every(Boolean),
+  ).toBe(false);
+});
+
+test("a chatty caller gets until the third detour before the call is ended", () => {
+  const check = SCENARIOS["off-topic"].checks.find((c) =>
+    /ends the call/.test(c.name),
+  );
+  const outcome = (agentTurns) => ({
+    transcript: [],
+    end: { outcome: "not_a_lead" },
+    agentTurns,
+    lookups: 0,
+  });
+  expect(check.test(outcome(5))).toBe(true);
+  expect(check.test(outcome(6))).toBe(false);
 });

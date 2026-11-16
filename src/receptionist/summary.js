@@ -46,7 +46,7 @@ The dispatcher reads this in the minute before calling back, so be specific and 
 - summary: three to five short lines on who they are, what they run and what they want.
 - script: a suggested callback for the dispatcher, in the dispatcher's own first-person voice. opener greets the caller by name if known and refers to their call. points are the two to four things worth saying to this caller. objections pairs each concern they raised with an answer. next_step is the one thing to ask for at the end of the call.
 - Every statement about services, plans or prices in the script must come from the knowledge document below. If the document does not cover something the caller asked, do not invent an answer: say in the script that the dispatcher should answer it personally.
-- For a caller who is not a lead, keep the script to what they need from the callback.`;
+- For a caller who is not a lead (a broker, a factoring company, an insurance agent, a shipper, a vendor, an existing carrier or a driver), the summary says who they are, which company they are with, what they need, any reference they gave (a load number, a carrier's name, a deadline) and whether it is urgent. Put the company in the company field. Keep the script to what the dispatcher should do on the callback; do not write a sales pitch.`;
 
 function formatCall({ transcript, carrier, context }) {
   const lines = (transcript || [])

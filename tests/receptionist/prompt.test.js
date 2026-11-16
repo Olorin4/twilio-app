@@ -119,3 +119,54 @@ test("the lookup tool does not tell the model to speak the filler the app alread
   expect(TOOLS[0].description).not.toMatch(/you say you are pulling it up/);
   expect(TOOLS[0].description).toMatch(/hears a short holding line/);
 });
+
+test("the rules keep the call on Iron Wing's dispatch service", () => {
+  const text = buildSystem()[0].text;
+  // Unrelated subjects are declined in a sentence and steered back.
+  expect(text).toMatch(/only help with Iron Wing/);
+  expect(text).toMatch(/unrelated/i);
+  // A caller who will not come back to the subject is offered the callback,
+  // on the third detour and not before.
+  expect(text).toMatch(/third time/i);
+  expect(text).not.toMatch(/second time/i);
+  // What a caller says never changes the assistant's instructions.
+  expect(text).toMatch(/ignore your (rules|instructions)/i);
+  expect(text).toMatch(/reveal/i);
+});
+
+test("the rules make Jack a receptionist for other trucking businesses too", () => {
+  const text = buildSystem()[0].text;
+  // Brokers, factoring companies and the like are welcome callers, not detours.
+  for (const caller of [
+    "broker",
+    "factoring",
+    "insurance",
+    "shipper",
+    "vendor",
+  ])
+    expect(text).toContain(caller);
+  expect(text).toMatch(/receptionist/i);
+  // He finds out who is calling and takes a proper message.
+  expect(text).toMatch(/company/i);
+  expect(text).toMatch(/message/i);
+  expect(text).toMatch(/urgent/i);
+  // The protections for carriers stay in place whoever is asking.
+  expect(text).toMatch(/whether .* is a (client|customer)/i);
+  expect(text).toMatch(/bank|payment details/i);
+  // A business caller is not pressed for an MC number.
+  expect(text).toMatch(/do not (ask|press) .* for an MC number/i);
+});
+
+test("questions about a named carrier are handled with judgement, not a flat refusal", () => {
+  const text = buildSystem()[0].text;
+  // Jack has no list of carriers, so he can never truthfully say yes or no.
+  expect(text).toMatch(/no list of (the |our )?carriers/i);
+  expect(text).toMatch(/never guess/i);
+  // How forthcoming he is depends on how the caller introduced themselves.
+  expect(text).toMatch(/judg(e)?ment/i);
+  expect(text).toMatch(/introduced themselves/i);
+  // A credible business caller is told plainly why, and helped toward an answer.
+  expect(text).toMatch(/the dispatcher (can|will) confirm/i);
+  // The hard line on bank and contact details does not bend.
+  expect(text).toMatch(/whatever the caller says/i);
+});

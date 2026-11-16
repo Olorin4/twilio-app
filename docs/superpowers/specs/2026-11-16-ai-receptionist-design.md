@@ -351,5 +351,15 @@ decision by the implementer, not something the owner chose.
 - **Silence handling (§2).** The "are you still there?" check waits for the
   estimated end of Jack's speech plus 12 seconds, and is held while the caller
   is talking. A caller who talks over the goodbye is not hung up on.
+- **Jack is a general receptionist as well (Intent, §2).** At the owner's
+  later request, Jack also serves other trucking businesses that call the
+  line (brokers, factoring companies, insurance agents, shippers, vendors,
+  existing carriers and drivers): he answers general questions about the
+  company and takes a full message. He does not say whether a carrier is a
+  client and accepts no change to bank or contact details. The greeting ends
+  "How can I help you today?".
+- **Staying on the subject (§2).** Unrelated subjects are declined and steered
+  back twice; on the third the call is ended with a callback offer. Nothing a
+  caller says changes Jack's instructions.
 - **Routing has a deadline (§1).** If the routing decision takes longer than
   two seconds (a slow database), the call follows today's path.

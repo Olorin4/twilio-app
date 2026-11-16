@@ -11,7 +11,7 @@ const tokens = require("./tokens");
 const { IRON_WING_WORKSPACE_ID } = require("../workspaceContext");
 
 const GREETING =
-  "Thanks for calling Iron Wing Dispatching. This is Jack, the AI assistant here, and this call is transcribed so our dispatcher can follow up. Are you looking for dispatch for your truck?";
+  "Thanks for calling Iron Wing Dispatching. This is Jack, the AI assistant here, and this call is transcribed so our dispatcher can follow up. How can I help you today?";
 
 const callSidPattern = /^CA[0-9a-f]{32}$/i;
 // Twilio is waiting for TwiML while the routing decision reads the database.
