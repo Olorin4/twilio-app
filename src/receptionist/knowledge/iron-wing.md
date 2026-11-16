@@ -41,15 +41,19 @@ the callback.
 
 ## Plans and pricing
 
-The fee is one simple percentage of the linehaul rate on each load we book for
-the carrier. Fuel surcharge is not included in the fee base. There is no
-contract and the carrier can cancel anytime.
+The fee is one simple percentage of the load rate on each load we book for the
+carrier. There is no contract and the carrier can cancel anytime.
 
-- **Essential Plan — 5% of the linehaul rate.** For owner-operators who handle
+How to say it: say "load rate", which is how small carriers talk. If the caller
+asks what that means, or what exactly the percentage applies to, explain that
+it is the linehaul rate, the base pay for hauling the load, and that fuel
+surcharge is not included in the fee base.
+
+- **Essential Plan — 5% of the load rate.** For owner-operators who handle
   the rest themselves. Includes load sourcing and rate negotiation, route
   optimization, business-hours support, and basic administrative support
   (carrier packets, BoLs, PoDs and rate confirmations).
-- **Full-Service Plan — 10% of the linehaul rate.** We run the back office.
+- **Full-Service Plan — 10% of the load rate.** We run the back office.
   Includes everything in Essential, plus priority 24/7 support, a dedicated
   dispatcher who knows the carrier's lanes, trailer and goals, full
   administrative support (also invoices, receipts and IFTA reports), factoring
@@ -136,8 +140,8 @@ contract and the carrier can cancel anytime.
   asks for on a call. The assistant does not sign anyone up for texts.
 - **I'm already with another dispatcher, or theirs is cheaper.** There is no
   contract with us, so a carrier can try Iron Wing and stop anytime by phone or
-  email. The Essential Plan is 5% of the linehaul rate with no fuel surcharge
-  in the fee base, and the company is run by a former owner-operator. We do
+  email. The Essential Plan is 5% of the load rate, and the company is run by a
+  former owner-operator. We do
   not match or discount other dispatchers' fees on this call; the dispatcher
   can talk through what the carrier is getting today.
 - **How many trucks does each dispatcher handle?** Five to eight.
