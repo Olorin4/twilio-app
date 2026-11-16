@@ -70,3 +70,15 @@ test("rejects a different account, invalid signature, and unknown connection", a
   expect(res.sendStatus).toHaveBeenCalledWith(403);
   expect(next).not.toHaveBeenCalled();
 });
+test("loadConnectionAuth returns the connection's identifiers and token, or null", async () => {
+  const { loadConnectionAuth } = require("../src/connectionWebhooks");
+  expect(await loadConnectionAuth(id)).toEqual({
+    id,
+    workspaceId: id,
+    accountSid,
+    authToken: token,
+  });
+  expect(await loadConnectionAuth("not-a-uuid")).toBeNull();
+  pool.query.mockResolvedValue({ rows: [] });
+  expect(await loadConnectionAuth(id)).toBeNull();
+});

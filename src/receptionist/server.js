@@ -1,0 +1,150 @@
+/* The WebSocket endpoint Twilio ConversationRelay connects to for a call the
+AI receptionist is answering.
+
+Express middleware does not run on WebSocket upgrades, so this endpoint does
+its own two checks: Twilio's signature on the upgrade request, and a
+single-use token that the (signature-checked) voice webhook issued for
+exactly this call. */
+
+const twilio = require("twilio");
+const { WebSocketServer, WebSocket } = require("ws");
+const { getConfig } = require("./config");
+
+const WS_PATH = /^\/(?:webhooks\/([0-9a-f-]{36})\/)?receptionist\/ws$/i;
+const POLICY_VIOLATION = 1008;
+
+// Twilio signs the upgrade request with the account's auth token. Its docs
+// say to validate against "the request URL" without saying whether that is
+// the wss:// or https:// form, so either is accepted; both need the secret.
+async function validateSignature(req, connectionId) {
+  const baseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
+  const signature = req.headers["x-twilio-signature"];
+  if (!baseUrl || typeof signature !== "string" || !signature) return false;
+  const authToken = connectionId
+    ? (await require("../connectionWebhooks").loadConnectionAuth(connectionId))
+        ?.authToken
+    : process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) return false;
+  const https = baseUrl.replace(/\/$/, "") + req.url;
+  return [https.replace(/^http/i, "ws"), https].some((url) =>
+    twilio.validateRequest(authToken, signature, url, {}),
+  );
+}
+
+// Stands in when the Anthropic client cannot be created (no API key, say):
+// every turn fails, so the caller hears the fallback line and gets a
+// callback promise instead of silence.
+const failingAgent = {
+  prewarm: async () => {},
+  runTurn: async (history) => ({
+    history,
+    spoken: "",
+    end: null,
+    carrier: null,
+    failed: true,
+  }),
+};
+
+function attach(httpServer, deps = {}) {
+  const {
+    tokens = require("./tokens"),
+    createSession = require("./session").createSession,
+    createAgent = require("./agent").createAgent,
+    createClient = () => new (require("@anthropic-ai/sdk").default)(),
+    finalize = (...args) => require("./finalize").finalize(...args),
+    setupTimeoutMs = 5000,
+  } = deps;
+  const checkSignature = deps.validateSignature || validateSignature;
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+
+  // Created on the first call and reused. Never at startup, so a missing
+  // API key cannot stop the app from booting.
+  let client;
+  function getClient() {
+    if (!client) client = createClient();
+    return client;
+  }
+
+  function onConnection(ws) {
+    let session = null;
+    const refuse = () => ws.close(POLICY_VIOLATION, "unauthorized");
+    const setupTimer = setTimeout(() => {
+      if (!session) refuse();
+    }, setupTimeoutMs);
+
+    function begin(message) {
+      const context =
+        message.type === "setup"
+          ? tokens.consume(message.customParameters?.token, message.callSid)
+          : null;
+      if (!context) return refuse();
+      clearTimeout(setupTimer);
+      const config = getConfig();
+      let agent = failingAgent;
+      let activeClient = null;
+      try {
+        activeClient = getClient();
+        agent = createAgent({ client: activeClient, config });
+      } catch (error) {
+        console.error("Receptionist agent unavailable:", error.message);
+      }
+      session = createSession({
+        send: (payload) => {
+          if (ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify(payload));
+        },
+        close: () => ws.close(1000),
+        agent,
+        config,
+        context,
+        onFinished: (result) => {
+          Promise.resolve()
+            .then(() => finalize(result, context, { client: activeClient }))
+            .catch((error) =>
+              console.error("Receptionist finalize failed:", error.message),
+            );
+        },
+      });
+      session.handle(message);
+    }
+
+    ws.on("message", (data) => {
+      let message;
+      try {
+        message = JSON.parse(data.toString());
+      } catch {
+        return; // not JSON: ignore
+      }
+      if (!message || typeof message !== "object") return;
+      if (!session) return begin(message);
+      session.handle(message);
+    });
+    ws.on("close", () => {
+      clearTimeout(setupTimer);
+      session?.closed();
+    });
+    ws.on("error", (error) =>
+      console.error("Receptionist socket error:", error.message),
+    );
+  }
+
+  httpServer.on("upgrade", async (req, socket, head) => {
+    socket.on("error", () => {});
+    const match = WS_PATH.exec((req.url || "").split("?")[0]);
+    if (!match) return socket.destroy();
+    let valid = false;
+    try {
+      valid = await checkSignature(req, match[1]);
+    } catch (error) {
+      console.error("Receptionist signature check failed:", error.message);
+    }
+    if (!valid) {
+      socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return socket.destroy();
+    }
+    wss.handleUpgrade(req, socket, head, onConnection);
+  });
+  return wss;
+}
+
+module.exports = { attach, validateSignature };

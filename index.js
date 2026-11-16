@@ -21,6 +21,8 @@ app.use(router);
 
 // Create http server and run it:
 const server = http.createServer(app);
+// The AI receptionist's ConversationRelay WebSocket shares this server.
+require("./src/receptionist/server").attach(server);
 const port = process.env.PORT || 3001;
 server.listen(port, () => console.log("Express server running on *:" + port));
 
