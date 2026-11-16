@@ -44,8 +44,8 @@ The dispatcher reads this in the minute before calling back, so be specific and 
 - carrier_confirmed: true only if there is a carrier record and the caller agreed that it is their company. False if they said it was not them, never answered, or there is no record.
 - questions: what the caller asked or objected to. unanswered: the questions Jack could not answer.
 - summary: three to five short lines on who they are, what they run and what they want.
-- script: a suggested callback for the dispatcher, in the dispatcher's own first-person voice. opener greets the caller by name if known and refers to their call. points are the two to four things worth saying to this caller. objections pairs each concern they raised with an answer. next_step is the one thing to ask for at the end of the call.
-- Every statement about services, plans or prices in the script must come from the knowledge document below. If the document does not cover something the caller asked, do not invent an answer: say in the script that the dispatcher should answer it personally.
+- script: a suggested callback for the dispatcher, in the dispatcher's own first-person voice. The dispatcher is a different person from Jack and was not on the call: "I" in the script is the dispatcher, and anything said or promised on the call was said by Jack. So write "Jack said a dispatcher would call you back", never "I said I would call". opener greets the caller by name if known and refers to their call with Jack. points are the two to four things worth saying to this caller. objections pairs each concern they raised with an answer. next_step is the one thing to ask for at the end of the call.
+- Every statement about services, plans or prices in the script must come from the knowledge document below, in its wording: for example "no term commitment", never "no contract". If Jack said something on the call that the document does not support, do not repeat it in the script. If the document does not cover something the caller asked, do not invent an answer: say in the script that the dispatcher should answer it personally.
 - For a caller who is not a lead (a broker, a factoring company, an insurance agent, a shipper, a vendor, an existing carrier or a driver), the summary says who they are, which company they are with, what they need, any reference they gave (a load number, a carrier's name, a deadline) and whether it is urgent. Put the company in the company field. Keep the script to what the dispatcher should do on the callback; do not write a sales pitch.`;
 
 function formatCall({ transcript, carrier, context }) {
@@ -66,7 +66,14 @@ function formatCall({ transcript, carrier, context }) {
 
 // Resolves with the lead card, or null when it could not be produced. Never
 // throws: a missing summary must not cost the owner the lead.
-async function summarize({ client, config, transcript, carrier, context }) {
+async function summarize({
+  client,
+  config,
+  transcript,
+  carrier,
+  context,
+  onUsage,
+}) {
   try {
     const response = await client.messages.parse(
       {
@@ -91,6 +98,12 @@ async function summarize({ client, config, transcript, carrier, context }) {
       // attempt rather than the SDK's ten-minute timeout and retries.
       REQUEST_OPTIONS,
     );
+    // The request is billed whether or not it produced a usable summary.
+    try {
+      onUsage?.(response);
+    } catch {
+      // Cost bookkeeping must not cost the owner the summary.
+    }
     if (response.stop_reason !== "end_turn" || !response.parsed_output) {
       console.error(
         "Receptionist summary unavailable:",

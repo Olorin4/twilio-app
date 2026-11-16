@@ -20,7 +20,7 @@ const history = [
 /* A stand-in for the Anthropic client. Each scripted step is one model
 request: { thinking, text: [deltas], tools: [{id,name,input}], stop, error,
 hang }. Both the standard and beta surfaces record into client.requests. */
-function fakeClient(steps) {
+function fakeClient(steps, { prewarmUsage } = {}) {
   const requests = [];
   const created = [];
   function stream(params, options = {}) {
@@ -50,7 +50,13 @@ function fakeClient(steps) {
           content.push({ type: "text", text: step.text.join("") });
         for (const tool of step.tools || [])
           content.push({ type: "tool_use", ...tool });
-        resolve({ content, stop_reason: step.stop || "end_turn" });
+        resolve({
+          content,
+          stop_reason: step.stop || "end_turn",
+          ...(step.usage
+            ? { model: "claude-opus-5-5", usage: step.usage }
+            : {}),
+        });
       };
       // `ticks`: the reply takes that many seconds, with a stream event
       // arriving every second, before it completes.
@@ -76,11 +82,23 @@ function fakeClient(steps) {
       },
       finalMessage: () => final,
       abort,
+      // What the SDK holds for a reply that has started but not finished.
+      get currentMessage() {
+        return step.partialUsage
+          ? { model: "claude-opus-5-5", usage: step.partialUsage }
+          : undefined;
+      },
     };
   }
   const create = jest.fn(async (params) => {
     created.push(JSON.parse(JSON.stringify(params)));
-    return { content: [], stop_reason: "max_tokens" };
+    return {
+      content: [],
+      stop_reason: "max_tokens",
+      ...(prewarmUsage
+        ? { model: "claude-opus-5-5", usage: prewarmUsage }
+        : {}),
+    };
   });
   return {
     requests,
@@ -633,4 +651,83 @@ test("a goodbye that adds something new after other words is still spoken", asyn
   expect(r.spoken).toBe(
     "Got it, I have Smith Trucking out of Dallas, Texas. A dispatcher will call you back in the next few minutes. Drive safe.",
   );
+});
+
+test("the tokens of every request are counted, the pre-warm included", async () => {
+  const client = fakeClient(
+    [
+      {
+        tools: [
+          { id: "t1", name: "lookup_carrier", input: { number: "MC 196057" } },
+        ],
+        stop: "tool_use",
+        usage: {
+          input_tokens: 20,
+          output_tokens: 30,
+          cache_read_input_tokens: 9000,
+        },
+      },
+      {
+        text: ["I couldn't find that number."],
+        usage: {
+          input_tokens: 60,
+          output_tokens: 40,
+          cache_read_input_tokens: 9000,
+        },
+      },
+    ],
+    {
+      prewarmUsage: {
+        input_tokens: 4,
+        output_tokens: 0,
+        cache_creation_input_tokens: 9000,
+        cache_creation: {
+          ephemeral_5m_input_tokens: 0,
+          ephemeral_1h_input_tokens: 9000,
+        },
+      },
+    },
+  );
+  const agent = createAgent({
+    client,
+    config,
+    lookup: async () => ({ found: false, reason: "no_match" }),
+  });
+  expect(agent.usage()).toEqual([]);
+  await agent.prewarm();
+  await agent.runTurn(history);
+  expect(agent.usage()).toEqual([
+    {
+      model: "claude-opus-5-5",
+      speed: "standard",
+      requests: 3,
+      input: 84,
+      cacheWrite5m: 0,
+      cacheWrite1h: 9000,
+      cacheRead: 18000,
+      output: 70,
+    },
+  ]);
+});
+
+test("a reply the caller cut off still counts the prompt it had read", async () => {
+  const client = fakeClient([
+    {
+      hang: true,
+      partialUsage: {
+        input_tokens: 15,
+        output_tokens: 1,
+        cache_read_input_tokens: 9000,
+      },
+    },
+  ]);
+  const agent = createAgent({ client, config });
+  const controller = new AbortController();
+  const turn = agent.runTurn(history, { signal: controller.signal });
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.abort();
+  await turn;
+  expect(agent.usage()).toEqual([
+    expect.objectContaining({ requests: 1, input: 15, cacheRead: 9000 }),
+  ]);
 });

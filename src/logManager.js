@@ -161,7 +161,19 @@ exports.getCallLogs = async (req, res) => {
              WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number
              ELSE cl.to_number END AS local_number,
              cl.timestamp,
-             d.first_name AS driver_first_name, 
+             (SELECT CASE
+                WHEN cl.price IS NULL OR legs.unpriced > 0
+                  OR (rc.call_sid IS NOT NULL AND (rc.claude_cost IS NULL OR rc.relay_cost IS NULL)) THEN NULL
+                ELSE json_build_object('unit', COALESCE(cl.price_unit, 'USD'), 'twilio', cl.price + legs.total,
+                  'relay', rc.relay_cost, 'claude', rc.claude_cost)
+              END
+              FROM (SELECT COALESCE(SUM(child.price), 0) AS total, COUNT(*) FILTER (WHERE child.price IS NULL) AS unpriced
+                    FROM twilio_call_legs leg LEFT JOIN call_logs child ON child.call_sid = leg.call_sid
+                      AND child.workspace_id = cl.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
+                    WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id
+                      AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id) legs
+              LEFT JOIN receptionist_calls rc ON rc.call_sid = cl.call_sid AND rc.ended_at IS NOT NULL) AS cost,
+             d.first_name AS driver_first_name,
              d.last_name AS driver_last_name, 
              c.name AS company_name
       FROM call_logs cl

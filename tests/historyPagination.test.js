@@ -95,3 +95,22 @@ test.each([getCallLogs, getMessageLogs])(
     expect(pool.query).not.toHaveBeenCalled();
   },
 );
+
+test("call history carries each call's cost, and none until every part is known", async () => {
+  pool.query.mockResolvedValue({ rows: [] });
+  const res = {
+    set: jest.fn(),
+    json: jest.fn(),
+    status: jest.fn().mockReturnThis(),
+  };
+  await getCallLogs({ query: {} }, res);
+  const sql = pool.query.mock.calls[0][0];
+  expect(sql).toMatch(/AS cost/);
+  // Twilio's charge is the call's own price plus its legs'.
+  expect(sql).toMatch(/cl\.price \+ legs\.total/);
+  // No figure while Twilio has not priced the call or one of its legs...
+  expect(sql).toMatch(/cl\.price IS NULL OR legs\.unpriced > 0/);
+  // ...or while a call Jack answered has no recorded Claude or relay cost.
+  expect(sql).toMatch(/LEFT JOIN receptionist_calls rc/);
+  expect(sql).toMatch(/rc\.claude_cost IS NULL OR rc\.relay_cost IS NULL/);
+});

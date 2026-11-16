@@ -3,6 +3,7 @@ jest.mock("../../src/messageEvents", () => ({ publish: jest.fn() }));
 jest.mock("../../src/receptionist/store", () => ({
   finishCall: jest.fn(),
   updateSummary: jest.fn(),
+  saveCosts: jest.fn(),
 }));
 const store = require("../../src/receptionist/store");
 const { publish } = require("../../src/messageEvents");
@@ -145,6 +146,7 @@ test("a lead gets its summary, then the softphone and the owner are told", async
     transcript,
     carrier: null,
     context: ctx,
+    onUsage: expect.any(Function),
   });
   expect(store.updateSummary).toHaveBeenCalledWith(sid, {
     outcome: "lead",
@@ -362,5 +364,95 @@ test("if only the summary cannot be saved the owner still gets it by email", asy
     outcome: "lead",
     caller_name: "Mike Alvarez",
     summary: "Owner-operator with two dry vans.",
+  });
+});
+
+describe("the cost of a call", () => {
+  const liveUsage = [
+    {
+      model: "claude-opus-5-5",
+      speed: "fast",
+      requests: 7,
+      input: 2000,
+      cacheWrite5m: 0,
+      cacheWrite1h: 0,
+      cacheRead: 60000,
+      output: 1000,
+    },
+  ];
+  const timed = (callSid, fields) => ({
+    call_sid: callSid,
+    outcome: fields.outcome,
+    started_at: new Date("2026-11-16T12:02:07Z"),
+    ended_at: new Date("2026-11-16T12:03:40Z"),
+  });
+
+  test("adds the summary's tokens to the live ones and saves both cost figures", async () => {
+    store.finishCall.mockImplementation(async (callSid, fields) =>
+      timed(callSid, fields),
+    );
+    deps.summarize.mockImplementation(async ({ onUsage }) => {
+      onUsage({
+        model: "claude-opus-5-5",
+        usage: { input_tokens: 10000, output_tokens: 2000 },
+      });
+      return summary();
+    });
+    await finalize({ ...result, usage: liveUsage }, ctx, deps);
+    expect(store.saveCosts).toHaveBeenCalledTimes(1);
+    const [callSid, costs] = store.saveCosts.mock.calls[0];
+    expect(callSid).toBe(sid);
+    expect(costs.usage).toEqual([
+      liveUsage[0],
+      expect.objectContaining({
+        model: "claude-opus-5-5",
+        speed: "standard",
+        requests: 1,
+        input: 10000,
+        output: 2000,
+      }),
+    ]);
+    // Live, fast: (2,000 x $8 + 60,000 x $0.40 + 1,000 x $40) / 1M = $0.080
+    // Summary: (10,000 x $4 + 2,000 x $20) / 1M = $0.080
+    expect(costs.claudeCost).toBeCloseTo(0.16, 6);
+    // 93 seconds is two started minutes at $0.07.
+    expect(costs.relayCost).toBeCloseTo(0.14, 6);
+    // The usage the session handed over is not changed.
+    expect(liveUsage).toHaveLength(1);
+  });
+
+  test("a call nobody spoke on still records what it cost", async () => {
+    store.finishCall.mockImplementation(async (callSid, fields) =>
+      timed(callSid, fields),
+    );
+    await finalize(
+      {
+        callSid: sid,
+        outcome: "abandoned",
+        callerSpoke: false,
+        transcript: [],
+        usage: liveUsage,
+      },
+      ctx,
+      deps,
+    );
+    const [, costs] = store.saveCosts.mock.calls[0];
+    expect(costs.usage).toEqual(liveUsage);
+    expect(costs.claudeCost).toBeCloseTo(0.08, 6);
+    expect(costs.relayCost).toBeCloseTo(0.14, 6);
+  });
+
+  test("failing to save the cost never loses the lead or the email", async () => {
+    store.saveCosts.mockRejectedValue(new Error("db down"));
+    await expect(
+      finalize({ ...result, usage: liveUsage }, ctx, deps),
+    ).resolves.toBeUndefined();
+    expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
+  });
+
+  test("a call that was already closed records nothing twice", async () => {
+    store.finishCall.mockResolvedValue(null);
+    await finalize({ ...result, usage: liveUsage }, ctx, deps);
+    expect(store.saveCosts).not.toHaveBeenCalled();
   });
 });

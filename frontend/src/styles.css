@@ -891,6 +891,13 @@ h1 {
 .call-timeline-duration {
   white-space: nowrap;
 }
+/* The cost of a call; hovering shows what it is made of. */
+.call-cost {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
 @media (prefers-reduced-motion: reduce) {
   .call-group-row,
   .call-timeline-reveal {

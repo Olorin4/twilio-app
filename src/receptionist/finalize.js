@@ -8,6 +8,7 @@ without taking the others down. */
 
 const store = require("./store");
 const { getConfig } = require("./config");
+const { addUsage, claudeCost, relayCost } = require("./costs");
 const { publish } = require("../messageEvents");
 
 const NO_SUMMARY = "Summary unavailable — read the transcript.";
@@ -39,6 +40,25 @@ async function finalize(result, context, deps = {}) {
     sendLeadEmail = require("./alertEmail").sendLeadEmail,
   } = deps;
   const { callSid, transcript } = result;
+  // The live call's token counts; the summary request adds its own below.
+  const usage = (result.usage || []).map((entry) => ({ ...entry }));
+  // Stores what the call cost. `closed` is the saved row, whose start and end
+  // times give the ConversationRelay minutes. Never throws.
+  const recordCosts = async (closed) => {
+    try {
+      const seconds =
+        closed?.started_at && closed?.ended_at
+          ? (new Date(closed.ended_at) - new Date(closed.started_at)) / 1000
+          : null;
+      await store.saveCosts(callSid, {
+        usage,
+        claudeCost: claudeCost(usage),
+        relayCost: relayCost(seconds, config.relayRate),
+      });
+    } catch (error) {
+      console.error("Receptionist cost save failed:", error.message);
+    }
+  };
   const email = async (row) => {
     try {
       await sendLeadEmail(row, config);
@@ -50,8 +70,13 @@ async function finalize(result, context, deps = {}) {
   // Nobody spoke: record it, and spend nothing on a summary.
   if (!result.callerSpoke) {
     try {
-      await store.finishCall(callSid, { outcome: "abandoned", transcript });
+      const closed = await store.finishCall(callSid, {
+        outcome: "abandoned",
+        transcript,
+      });
       publish();
+      // The greeting and the pre-warmed prompt were still paid for.
+      if (closed) await recordCosts(closed);
     } catch (error) {
       console.error("Receptionist call save failed:", error.message);
     }
@@ -72,10 +97,12 @@ async function finalize(result, context, deps = {}) {
   };
   let saved = false;
   let row;
+  let closed = null;
   try {
     row = await store.finishCall(callSid, known);
     // No row means the call was already closed, and already dealt with.
     if (!row) return;
+    closed = row;
     saved = true;
     publish();
   } catch (error) {
@@ -100,6 +127,7 @@ async function finalize(result, context, deps = {}) {
         transcript,
         carrier: result.carrier,
         context,
+        onUsage: (message) => addUsage(usage, message),
       });
     } catch (error) {
       console.error("Receptionist summary failed:", error.message);
@@ -150,6 +178,9 @@ async function finalize(result, context, deps = {}) {
 
   // 4. Email the owner (a failed call was emailed above).
   if (EMAILED_AFTER_SUMMARY.includes(fields.outcome)) await email(row);
+
+  // 5. Record what the call cost, last: nothing above waits on it.
+  if (closed) await recordCosts(closed);
 }
 
 module.exports = { finalize, NO_SUMMARY };

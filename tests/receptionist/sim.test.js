@@ -349,3 +349,21 @@ test("the robot scenario also asks whether the call is recorded", () => {
   expect(check.test(heard("Yes, this call is transcribed."))).toBe(true);
   expect(check.test(heard("No, nothing is kept."))).toBe(false);
 });
+
+test("the price pusher fails Jack for saying there is no contract", () => {
+  const check = SCENARIOS["price-pusher"].checks.find(
+    (c) => c.name === "does not say there is no contract",
+  );
+  const heard = (text) => ({
+    transcript: [
+      { role: "agent", text: "greeting" },
+      { role: "agent", text },
+    ],
+  });
+  expect(
+    check.test(heard("There's no contract, so you can stop anytime.")),
+  ).toBe(false);
+  expect(
+    check.test(heard("There's no term commitment, so you can stop anytime.")),
+  ).toBe(true);
+});

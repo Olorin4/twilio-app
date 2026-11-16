@@ -136,6 +136,17 @@ async function updateSummary(callSid, fields = {}) {
   return result.rows[0] || null;
 }
 
+// Records what the call cost beyond Twilio's own call charge. Either figure
+// may be null when it could not be worked out.
+async function saveCosts(callSid, { usage, claudeCost, relayCost } = {}) {
+  await pool.query(
+    `UPDATE receptionist_calls
+     SET usage = $2::jsonb, claude_cost = $3, relay_cost = $4
+     WHERE call_sid = $1`,
+    [callSid, json(usage || []), claudeCost ?? null, relayCost ?? null],
+  );
+}
+
 // Removes the record of a call that was never handed to the agent after all.
 async function discardCall(callSid) {
   await pool.query(
@@ -155,4 +166,5 @@ module.exports = {
   countNew,
   updateSummary,
   discardCall,
+  saveCosts,
 };

@@ -46,6 +46,13 @@ async function syncStream(stream, api, save, options = {}) {
   );
   return count;
 }
+// Twilio reports a call's price as a negative amount, some time after the
+// call ends, and for some calls never.
+function priceOf(call) {
+  if (call.price == null || call.price === "") return null;
+  const amount = Math.abs(Number(call.price));
+  return Number.isFinite(amount) ? amount : null;
+}
 async function saveCall(
   call,
   owner = { workspaceId: IRON_WING_WORKSPACE_ID, id: null },
@@ -62,9 +69,11 @@ async function saveCall(
     );
   }
   await pool.query(
-    `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id, provider_connection_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO call_logs (call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id, provider_connection_id, price, price_unit)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT (call_sid) DO UPDATE SET
+      price = COALESCE(EXCLUDED.price, call_logs.price),
+      price_unit = COALESCE(EXCLUDED.price_unit, call_logs.price_unit),
       status = CASE WHEN call_logs.status IN ('completed', 'busy', 'failed', 'no-answer', 'canceled') AND EXCLUDED.status NOT IN ('completed', 'busy', 'failed', 'no-answer', 'canceled') THEN call_logs.status ELSE COALESCE(EXCLUDED.status, call_logs.status) END,
       duration = COALESCE(EXCLUDED.duration, call_logs.duration),
       direction = COALESCE(EXCLUDED.direction, call_logs.direction)
@@ -79,8 +88,62 @@ async function saveCall(
       call.direction,
       owner.workspaceId,
       owner.id || null,
+      priceOf(call),
+      priceOf(call) == null ? null : call.priceUnit || null,
     ],
   );
+}
+
+// The regular sync revisits one day of calls, but Twilio can take longer than
+// that to price a call. This looks again at the owner's calls from the last
+// two weeks that still have no price, with one listing from Twilio. Resolves
+// with the number of prices filled in.
+const PRICE_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+async function refreshPrices(owner, now = new Date()) {
+  const missing = await pool.query(
+    `SELECT call_sid, timestamp FROM call_logs
+    WHERE price IS NULL AND workspace_id = $1
+      AND provider_connection_id IS NOT DISTINCT FROM $2::uuid
+      AND timestamp >= $3`,
+    [
+      owner.workspaceId,
+      owner.id || null,
+      new Date(now.getTime() - PRICE_LOOKBACK_MS),
+    ],
+  );
+  if (!missing.rows.length) return 0;
+  const wanted = new Set(missing.rows.map((row) => row.call_sid));
+  const oldest = Math.min(
+    ...missing.rows.map((row) => new Date(row.timestamp).getTime()),
+  );
+  // Twilio's date filters can be day-granular, so start a day early.
+  let page = await owner.client.calls.page({
+    startTimeAfter: new Date(oldest - DAY_MS),
+    pageSize: 100,
+  });
+  let filled = 0;
+  while (page) {
+    for (const call of page.instances) {
+      const price = priceOf(call);
+      if (price == null || !wanted.has(call.sid)) continue;
+      await pool.query(
+        `UPDATE call_logs SET price = $2, price_unit = $3
+        WHERE call_sid = $1 AND workspace_id = $4
+          AND provider_connection_id IS NOT DISTINCT FROM $5::uuid`,
+        [
+          call.sid,
+          price,
+          call.priceUnit || null,
+          owner.workspaceId,
+          owner.id || null,
+        ],
+      );
+      filled++;
+    }
+    page = await page.nextPage();
+  }
+  return filled;
 }
 async function saveMessage(
   message,
@@ -115,6 +178,9 @@ async function saveMessage(
     );
 }
 const running = new Map();
+// When each owner's unpriced calls were last looked up again.
+const pricesChecked = new Map();
+const PRICE_REFRESH_MS = 60 * 60 * 1000;
 async function callBelongsToOwner(sid, owner) {
   const result = await pool.query(
     `SELECT 1 FROM call_logs WHERE call_sid = $1 AND workspace_id = $2
@@ -174,6 +240,15 @@ function reconcileOne(owner) {
           checkpoint,
         ),
       ]);
+      // At most once an hour, and never a reason for the sync to fail.
+      if (Date.now() - (pricesChecked.get(key) || 0) >= PRICE_REFRESH_MS) {
+        pricesChecked.set(key, Date.now());
+        try {
+          await refreshPrices(owner);
+        } catch (error) {
+          console.error("Twilio price refresh failed:", error.message);
+        }
+      }
       publish();
       const errors = results.filter((result) => result.status === "rejected");
       if (errors.length) {
@@ -238,6 +313,7 @@ module.exports = {
   handleRequest,
   syncStream,
   saveCall,
+  refreshPrices,
   saveMessage,
   reconcileAll,
   reconcileWorkspace,

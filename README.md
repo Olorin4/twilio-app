@@ -123,6 +123,17 @@ the instruction after the greeting; neither proves the caller listened.
 Run `npm run migrate:receptionist-calls` before enabling the AI receptionist. It
 creates the `receptionist_calls` table and is safe to rerun.
 
+Run `npm run migrate:call-costs` before starting a release that shows call
+costs. It adds columns for Twilio's price of each call leg and for the Claude
+and ConversationRelay cost of calls the AI receptionist answered, and is safe to
+rerun. The expanded call history then shows each call's cost next to its
+status, and hovering it shows the parts. A cost appears only once Twilio has
+priced the call and all its legs, which can take hours and for some calls never
+happens; unpriced calls from the last two weeks are looked up again hourly. The
+Claude and ConversationRelay parts are estimates from list prices at the time of
+the call (`src/receptionist/costs.js`), marked with "≈". Replies the caller
+interrupted are counted only for the prompt they had read.
+
 Run `npm run migrate:twilio-reconciliation` before starting a release with call
 callbacks and reconciliation. This migration creates call-leg and sync checkpoint
 tables; the first reconciliation looks back at least one day, and subsequent
@@ -295,6 +306,7 @@ All settings are environment variables; `.env.example` lists them with comments.
 | `RECEPTIONIST_SUMMARY_MODEL`                                        | `claude-opus-5-5`               | Model for the after-call summary.                                                                  |
 | `RECEPTIONIST_DAILY_LIMIT`                                          | `3`                             | Agent calls per caller number per 24 hours.                                                        |
 | `RECEPTIONIST_MAX_CALL_SECONDS`                                     | `480`                           | After this long the agent wraps the call up.                                                       |
+| `RECEPTIONIST_RELAY_RATE`                                           | `0.07`                          | ConversationRelay price per minute in US dollars, used to estimate call costs.                     |
 | `RECEPTIONIST_ALERT_EMAIL`                                          | none                            | Where lead emails go.                                                                              |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | port `587`                      | The mail account that sends them.                                                                  |
 | `ANTHROPIC_API_KEY`                                                 | none                            | Read by the Anthropic SDK.                                                                         |

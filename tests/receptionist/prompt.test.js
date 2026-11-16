@@ -201,3 +201,13 @@ test("a caller who asks whether the call is recorded gets a true answer", () => 
   const text = buildSystem()[0].text;
   expect(text).toMatch(/recorded[^.]*transcribed/i);
 });
+
+test("the knowledge never says there is no contract", () => {
+  // Heard on the first real call: "there's no contract". There is a short
+  // service agreement; what there is not is a term commitment.
+  const text = loadKnowledge();
+  expect(text).not.toMatch(/there(?:'s| is) no\s+contract/i);
+  expect(text).not.toMatch(/and no\s+contract/i);
+  expect(text).toMatch(/never say (that )?we have no contract/i);
+  expect(text).toMatch(/short service agreement/i);
+});

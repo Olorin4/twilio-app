@@ -12,6 +12,7 @@ Two things here exist because of how current Claude models behave:
 
 const { buildSystem, TOOLS } = require("./prompt");
 const { lookupCarrier, parseDocket, speakDigits } = require("./carrierLookup");
+const { addUsage } = require("./costs");
 
 const LOOKUP_FILLER = "One second while I pull that up.";
 
@@ -65,6 +66,15 @@ function requestParams(config) {
   return params;
 }
 
+// What the SDK has seen so far of a reply that did not finish.
+function unfinished(stream) {
+  try {
+    return stream?.currentMessage;
+  } catch {
+    return undefined;
+  }
+}
+
 const withoutThinking = (messages) =>
   messages
     .map((message) =>
@@ -85,6 +95,8 @@ const withoutThinking = (messages) =>
 function createAgent({ client, config, lookup = lookupCarrier }) {
   const params = requestParams(config);
   const surface = params.betas ? client.beta.messages : client.messages;
+  // Tokens used by every request this agent makes, for the cost of the call.
+  const usage = [];
 
   // Writes the prompt cache while the greeting plays, so the caller's first
   // turn does not pay for it. Best effort.
@@ -95,11 +107,12 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
       const shared = { ...params };
       delete shared.betas;
       delete shared.fallbacks;
-      await client.messages.create({
+      const warmed = await client.messages.create({
         ...shared,
         max_tokens: 0,
         messages: [{ role: "user", content: "warm" }],
       });
+      addUsage(usage, warmed);
     } catch {
       // A cold cache only costs a little latency on the first turn.
     }
@@ -113,8 +126,10 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
     signal?.addEventListener("abort", abort);
     let quiet;
     let limit;
+    let stream;
+    let message;
     try {
-      const stream = surface.stream(
+      stream = surface.stream(
         { ...params, messages },
         { signal: controller.signal },
       );
@@ -134,8 +149,15 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
       stream.on("text", onDelta);
       const final = stream.finalMessage();
       final.catch(() => {});
-      return await Promise.race([final, stalled]);
+      message = await Promise.race([final, stalled]);
+      return message;
     } finally {
+      // A reply that was cut off or stalled never delivers its final usage,
+      // but the prompt it had already read is billed all the same.
+      addUsage(
+        usage,
+        message && message !== STALLED ? message : unfinished(stream),
+      );
       clearTimeout(quiet);
       clearTimeout(limit);
       signal?.removeEventListener("abort", abort);
@@ -278,7 +300,11 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
     return result(true);
   }
 
-  return { prewarm, runTurn };
+  return {
+    prewarm,
+    runTurn,
+    usage: () => usage.map((entry) => ({ ...entry })),
+  };
 }
 
 module.exports = { createAgent, requestParams, LOOKUP_FILLER };

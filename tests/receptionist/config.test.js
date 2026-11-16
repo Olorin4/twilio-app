@@ -75,3 +75,10 @@ test("an invalid time zone falls back instead of breaking every call", () => {
     getConfig({ RECEPTIONIST_HOURS_TZ: "America/Chicago" }).hours.timeZone,
   ).toBe("America/Chicago");
 });
+
+test("the ConversationRelay rate defaults to Twilio's list price and can be changed", () => {
+  expect(getConfig({}).relayRate).toBe(0.07);
+  expect(getConfig({ RECEPTIONIST_RELAY_RATE: "0.085" }).relayRate).toBe(0.085);
+  expect(getConfig({ RECEPTIONIST_RELAY_RATE: "free" }).relayRate).toBe(0.07);
+  expect(getConfig({ RECEPTIONIST_RELAY_RATE: "-1" }).relayRate).toBe(0.07);
+});

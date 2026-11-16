@@ -477,3 +477,21 @@ test("a lookup that timed out keeps the carrier already confirmed", async () => 
   await flush();
   expect(onFinished.mock.calls[0][0].carrier).toEqual(carrier);
 });
+
+test("the tokens the agent used are reported when the call ends", async () => {
+  const usage = [{ model: "claude-opus-5-5", speed: "fast", requests: 2 }];
+  const s = start();
+  agent.usage = jest.fn(() => usage);
+  s.handle(prompt("hello"));
+  await flush();
+  s.closed();
+  await flush();
+  expect(onFinished.mock.calls[0][0].usage).toEqual(usage);
+});
+
+test("an agent that reports no usage does not break the end of the call", async () => {
+  const s = start();
+  s.closed();
+  await flush();
+  expect(onFinished.mock.calls[0][0].usage).toEqual([]);
+});

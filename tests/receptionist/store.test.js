@@ -119,3 +119,20 @@ test("discardCall removes only a call that never started", async () => {
   expect(sql).toMatch(/ended_at IS NULL/);
   expect(params).toEqual([sid]);
 });
+
+test("saveCosts records usage and both cost figures on the call", async () => {
+  pool.query.mockResolvedValue({ rowCount: 1 });
+  const usage = [{ model: "claude-opus-5-5", speed: "fast", requests: 7 }];
+  await store.saveCosts(sid, { usage, claudeCost: 0.2134, relayCost: 0.14 });
+  const [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(/UPDATE receptionist_calls/);
+  expect(sql).toMatch(/usage = \$2::jsonb/);
+  expect(sql).toMatch(/WHERE call_sid = \$1/);
+  expect(params).toEqual([sid, JSON.stringify(usage), 0.2134, 0.14]);
+});
+
+test("saveCosts stores unknown costs as null", async () => {
+  pool.query.mockResolvedValue({ rowCount: 1 });
+  await store.saveCosts(sid, { usage: [], claudeCost: null, relayCost: null });
+  expect(pool.query.mock.calls[0][1]).toEqual([sid, "[]", null, null]);
+});

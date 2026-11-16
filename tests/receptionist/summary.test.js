@@ -58,6 +58,14 @@ test("one structured request carries the knowledge, the transcript and the carri
     maxRetries: 0,
   });
   expect(request.output_config.format).toBeDefined();
+  // The script is spoken by the dispatcher, who is not Jack: on the first
+  // real call the opener read "I said I'd call you back".
+  const instructions = request.system[0].text;
+  expect(instructions).toMatch(
+    /the dispatcher is a different person from Jack/i,
+  );
+  expect(instructions).toMatch(/Jack said (a dispatcher|I) would call/i);
+  expect(instructions).toMatch(/no contract/i);
   expect(JSON.stringify(request.system)).toContain(
     JSON.stringify(loadKnowledge()).slice(1, 80),
   );
@@ -90,4 +98,36 @@ test("an API error yields null instead of throwing", async () => {
   expect(
     await summarize({ client, config, transcript, carrier: null, context }),
   ).toBeNull();
+});
+
+test("the summary request reports the tokens it used, even when it gives no summary", async () => {
+  const onUsage = jest.fn();
+  const response = {
+    stop_reason: "end_turn",
+    parsed_output: parsed,
+    model: "claude-opus-5-5",
+    usage: { input_tokens: 9800, output_tokens: 1500 },
+  };
+  await summarize({
+    client: clientReturning(response),
+    config,
+    transcript,
+    carrier: null,
+    context,
+    onUsage,
+  });
+  expect(onUsage).toHaveBeenCalledWith(response);
+  const refused = { ...response, stop_reason: "refusal", parsed_output: null };
+  onUsage.mockClear();
+  expect(
+    await summarize({
+      client: clientReturning(refused),
+      config,
+      transcript,
+      carrier: null,
+      context,
+      onUsage,
+    }),
+  ).toBeNull();
+  expect(onUsage).toHaveBeenCalledWith(refused);
 });

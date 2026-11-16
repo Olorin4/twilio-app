@@ -193,6 +193,8 @@ call this line. What the assistant can tell them:
   book. Fuel surcharge is not included.
 - **Is there a contract?** There is a short service agreement to sign, but no
   term commitment. The carrier can stop anytime by phone or email.
+  Never say we have no contract, in any wording: the service agreement is one.
+  What we do not have is a term commitment, so say "no term commitment".
 - **Do you guarantee how much I will make?** No. Freight markets change
   constantly. We work to find profitable loads, but we do not guarantee any
   level of revenue, load volume or rates.
@@ -219,12 +221,12 @@ call this line. What the assistant can tell them:
   The Essential Plan has business-hours support.
 - **Why choose Iron Wing?** It is run by a former owner-operator who
   understands the long hours, tight delivery windows and deadhead miles; the
-  service is personal; and there is no contract.
+  service is personal; and there is no term commitment.
 - **Will you text me?** Only with the carrier's agreement, which a dispatcher
   asks for on a call. The assistant does not sign anyone up for texts.
 - **I'm already with another dispatcher, or theirs is cheaper.** There is no
-  contract with us, so a carrier can try Iron Wing and stop anytime by phone or
-  email. The Essential Plan is 5% of the load rate, and the company is run by a
+  term commitment with us, so a carrier can try Iron Wing and stop anytime by
+  phone or email. The Essential Plan is 5% of the load rate, and the company is run by a
   former owner-operator. We do not match or discount other dispatchers' fees
   on this call; the dispatcher can talk through what the carrier is getting
   today.

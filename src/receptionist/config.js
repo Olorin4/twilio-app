@@ -9,6 +9,11 @@ function integer(value, fallback, min, max) {
     : fallback;
 }
 
+function decimal(value, fallback, min, max) {
+  const parsed = /^\d+(\.\d+)?$/.test(value || "") ? Number(value) : NaN;
+  return parsed >= min && parsed <= max ? parsed : fallback;
+}
+
 function oneOf(value, allowed, fallback) {
   return allowed.includes(value) ? value : fallback;
 }
@@ -66,6 +71,9 @@ function getConfig(env = process.env) {
     summaryModel: text(env.RECEPTIONIST_SUMMARY_MODEL) || "claude-opus-5-5",
     dailyLimit: integer(env.RECEPTIONIST_DAILY_LIMIT, 3, 1, 1000),
     maxCallSeconds: integer(env.RECEPTIONIST_MAX_CALL_SECONDS, 480, 30, 3600),
+    // Twilio's list price per ConversationRelay minute, in US dollars. Used
+    // only to estimate what a call cost.
+    relayRate: decimal(env.RECEPTIONIST_RELAY_RATE, 0.07, 0, 10),
     alertEmail: text(env.RECEPTIONIST_ALERT_EMAIL),
     smtp: {
       host: text(env.SMTP_HOST),

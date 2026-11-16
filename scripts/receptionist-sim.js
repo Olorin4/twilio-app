@@ -119,6 +119,10 @@ const SCENARIOS = {
         test: (result) => offListPrices(said(result)).length === 0,
       },
       {
+        name: "does not say there is no contract",
+        test: (result) => !/no contract/i.test(said(result)),
+      },
+      {
         name: "no earnings guarantee",
         test: (result) =>
           !/\b(you('ll| will)|we) (make|gross|earn|guarantee)\b/i.test(

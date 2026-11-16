@@ -32,6 +32,7 @@ import Conversations from "./Conversations";
 import Pagination from "./Pagination";
 import ActivityTable from "./ActivityTable";
 import { formatCallDate } from "./callDate.mjs";
+import { callCost } from "./callCost.mjs";
 import { messageTargetForCall } from "./callMessage.mjs";
 import {
   apiFetch,
@@ -218,6 +219,19 @@ const announcementLabel = (row) => {
   if (row.announcement.completed) return `${name} completed`;
   return `${name} initiated · completion unknown`;
 };
+// The call's cost, once known; hovering shows what it is made of.
+function CallCost({ row }) {
+  const cost = callCost(row);
+  if (!cost) return null;
+  return (
+    <>
+      {" · "}
+      <span className="call-cost" title={cost.breakdown}>
+        {cost.label}
+      </span>
+    </>
+  );
+}
 function CallDirection({ row }) {
   return isMissedCall(row) ? (
     <CornerDownLeft
@@ -1550,6 +1564,7 @@ function App() {
                                               · {callOutcome(call)}
                                               {announcementLabel(call) &&
                                                 ` · ${announcementLabel(call)}`}
+                                              <CallCost row={call} />
                                             </strong>
                                             <time>
                                               {formatCallDate(

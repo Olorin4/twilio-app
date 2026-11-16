@@ -83,6 +83,16 @@ function createSession({
     return queue;
   }
 
+  // The agent's token counts, for the cost of the call. Never worth failing
+  // the end of a call over.
+  function usageSoFar() {
+    try {
+      return agent.usage?.() || [];
+    } catch {
+      return [];
+    }
+  }
+
   function finish(outcome, callbackPromise) {
     if (finished) return;
     finished = true;
@@ -97,6 +107,7 @@ function createSession({
         carrier,
         transcript,
         callerSpoke,
+        usage: usageSoFar(),
       });
     } catch (error) {
       console.error("Receptionist finish handler failed:", error.message);
