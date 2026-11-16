@@ -3,9 +3,8 @@ call follows today's path (ring the softphone, or an announcement). */
 
 const pool = require("../db");
 const store = require("./store");
+const { callableNumber } = require("./phone");
 const { IRON_WING_WORKSPACE_ID } = require("../workspaceContext");
-
-const E164 = /^\+[1-9]\d{7,14}$/;
 
 // `provider` is undefined on the legacy /voice route, or the object from
 // getProviderForWebhook on a connection route.
@@ -28,7 +27,7 @@ async function decideRoute({ from, to, provider, config }) {
     return { agent: true, reason: "test_caller" };
   if (config.testMode) return no("test_mode");
 
-  if (E164.test(caller)) {
+  if (callableNumber(caller)) {
     const contact = await pool.query(
       "SELECT 1 FROM phone_contacts WHERE workspace_id = $1 AND phone = $2 LIMIT 1",
       [IRON_WING_WORKSPACE_ID, caller],

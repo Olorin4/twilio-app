@@ -15,7 +15,11 @@ const { lookupCarrier, parseDocket, speakDigits } = require("./carrierLookup");
 
 const LOOKUP_FILLER = "One second while I pull that up.";
 const MAX_REQUESTS_PER_TURN = 4;
-const FIRST_OUTPUT_TIMEOUT_MS = 6000;
+// A request is given up on when the stream goes quiet for this long, or when
+// it has run this long in total. Either way the caller hears the fallback
+// line instead of dead air.
+const STREAM_QUIET_MS = 6000;
+const REQUEST_LIMIT_MS = 20_000;
 const OUTCOMES = ["lead", "not_a_lead", "spam"];
 const STALLED = Symbol("stalled");
 
@@ -87,30 +91,39 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
     }
   }
 
-  // One model request. Resolves with the final message, or STALLED when
-  // nothing was produced in time.
+  // One model request. Resolves with the final message, or STALLED when the
+  // stream went quiet or the request ran too long.
   async function request(messages, { onDelta, signal }) {
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort);
-    let watchdog;
+    let quiet;
+    let limit;
     try {
       const stream = surface.stream(
         { ...params, messages },
         { signal: controller.signal },
       );
       const stalled = new Promise((resolve) => {
-        watchdog = setTimeout(() => resolve(STALLED), FIRST_OUTPUT_TIMEOUT_MS);
+        const giveUp = () => resolve(STALLED);
+        limit = setTimeout(giveUp, REQUEST_LIMIT_MS);
+        const heard = () => {
+          clearTimeout(quiet);
+          quiet = setTimeout(giveUp, STREAM_QUIET_MS);
+        };
+        heard();
+        // Any event counts as life: a reply that is only a tool call never
+        // emits text, and one that has started speaking can still stall.
+        stream.on("streamEvent", heard);
+        stream.on("text", heard);
       });
-      stream.on("text", (delta) => {
-        clearTimeout(watchdog);
-        onDelta(delta);
-      });
+      stream.on("text", onDelta);
       const final = stream.finalMessage();
       final.catch(() => {});
       return await Promise.race([final, stalled]);
     } finally {
-      clearTimeout(watchdog);
+      clearTimeout(quiet);
+      clearTimeout(limit);
       signal?.removeEventListener("abort", abort);
       controller.abort();
     }
@@ -120,9 +133,19 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
     if (tool.name === "lookup_carrier") {
       const docket = parseDocket(tool.input?.number);
       if (!docket.kind) return { found: false, reason: "not_a_number" };
-      if (!state.requestText) say(LOOKUP_FILLER);
+      if (!state.requestText && !state.fillerSaid) say(LOOKUP_FILLER);
+      state.fillerSaid = true;
       const result = await lookup(docket, {});
-      if (result.found) state.carrier = result;
+      // The latest lookup wins. A number that matched nobody replaces an
+      // earlier match (the caller is correcting it); a lookup that merely
+      // timed out says nothing either way.
+      if (result.found) {
+        state.carrier = result;
+        state.lookedUp = "found";
+      } else if (result.reason === "no_match") {
+        state.carrier = null;
+        state.lookedUp = "no_match";
+      }
       return { ...result, spoken_number: speakDigits(docket.digits) };
     }
     if (tool.name === "end_call") {
@@ -142,7 +165,14 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
 
   async function runTurn(history, { onText = () => {}, signal } = {}) {
     let messages = [...history];
-    const state = { spoken: "", requestText: "", carrier: null, end: null };
+    const state = {
+      spoken: "",
+      requestText: "",
+      fillerSaid: false,
+      carrier: null,
+      lookedUp: null,
+      end: null,
+    };
     // Everything said this turn is joined with single spaces for the record.
     const say = (text) => {
       state.spoken +=
@@ -154,12 +184,15 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
       spoken: state.spoken,
       end: state.end,
       carrier: state.carrier,
+      // "found", "no_match", or null when this turn settled nothing.
+      lookedUp: state.lookedUp,
       failed,
     });
 
     for (let count = 0; count < MAX_REQUESTS_PER_TURN; count++) {
       if (signal?.aborted) return result(false);
       state.requestText = "";
+      state.fillerSaid = false;
       let message;
       try {
         message = await request(messages, {

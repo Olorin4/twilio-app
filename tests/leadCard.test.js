@@ -4,10 +4,17 @@ const path = require("path");
 const source = fs
   .readFileSync(path.join(__dirname, "../frontend/src/leadCard.mjs"), "utf8")
   .replace(/export (function|const)/g, "$1");
-const { leadTitle, carrierLine, badge, callbackTarget, promiseLine, unread } =
-  vm.runInNewContext(
-    `${source}\n({ leadTitle, carrierLine, badge, callbackTarget, promiseLine, unread })`,
-  );
+const {
+  leadTitle,
+  carrierLine,
+  badge,
+  callbackTarget,
+  callerIdNote,
+  promiseLine,
+  unread,
+} = vm.runInNewContext(
+  `${source}\n({ leadTitle, carrierLine, badge, callbackTarget, callerIdNote, promiseLine, unread })`,
+);
 
 test.each([
   [
@@ -87,4 +94,23 @@ test("unread counts only new cards that are owed a callback", () => {
   expect(unread({ status: "new", outcome: "failed" })).toBe(true);
   expect(unread({ status: "new", outcome: "spam" })).toBe(false);
   expect(unread({ status: "called", outcome: "lead" })).toBe(false);
+});
+
+test("a withheld caller ID delivered as a pseudo-number cannot be dialled", () => {
+  expect(callbackTarget({ from: "+266696687" })).toBeNull();
+  expect(callbackTarget({ from: "+7378742833" })).toBeNull();
+  expect(leadTitle({ from: "+86282452253" })).toBe("Unknown caller");
+});
+
+test("the caller ID is shown beside a different number the caller gave", () => {
+  expect(
+    callerIdNote({ from: "+15557770000", callbackNumber: "+15551230009" }),
+  ).toBe("Called from +15557770000");
+  expect(
+    callerIdNote({ from: "+15557770000", callbackNumber: "+15557770000" }),
+  ).toBeNull();
+  expect(callerIdNote({ from: "+15557770000" })).toBeNull();
+  expect(
+    callerIdNote({ from: "anonymous", callbackNumber: "+15551230009" }),
+  ).toBeNull();
 });

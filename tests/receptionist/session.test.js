@@ -371,7 +371,9 @@ test("a caller who hangs up without speaking is abandoned", async () => {
 test("the carrier found during the call is reported", async () => {
   const s = start();
   const carrier = { found: true, mc: "196057", legalName: "SMITH TRUCKING" };
-  agent.runTurn.mockImplementationOnce(reply("Is that you?", { carrier }));
+  agent.runTurn.mockImplementationOnce(
+    reply("Is that you?", { carrier, lookedUp: "found" }),
+  );
   await s.handle(prompt("MC 196057"));
   s.closed();
   await flush();
@@ -415,4 +417,63 @@ test("malformed messages are ignored", async () => {
   await s.handle({ type: "dtmf", digit: "x" });
   await s.handle({ type: "error", description: "bad" });
   expect(agent.runTurn).not.toHaveBeenCalled();
+});
+
+test("a withheld caller ID delivered as a pseudo-number is treated as unknown", async () => {
+  const s = start({ context: { ...context, from: "+266696687" } });
+  await s.handle(prompt("hello"));
+  expect(agent.runTurn.mock.calls[0][0][0].content).toMatch(
+    /number is not known/,
+  );
+});
+
+test("a caller who is still talking is not asked whether they are there", async () => {
+  const s = start();
+  // Partial transcripts arrive while the caller speaks without a pause.
+  for (let second = 0; second < 40; second += 4) {
+    await jest.advanceTimersByTimeAsync(4000);
+    await s.handle({ type: "prompt", voicePrompt: "so I run", last: false });
+  }
+  expect(sent).toEqual([]);
+  expect(agent.runTurn).not.toHaveBeenCalled();
+  // Once they stop, the check-in comes after the usual quiet period.
+  await jest.advanceTimersByTimeAsync(14000);
+  expect(sent).toEqual([{ type: "text", token: STILL_THERE_LINE, last: true }]);
+});
+
+test("a stray keypress does not switch the silence check off", async () => {
+  const s = start();
+  await s.handle({ type: "dtmf", digit: "*" });
+  await jest.advanceTimersByTimeAsync(14000);
+  expect(sent).toEqual([{ type: "text", token: STILL_THERE_LINE, last: true }]);
+});
+
+test("a carrier the caller rejected does not stay on the call", async () => {
+  const s = start();
+  const carrier = { found: true, mc: "196057", legalName: "COMPANY A" };
+  agent.runTurn.mockImplementationOnce(
+    reply("I have Company A. Is that you?", { carrier, lookedUp: "found" }),
+  );
+  await s.handle(prompt("MC 196057"));
+  agent.runTurn.mockImplementationOnce(
+    reply("Let me read that back.", { carrier: null, lookedUp: "no_match" }),
+  );
+  await s.handle(prompt("no, 196075"));
+  s.closed();
+  await flush();
+  expect(onFinished.mock.calls[0][0].carrier).toBeNull();
+});
+
+test("a lookup that timed out keeps the carrier already confirmed", async () => {
+  const s = start();
+  const carrier = { found: true, mc: "196057", legalName: "COMPANY A" };
+  agent.runTurn.mockImplementationOnce(
+    reply("Is that you?", { carrier, lookedUp: "found" }),
+  );
+  await s.handle(prompt("MC 196057"));
+  agent.runTurn.mockImplementationOnce(reply("Thanks.", { lookedUp: null }));
+  await s.handle(prompt("yes"));
+  s.closed();
+  await flush();
+  expect(onFinished.mock.calls[0][0].carrier).toEqual(carrier);
 });

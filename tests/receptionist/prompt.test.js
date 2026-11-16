@@ -114,3 +114,8 @@ test("the fixed lines promise a callback and never claim to be human", () => {
   expect(STILL_THERE_LINE).toBe("Are you still there?");
   expect(SILENT_END_LINE).toContain("Goodbye");
 });
+
+test("the lookup tool does not tell the model to speak the filler the app already speaks", () => {
+  expect(TOOLS[0].description).not.toMatch(/you say you are pulling it up/);
+  expect(TOOLS[0].description).toMatch(/hears a short holding line/);
+});

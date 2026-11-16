@@ -323,12 +323,18 @@ conversation with PASS/FAIL checks. It calls the Claude API and costs money.
      70 ms-per-character wait in `speakMs` in `src/receptionist/session.js`);
    - a spoken MC number and a keyed-in one (digits, then `#`) both work;
    - hanging up early still produces a card;
+   - a call with your caller ID blocked makes Jack ask for a callback number;
+   - talking without a pause for 20 seconds does not trigger "Are you still
+     there?";
+   - saying "okay, bye" over Jack's goodbye does not leave the call hanging;
    - the lead email arrives, and **Call back** on the card dials the right number;
    - `RECEPTIONIST_SAY_VOICE`, once set, plays on the fallback announcements.
 5. Break it on purpose. Unset `ANTHROPIC_API_KEY`, call in, and confirm you hear
    the fallback sentence and an "Agent failed" card and email appear. Then stop
    the WebSocket from connecting (for example by blocking the path at the proxy)
-   and confirm the call falls back to ringing the softphone.
+   and confirm the call falls back to ringing the softphone. Finally, restart
+   the app in the middle of a test call and note what the caller hears: Twilio's
+   documentation does not say whether that reaches the fallback.
 6. Compare `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5` on test
    calls (with `RECEPTIONIST_LIVE_THINKING=off` for the last two, and
    `RECEPTIONIST_LIVE_SPEED=fast` as an Opus option) and choose by ear and cost.

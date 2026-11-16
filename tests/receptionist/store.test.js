@@ -79,7 +79,43 @@ test("listCalls hides calls still in progress and reports stale ones as failed",
 test("countNew counts unhandled calls that are owed a callback", async () => {
   pool.query.mockResolvedValue({ rows: [{ count: "4" }] });
   expect(await store.countNew(ws)).toBe(4);
+  const sql = pool.query.mock.calls[0][0];
+  expect(sql).toMatch(/status = 'new'/);
+  expect(sql).toMatch(/outcome IN \('lead', 'not_a_lead', 'failed'\)/);
+});
+
+test("countNew also counts a call that was never closed, as the list shows it", async () => {
+  pool.query.mockResolvedValue({ rows: [{ count: "1" }] });
+  await store.countNew(ws);
   expect(pool.query.mock.calls[0][0]).toMatch(
-    /status = 'new' AND outcome IN \('lead', 'not_a_lead', 'failed'\)/,
+    /outcome IS NULL AND started_at < now\(\) - interval '15 minutes'/,
   );
+});
+
+test("updateSummary fills in a saved call without reopening it", async () => {
+  pool.query.mockResolvedValue({ rows: [{ call_sid: sid }], rowCount: 1 });
+  const row = await store.updateSummary(sid, {
+    outcome: "not_a_lead",
+    callerName: "Dana",
+    summary: "Broker.",
+    script: { opener: "Hi" },
+    details: { interest: "low" },
+  });
+  const [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(/UPDATE receptionist_calls/);
+  expect(sql).toMatch(/ended_at IS NOT NULL/);
+  expect(sql).not.toMatch(/transcript =/);
+  expect(params[0]).toBe(sid);
+  expect(params).toContain("not_a_lead");
+  expect(params).toContain(JSON.stringify({ opener: "Hi" }));
+  expect(row).toEqual({ call_sid: sid });
+});
+
+test("discardCall removes only a call that never started", async () => {
+  pool.query.mockResolvedValue({ rowCount: 1 });
+  await store.discardCall(sid);
+  const [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(/DELETE FROM receptionist_calls/);
+  expect(sql).toMatch(/ended_at IS NULL/);
+  expect(params).toEqual([sid]);
 });

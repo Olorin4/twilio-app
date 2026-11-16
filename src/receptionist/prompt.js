@@ -56,7 +56,7 @@ const TOOLS = [
   {
     name: "lookup_carrier",
     description:
-      "Look up a motor carrier in FMCSA's public records by MC number or USDOT number, to confirm who the caller is. Call it as soon as the caller gives a number, in the same turn in which you say you are pulling it up. Returns the carrier's legal name, city, state and fleet size, or found: false when there is no match or the lookup timed out.",
+      "Look up a motor carrier in FMCSA's public records by MC number or USDOT number, to confirm who the caller is. Call it as soon as the caller gives a number; the caller hears a short holding line while it runs. Returns the carrier's legal name, city, state and fleet size, or found: false when there is no match or the lookup timed out.",
     strict: true,
     input_schema: {
       type: "object",

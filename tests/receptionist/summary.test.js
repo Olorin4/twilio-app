@@ -22,6 +22,7 @@ const parsed = {
   unanswered: [],
   interest: "medium",
   callback_promise: null,
+  carrier_confirmed: false,
   summary: "Caller wants dispatch for a dry van.",
   script: { opener: "Hi.", points: [], objections: [], next_step: "Sign up" },
 };
@@ -51,6 +52,11 @@ test("one structured request carries the knowledge, the transcript and the carri
   const request = client.messages.parse.mock.calls[0][0];
   expect(request.model).toBe("claude-opus-5-5");
   expect(request.max_tokens).toBe(16000);
+  // The owner's alert waits on this request, so it gets one bounded attempt.
+  expect(client.messages.parse.mock.calls[0][1]).toEqual({
+    timeout: 40_000,
+    maxRetries: 0,
+  });
   expect(request.output_config.format).toBeDefined();
   expect(JSON.stringify(request.system)).toContain(
     JSON.stringify(loadKnowledge()).slice(1, 80),

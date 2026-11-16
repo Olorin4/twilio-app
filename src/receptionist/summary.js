@@ -20,6 +20,7 @@ const LeadSummary = z.object({
   unanswered: z.array(z.string()),
   interest: z.enum(["high", "medium", "low", "unknown"]),
   callback_promise: z.string().nullable(),
+  carrier_confirmed: z.boolean(),
   summary: z.string(),
   script: z.object({
     opener: z.string(),
@@ -31,6 +32,8 @@ const LeadSummary = z.object({
   }),
 });
 
+const REQUEST_OPTIONS = { timeout: 40_000, maxRetries: 0 };
+
 const INSTRUCTIONS = `You prepare a dispatcher at Iron Wing Dispatching for a callback. A caller has just spoken with Jack, the company's AI phone assistant. From the transcript, the FMCSA carrier record (when there is one) and the company knowledge document, fill in the lead card.
 
 The dispatcher reads this in the minute before calling back, so be specific and brief, and write only what the material supports:
@@ -38,6 +41,7 @@ The dispatcher reads this in the minute before calling back, so be specific and 
 - outcome: "lead" for a carrier or owner-operator interested in dispatch, "not_a_lead" for anyone else with a genuine reason to call (existing customer, driver, broker, vendor), "spam" for sales calls and robocalls.
 - callback_number: only a number the caller gave during the call, in the form +1XXXXXXXXXX. Otherwise null.
 - callback_promise: what Jack told the caller about when they will be called back, or null if nothing was promised.
+- carrier_confirmed: true only if there is a carrier record and the caller agreed that it is their company. False if they said it was not them, never answered, or there is no record.
 - questions: what the caller asked or objected to. unanswered: the questions Jack could not answer.
 - summary: three to five short lines on who they are, what they run and what they want.
 - script: a suggested callback for the dispatcher, in the dispatcher's own first-person voice. opener greets the caller by name if known and refers to their call. points are the two to four things worth saying to this caller. objections pairs each concern they raised with an answer. next_step is the one thing to ask for at the end of the call.
@@ -64,21 +68,29 @@ function formatCall({ transcript, carrier, context }) {
 // throws: a missing summary must not cost the owner the lead.
 async function summarize({ client, config, transcript, carrier, context }) {
   try {
-    const response = await client.messages.parse({
-      model: config.summaryModel,
-      max_tokens: 16000,
-      system: [
-        { type: "text", text: INSTRUCTIONS },
-        {
-          type: "text",
-          text: `<knowledge_document>\n${loadKnowledge()}\n</knowledge_document>`,
-        },
-      ],
-      messages: [
-        { role: "user", content: formatCall({ transcript, carrier, context }) },
-      ],
-      output_config: { format: zodOutputFormat(LeadSummary) },
-    });
+    const response = await client.messages.parse(
+      {
+        model: config.summaryModel,
+        max_tokens: 16000,
+        system: [
+          { type: "text", text: INSTRUCTIONS },
+          {
+            type: "text",
+            text: `<knowledge_document>\n${loadKnowledge()}\n</knowledge_document>`,
+          },
+        ],
+        messages: [
+          {
+            role: "user",
+            content: formatCall({ transcript, carrier, context }),
+          },
+        ],
+        output_config: { format: zodOutputFormat(LeadSummary) },
+      },
+      // The owner's alert waits on this request, so it gets one bounded
+      // attempt rather than the SDK's ten-minute timeout and retries.
+      REQUEST_OPTIONS,
+    );
     if (response.stop_reason !== "end_turn" || !response.parsed_output) {
       console.error(
         "Receptionist summary unavailable:",

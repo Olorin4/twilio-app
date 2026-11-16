@@ -91,13 +91,57 @@ async function setStatus(workspaceId, callSid, status) {
   return result.rowCount > 0;
 }
 
+// Cards that still need the owner: a lead, a message, or a call the agent
+// failed on - including one that was never closed, which the list shows as
+// failed.
 async function countNew(workspaceId) {
   const result = await pool.query(
     `SELECT count(*) FROM receptionist_calls
-     WHERE workspace_id = $1 AND status = 'new' AND outcome IN ('lead', 'not_a_lead', 'failed')`,
+     WHERE workspace_id = $1 AND status = 'new'
+       AND (outcome IN ('lead', 'not_a_lead', 'failed')
+         OR (outcome IS NULL AND started_at < now() - interval '15 minutes'))`,
     [workspaceId],
   );
   return Number(result.rows[0].count);
+}
+
+// Adds the after-call summary to a call that is already saved. The
+// transcript and carrier record written when the call closed are left alone.
+async function updateSummary(callSid, fields = {}) {
+  if (!OUTCOMES.includes(fields.outcome))
+    throw new Error("Unknown receptionist call outcome.");
+  const result = await pool.query(
+    `UPDATE receptionist_calls SET
+       outcome = $2, caller_name = $3, company = $4, mc_number = $5,
+       usdot = $6, mc_verified = $7, callback_number = $8,
+       callback_promise = $9, details = $10::jsonb, summary = $11,
+       script = $12::jsonb
+     WHERE call_sid = $1 AND ended_at IS NOT NULL
+     RETURNING *`,
+    [
+      callSid,
+      fields.outcome,
+      fields.callerName || null,
+      fields.company || null,
+      fields.mcNumber || null,
+      fields.usdot || null,
+      Boolean(fields.mcVerified),
+      fields.callbackNumber || null,
+      fields.callbackPromise || null,
+      json(fields.details),
+      fields.summary || null,
+      json(fields.script),
+    ],
+  );
+  return result.rows[0] || null;
+}
+
+// Removes the record of a call that was never handed to the agent after all.
+async function discardCall(callSid) {
+  await pool.query(
+    "DELETE FROM receptionist_calls WHERE call_sid = $1 AND ended_at IS NULL",
+    [callSid],
+  );
 }
 
 module.exports = {
@@ -109,4 +153,6 @@ module.exports = {
   listCalls,
   setStatus,
   countNew,
+  updateSummary,
+  discardCall,
 };

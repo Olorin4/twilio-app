@@ -4,6 +4,7 @@ import { formatCallDate } from "./callDate.mjs";
 import {
   badge,
   callbackTarget,
+  callerIdNote,
   carrierLine,
   leadTitle,
   promiseLine,
@@ -72,6 +73,9 @@ function LeadCard({ lead, timeZone, canCall, onCall, onStatus }) {
         </time>
       </header>
       <h3 className="lead-title">{title}</h3>
+      {callerIdNote(lead) && (
+        <p className="lead-carrier">{callerIdNote(lead)}</p>
+      )}
       {/* "No authority yet" only means something for a prospective carrier. */}
       {(lead.outcome === "lead" || lead.mcNumber || lead.usdot) && (
         <p className="lead-carrier">{carrierLine(lead)}</p>

@@ -70,6 +70,8 @@ describe("relayTwiml", () => {
     expect(xml).toContain('ttsProvider="ElevenLabs"');
     expect(xml).toContain('welcomeGreetingInterruptible="none"');
     expect(xml).toContain('dtmfDetection="true"');
+    // Partial transcripts tell the session the caller is still talking.
+    expect(xml).toContain('partialPrompts="true"');
     expect(xml).not.toMatch(/wss:[^"]*tok123/);
   });
 
@@ -287,5 +289,38 @@ describe("login bypass", () => {
     ["POST", "/messages"],
   ])("%s %s still needs a login", (method, path) => {
     expect(isTwilioWebhook({ method, path })).toBe(false);
+  });
+});
+
+describe("agentTwiml under a slow database", () => {
+  test("a routing decision that hangs gives the call today's path within two seconds", async () => {
+    jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+    decideRoute.mockReturnValue(new Promise(() => {}));
+    const pending = agentTwiml({ body });
+    await jest.advanceTimersByTimeAsync(1999);
+    let settled = false;
+    pending.then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(2);
+    expect(await pending).toBeNull();
+    expect(store.startCall).not.toHaveBeenCalled();
+  });
+
+  test("a call record that lands after the deadline is discarded, not left as a phantom", async () => {
+    jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+    decideRoute.mockResolvedValue({ agent: true, reason: "ok" });
+    let finishInsert;
+    store.startCall.mockReturnValue(
+      new Promise((resolve) => (finishInsert = resolve)),
+    );
+    store.discardCall = jest.fn().mockResolvedValue();
+    const pending = agentTwiml({ body });
+    await jest.advanceTimersByTimeAsync(2001);
+    expect(await pending).toBeNull();
+    finishInsert();
+    await jest.advanceTimersByTimeAsync(0);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(store.discardCall).toHaveBeenCalledWith(sid);
   });
 });

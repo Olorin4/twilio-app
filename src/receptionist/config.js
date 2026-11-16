@@ -15,6 +15,19 @@ function oneOf(value, allowed, fallback) {
 
 const text = (value) => (value && value.trim() ? value.trim() : null);
 
+// A time zone the runtime does not know would make every hours check throw,
+// which would fail every inbound call. Fall back instead.
+function timeZone(value, fallback) {
+  const zone = text(value);
+  if (!zone) return fallback;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return zone;
+  } catch {
+    return fallback;
+  }
+}
+
 function getConfig(env = process.env) {
   return {
     enabled: env.RECEPTIONIST_ENABLED === "true",
@@ -30,7 +43,7 @@ function getConfig(env = process.env) {
     hours: {
       start: integer(env.RECEPTIONIST_HOURS_START, 7, 0, 23),
       end: integer(env.RECEPTIONIST_HOURS_END, 18, 1, 24),
-      timeZone: text(env.RECEPTIONIST_HOURS_TZ) || "America/New_York",
+      timeZone: timeZone(env.RECEPTIONIST_HOURS_TZ, "America/New_York"),
     },
     voice: text(env.RECEPTIONIST_VOICE) || "7EzWGsX10sAS4c9m9cPf",
     sayVoice: text(env.RECEPTIONIST_SAY_VOICE),

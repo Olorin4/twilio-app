@@ -26,15 +26,23 @@ function fakeClient(steps) {
   function stream(params, options = {}) {
     requests.push(JSON.parse(JSON.stringify(params)));
     const step = steps[requests.length - 1] || { text: [], stop: "end_turn" };
-    const listeners = [];
+    const listeners = { text: [], streamEvent: [] };
+    const emit = (event, value) => {
+      for (const listener of listeners[event]) listener(value);
+    };
     let rejectFinal;
     const final = new Promise((resolve, reject) => {
       rejectFinal = reject;
       if (step.hang) return;
-      setImmediate(() => {
+      const finish = () => {
         if (step.error) return reject(step.error);
-        for (const delta of step.text || [])
-          for (const listener of listeners) listener(delta);
+        for (const delta of step.text || []) {
+          emit("streamEvent", { type: "content_block_delta" });
+          emit("text", delta);
+        }
+        // The stream goes quiet after its text and never completes.
+        if (step.stallAfterText) return;
+        emit("streamEvent", { type: "message_stop" });
         const content = [];
         if (step.thinking)
           content.push({ type: "thinking", thinking: "", signature: "sig" });
@@ -43,7 +51,17 @@ function fakeClient(steps) {
         for (const tool of step.tools || [])
           content.push({ type: "tool_use", ...tool });
         resolve({ content, stop_reason: step.stop || "end_turn" });
-      });
+      };
+      // `ticks`: the reply takes that many seconds, with a stream event
+      // arriving every second, before it completes.
+      let remaining = step.ticks || 0;
+      const tick = () => {
+        emit("streamEvent", { type: "content_block_delta" });
+        if (--remaining > 0) setTimeout(tick, 1000);
+        else finish();
+      };
+      if (remaining) setTimeout(tick, 1000);
+      else setImmediate(finish);
     });
     final.catch(() => {});
     const abort = () =>
@@ -53,7 +71,7 @@ function fakeClient(steps) {
     options.signal?.addEventListener("abort", abort);
     return {
       on(event, listener) {
-        if (event === "text") listeners.push(listener);
+        listeners[event]?.push(listener);
         return this;
       },
       finalMessage: () => final,
@@ -420,4 +438,135 @@ test("prewarm sends one zero-token request with the same prefix and never throws
   await expect(
     createAgent({ client, config }).prewarm(),
   ).resolves.toBeUndefined();
+});
+
+test("a stream that goes quiet after it started speaking is reported as failed", async () => {
+  jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+  const client = fakeClient([
+    { text: ["Let me explain"], stallAfterText: true },
+  ]);
+  const seen = [];
+  const pending = createAgent({ client, config }).runTurn(history, {
+    onText: (t) => seen.push(t),
+  });
+  await jest.advanceTimersByTimeAsync(5900);
+  expect(seen).toEqual(["Let me explain"]);
+  await jest.advanceTimersByTimeAsync(200);
+  const r = await pending;
+  expect(r.failed).toBe(true);
+  expect(r.spoken).toBe("Let me explain");
+});
+
+test("a tool-only reply that takes seven seconds with events flowing is not a failure", async () => {
+  jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+  const client = fakeClient([
+    {
+      ticks: 7,
+      tools: [
+        {
+          id: "t2",
+          name: "end_call",
+          input: {
+            outcome: "lead",
+            callback_promise: "soon",
+            goodbye: "Bye now.",
+          },
+        },
+      ],
+      stop: "tool_use",
+    },
+  ]);
+  const pending = createAgent({ client, config }).runTurn(history, {
+    onText() {},
+  });
+  await jest.advanceTimersByTimeAsync(7100);
+  const r = await pending;
+  expect(r.failed).toBe(false);
+  expect(r.end).toEqual({ outcome: "lead", callbackPromise: "soon" });
+});
+
+test("a request that runs past twenty seconds is failed even with events flowing", async () => {
+  jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+  const client = fakeClient([{ ticks: 60, text: ["Eventually."] }]);
+  const pending = createAgent({ client, config }).runTurn(history, {
+    onText() {},
+  });
+  await jest.advanceTimersByTimeAsync(20100);
+  expect((await pending).failed).toBe(true);
+});
+
+test("the latest lookup wins: a later no-match clears an earlier match", async () => {
+  const lookup = jest
+    .fn()
+    .mockResolvedValueOnce({
+      found: true,
+      legalName: "COMPANY A",
+      mc: "196057",
+    })
+    .mockResolvedValueOnce({ found: false, reason: "no_match" });
+  const call = (id, number) => ({
+    tools: [{ id, name: "lookup_carrier", input: { number } }],
+    stop: "tool_use",
+  });
+  const client = fakeClient([
+    call("t1", "MC 196057"),
+    { text: ["I have Company A. Is that you?"] },
+    call("t2", "MC 196075"),
+    { text: ["Let me read that back."] },
+  ]);
+  const agent = createAgent({ client, config, lookup });
+  const first = await agent.runTurn(history, { onText() {} });
+  expect(first).toMatchObject({ lookedUp: "found" });
+  expect(first.carrier.legalName).toBe("COMPANY A");
+  const second = await agent.runTurn(
+    [...first.history, { role: "user", content: "No, that's not me. 196075." }],
+    { onText() {} },
+  );
+  expect(second).toMatchObject({ lookedUp: "no_match", carrier: null });
+});
+
+test("a lookup that timed out says nothing about the carrier either way", async () => {
+  const lookup = jest
+    .fn()
+    .mockResolvedValue({ found: false, reason: "timeout" });
+  const client = fakeClient([
+    {
+      tools: [{ id: "t1", name: "lookup_carrier", input: { number: "MC 5" } }],
+      stop: "tool_use",
+    },
+    { text: ["Let me read that back."] },
+  ]);
+  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+    onText() {},
+  });
+  expect(r.lookedUp).toBeNull();
+});
+
+test("a turn with no lookup reports none", async () => {
+  const r = await createAgent({
+    client: fakeClient([{ text: ["Hi."] }]),
+    config,
+  }).runTurn(history, { onText() {} });
+  expect(r.lookedUp).toBeNull();
+});
+
+test("the filler is spoken once when one reply holds two lookups", async () => {
+  const lookup = jest
+    .fn()
+    .mockResolvedValue({ found: false, reason: "no_match" });
+  const client = fakeClient([
+    {
+      tools: [
+        { id: "t1", name: "lookup_carrier", input: { number: "MC 5" } },
+        { id: "t2", name: "lookup_carrier", input: { number: "USDOT 6" } },
+      ],
+      stop: "tool_use",
+    },
+    { text: ["Neither came up."] },
+  ]);
+  const seen = [];
+  await createAgent({ client, config, lookup }).runTurn(history, {
+    onText: (t) => seen.push(t),
+  });
+  expect(seen.filter((t) => t === LOOKUP_FILLER)).toHaveLength(1);
 });

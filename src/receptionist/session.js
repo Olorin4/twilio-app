@@ -16,11 +16,11 @@ const {
   SILENT_END_LINE,
   WRAP_UP_LINE,
 } = require("./prompt");
+const { callableNumber } = require("./phone");
 
 const SILENCE_MS = 12_000;
 const DTMF_PAUSE_MS = 2_000;
 const CLOSE_GRACE_MS = 5_000;
-const E164 = /^\+[1-9]\d{7,14}$/;
 const STILL_LIVE_NOTE =
   "(The caller spoke again before the call ended, so the call is still live.)";
 
@@ -178,7 +178,10 @@ function createSession({
     });
     if (current === controller) current = null;
     history = result.history;
-    if (result.carrier) carrier = result.carrier;
+    // The latest lookup wins: a corrected number that matched nobody clears
+    // a carrier the caller has just said is not theirs.
+    if (result.lookedUp === "found") carrier = result.carrier;
+    else if (result.lookedUp === "no_match") carrier = null;
     if (result.spoken) transcript.push({ role: "agent", text: result.spoken });
     // Interrupted or superseded: Twilio has already stopped speaking, and
     // whatever comes next is queued behind this.
@@ -247,10 +250,13 @@ function createSession({
       current?.abort();
       return enqueue(() => callerTurn(`(keyed in) ${digits}`));
     };
-    if (digit === "#") return submit();
-    if (digit === "*") dtmf = "";
+    if (digit === "#") {
+      if (dtmf) return submit();
+    } else if (digit === "*") dtmf = "";
     else if (/^\d$/.test(digit)) dtmf += digit;
     if (dtmf) dtmfTimer = setTimeout(submit, DTMF_PAUSE_MS);
+    // A stray key with nothing to submit must not leave the call unwatched.
+    else if (!current && !pendingEnd) startSilenceTimer("");
     return queue;
   }
 
@@ -261,7 +267,7 @@ function createSession({
       {
         role: "user",
         content: callContext({
-          fromKnown: E164.test(context.from || ""),
+          fromKnown: Boolean(callableNumber(context.from)),
           open: isOpen(at, config.hours),
           hours: config.hours,
           now: at,
@@ -288,10 +294,17 @@ function createSession({
       case "setup":
         return onSetup();
       case "prompt":
-        // Partial transcripts are ignored; only a finished caller turn counts.
+        if (!history) return queue;
+        // A partial transcript is not a turn, but it does mean the caller is
+        // talking: hold the "are you still there?" check while they are.
+        if (message.last !== true) {
+          if (!current && !pendingEnd) {
+            silenceStage = 0;
+            startSilenceTimer("");
+          }
+          return queue;
+        }
         if (
-          !history ||
-          message.last !== true ||
           typeof message.voicePrompt !== "string" ||
           !message.voicePrompt.trim()
         )

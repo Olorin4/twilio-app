@@ -124,3 +124,10 @@ test("a missing caller number is treated as blocked, not as an error", async () 
   );
   expect(store.countAgentCalls).toHaveBeenCalledWith("anonymous");
 });
+
+test("a withheld caller ID delivered as a pseudo-number is not looked up as a contact", async () => {
+  expect(
+    await decideRoute({ ...base, from: "+266696687", config: on() }),
+  ).toEqual({ agent: true, reason: "ok" });
+  expect(pool.query).not.toHaveBeenCalled();
+});

@@ -2,8 +2,8 @@
 alert reaches them when the softphone tab is closed. Plain text only. */
 
 const nodemailer = require("nodemailer");
+const { callableNumber } = require("./phone");
 
-const E164 = /^\+[1-9]\d{7,14}$/;
 const LABELS = {
   not_a_lead: "Message",
   failed: "Agent failed, call back",
@@ -14,11 +14,8 @@ const oneLine = (value) =>
     .replace(/[\r\n\t]+/g, " ")
     .trim();
 
-function callbackNumber(row) {
-  if (E164.test(row.callback_number || "")) return row.callback_number;
-  if (E164.test(row.from_number || "")) return row.from_number;
-  return null;
-}
+const callbackNumber = (row) =>
+  callableNumber(row.callback_number) || callableNumber(row.from_number);
 
 function authorityLine(row) {
   const parts = [];
@@ -39,11 +36,23 @@ function body(row) {
     `Company: ${oneLine(row.company) || "unknown"}`,
     authorityLine(row),
     `Call back: ${number || "no number given"}`,
+    // A number given on the call came through speech recognition and may be
+    // wrong; the number they called from is the check.
+    ...(callableNumber(row.from_number) && row.from_number !== number
+      ? [`Called from: ${row.from_number}`]
+      : []),
     `Promised: ${oneLine(row.callback_promise) || "no time promised"}`,
     "",
     "SUMMARY",
-    row.summary || "No summary.",
+    row.summary || "No summary was written for this call.",
   ];
+  // Without a script, the transcript is what the owner has to go on.
+  const turns = Array.isArray(row.transcript) ? row.transcript : [];
+  if (!row.script && turns.length) {
+    lines.push("", "TRANSCRIPT");
+    for (const turn of turns.slice(-60))
+      lines.push(`${turn.role === "caller" ? "Caller" : "Jack"}: ${turn.text}`);
+  }
   if (script.opener || script.points?.length || script.next_step) {
     lines.push("", "SUGGESTED SCRIPT");
     if (script.opener) lines.push(`Open: ${script.opener}`);

@@ -212,6 +212,37 @@ test("a failing finalize is logged, not thrown", async () => {
   ws.close();
 });
 
+test("an error while handling a message is logged and the socket keeps working", async () => {
+  await listen();
+  const ws = connect();
+  await opened(ws);
+  ws.send(JSON.stringify(setup));
+  await until(() => sessions.length === 1);
+  const session = sessions[0];
+  session.handle.mockImplementationOnce(() => {
+    throw new Error("bad state");
+  });
+  ws.send(JSON.stringify({ type: "prompt", voicePrompt: "one", last: true }));
+  await until(() => session.handle.mock.calls.length === 2);
+  ws.send(JSON.stringify({ type: "prompt", voicePrompt: "two", last: true }));
+  await until(() => session.handle.mock.calls.length === 3);
+  expect(console.error).toHaveBeenCalled();
+  expect(ws.readyState).toBe(WebSocket.OPEN);
+  ws.close();
+});
+
+test("an error while starting the session refuses the socket instead of crashing", async () => {
+  await listen({
+    createSession: jest.fn(() => {
+      throw new Error("bad config");
+    }),
+  });
+  const ws = connect();
+  await opened(ws);
+  ws.send(JSON.stringify(setup));
+  expect(await closedWith(ws)).toBe(1011);
+});
+
 test("a missing API key does not crash: the session gets a failing agent", async () => {
   await listen({
     createClient: jest.fn(() => {

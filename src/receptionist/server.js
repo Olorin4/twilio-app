@@ -12,6 +12,7 @@ const { getConfig } = require("./config");
 
 const WS_PATH = /^\/(?:webhooks\/([0-9a-f-]{36})\/)?receptionist\/ws$/i;
 const POLICY_VIOLATION = 1008;
+const INTERNAL_ERROR = 1011;
 
 // Twilio signs the upgrade request with the account's auth token. Its docs
 // say to validate against "the request URL" without saying whether that is
@@ -116,12 +117,27 @@ function attach(httpServer, deps = {}) {
         return; // not JSON: ignore
       }
       if (!message || typeof message !== "object") return;
-      if (!session) return begin(message);
-      session.handle(message);
+      // Nothing thrown here may escape: an uncaught exception in a socket
+      // handler would take the whole app, and every other call, down.
+      try {
+        if (!session) return begin(message);
+        Promise.resolve(session.handle(message)).catch((error) =>
+          console.error("Receptionist message failed:", error.message),
+        );
+      } catch (error) {
+        console.error("Receptionist message failed:", error.message);
+        // A session that could not even start cannot serve the call; closing
+        // lets Twilio fall back to the usual path.
+        if (!session) ws.close(INTERNAL_ERROR, "session failed");
+      }
     });
     ws.on("close", () => {
       clearTimeout(setupTimer);
-      session?.closed();
+      try {
+        session?.closed();
+      } catch (error) {
+        console.error("Receptionist close failed:", error.message);
+      }
     });
     ws.on("error", (error) =>
       console.error("Receptionist socket error:", error.message),

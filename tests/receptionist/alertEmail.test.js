@@ -124,3 +124,45 @@ test("a send failure is reported as false, not thrown", async () => {
   transport.sendMail.mockRejectedValue(new Error("smtp down"));
   expect(await sendLeadEmail(row, config, { transport })).toBe(false);
 });
+
+test("a withheld caller ID delivered as a pseudo-number is not offered as a callback", async () => {
+  await sendLeadEmail(
+    { from_number: "+266696687", outcome: "lead", summary: "x" },
+    config,
+    { transport },
+  );
+  const mail = transport.sendMail.mock.calls[0][0];
+  expect(mail.text).toContain("Call back: no number given");
+  expect(mail.subject).toBe("New lead: unknown caller — unknown company");
+});
+
+test("the caller ID is listed beside a different number the caller gave", async () => {
+  await sendLeadEmail({ ...row, callback_number: "+15557778888" }, config, {
+    transport,
+  });
+  const text = transport.sendMail.mock.calls[0][0].text;
+  expect(text).toContain("Call back: +15557778888");
+  expect(text).toContain("Called from: +15551230009");
+});
+
+test("with no summary the email carries the transcript, so it can stand alone", async () => {
+  await sendLeadEmail(
+    {
+      ...row,
+      outcome: "failed",
+      summary: null,
+      script: null,
+      details: null,
+      transcript: [
+        { role: "agent", text: "Thanks for calling." },
+        { role: "caller", text: "My number is 555 123 0009" },
+      ],
+    },
+    config,
+    { transport },
+  );
+  const text = transport.sendMail.mock.calls[0][0].text;
+  expect(text).toContain("TRANSCRIPT");
+  expect(text).toContain("Jack: Thanks for calling.");
+  expect(text).toContain("Caller: My number is 555 123 0009");
+});

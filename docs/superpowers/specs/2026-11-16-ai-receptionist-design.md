@@ -322,3 +322,34 @@ Rollout:
    deploy time, never committed).
 2. Review and approval of the knowledge document, once the first draft exists.
 3. The choice of live-call model, after the test-call comparison in section 9.
+
+## Changes made during the build
+
+The build departed from the text above in these places. Each was a deliberate
+decision by the implementer, not something the owner chose.
+
+- **Who speaks the holding line and the goodbye (§2, §3).** The app says "One
+  second while I pull that up" itself during a lookup, and Jack's goodbye is
+  carried inside the `end_call` instruction and spoken by the app. Current
+  Claude models can return words written just before a tool call as hidden
+  text, which would have meant silence during a lookup and no goodbye.
+- **Failed calls are emailed (§5).** A call the agent failed on, where the
+  caller spoke, sends an "Agent failed, call back" email at once and counts in
+  the Leads badge, because the fallback sentence the caller hears promises a
+  callback.
+- **The card is saved before the summary is written (§5).** The transcript and
+  outcome are stored when the call ends; the summary and script are added a few
+  seconds later. The summary request gets one attempt of at most 40 seconds.
+- **The unread number has its own endpoint (§5).** `GET /leads/count`, leaving
+  the existing activity counts untouched.
+- **"Verified" means the caller agreed (§3).** A looked-up carrier is shown as
+  verified only when the caller confirmed it is theirs. It reflects FMCSA's
+  USDOT registration record, not whether the operating authority is active.
+- **Withheld caller IDs (§2).** Besides the word "anonymous", Twilio's
+  pseudo-numbers for a withheld caller ID are treated as "no number", so Jack
+  asks for a callback number.
+- **Silence handling (§2).** The "are you still there?" check waits for the
+  estimated end of Jack's speech plus 12 seconds, and is held while the caller
+  is talking. A caller who talks over the goodbye is not hung up on.
+- **Routing has a deadline (§1).** If the routing decision takes longer than
+  two seconds (a slow database), the call follows today's path.

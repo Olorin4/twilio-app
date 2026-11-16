@@ -14,6 +14,9 @@ const GREETING =
   "Thanks for calling Iron Wing Dispatching. This is Jack, the AI assistant here, and this call is transcribed so our dispatcher can follow up. Are you looking for dispatch for your truck?";
 
 const callSidPattern = /^CA[0-9a-f]{32}$/i;
+// Twilio is waiting for TwiML while the routing decision reads the database.
+// Past this, the call follows today's path instead of waiting on a slow one.
+const DECISION_DEADLINE_MS = 2000;
 
 function relayTwiml({ token, connectionId, config, baseUrl }) {
   const base = baseUrl.replace(/\/$/, "");
@@ -32,6 +35,9 @@ function relayTwiml({ token, connectionId, config, baseUrl }) {
       language: "en-US",
       dtmfDetection: true,
       interruptible: "any",
+      // Partial transcripts tell the session the caller is still talking, so
+      // it does not ask "are you still there?" over a long answer.
+      partialPrompts: true,
     });
   // The token travels as a parameter, which Twilio delivers inside the
   // WebSocket setup message, never in the URL.
@@ -43,18 +49,27 @@ function relayTwiml({ token, connectionId, config, baseUrl }) {
 // today's path. Never throws: a caller must not get an error because of this
 // feature.
 async function agentTwiml({ body, provider, connection }) {
+  let config;
   try {
-    const config = getConfig();
-    if (!config.enabled) return null;
-    const baseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
-    if (!baseUrl || !callSidPattern.test(body?.CallSid || "")) return null;
+    config = getConfig();
+  } catch (error) {
+    console.error("Receptionist settings failed:", error.message);
+    return null;
+  }
+  if (!config.enabled) return null;
+  const baseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
+  if (!baseUrl || !callSidPattern.test(body?.CallSid || "")) return null;
+
+  let expired = false;
+  let timer;
+  const decide = (async () => {
     const route = await decideRoute({
       from: body.From,
       to: body.To,
       provider,
       config,
     });
-    if (!route.agent) return null;
+    if (!route.agent || expired) return null;
     const context = {
       callSid: body.CallSid,
       workspaceId: IRON_WING_WORKSPACE_ID,
@@ -63,15 +78,33 @@ async function agentTwiml({ body, provider, connection }) {
         typeof body.From === "string" && body.From ? body.From : "anonymous",
     };
     await store.startCall(context);
+    if (expired) {
+      // The call has already gone down today's path; do not leave a record
+      // of an agent call that never happened.
+      await store.discardCall(context.callSid);
+      return null;
+    }
     return relayTwiml({
       token: tokens.mint(context),
       connectionId: context.connectionId,
       config,
       baseUrl,
     });
-  } catch (error) {
+  })().catch((error) => {
     console.error("Receptionist routing failed:", error.message);
     return null;
+  });
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      expired = true;
+      console.error("Receptionist routing timed out; using the usual path.");
+      resolve(null);
+    }, DECISION_DEADLINE_MS);
+  });
+  try {
+    return await Promise.race([decide, deadline]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

@@ -66,3 +66,12 @@ test("isOpen uses the configured zone and a half-open range", () => {
   expect(isOpen(new Date("2026-11-16T23:00:00Z"), hours)).toBe(false); // 18:00 ET
   expect(isOpen(new Date("2026-11-16T11:59:00Z"), hours)).toBe(false); // 06:59 ET
 });
+
+test("an invalid time zone falls back instead of breaking every call", () => {
+  const c = getConfig({ RECEPTIONIST_HOURS_TZ: "Mars/Olympus" });
+  expect(c.hours.timeZone).toBe("America/New_York");
+  expect(() => isOpen(new Date(), c.hours)).not.toThrow();
+  expect(
+    getConfig({ RECEPTIONIST_HOURS_TZ: "America/Chicago" }).hours.timeZone,
+  ).toBe("America/Chicago");
+});
