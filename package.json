@@ -17,7 +17,8 @@
     "migrate:activity-views": "node scripts/migrate-activity-views.js",
     "migrate:twilio-reconciliation": "node scripts/migrate-twilio-reconciliation.js",
     "migrate:workspaces-foundation": "node scripts/migrate-workspaces-foundation.js",
-    "migrate:call-announcements": "node scripts/migrate-call-announcements.js"
+    "migrate:call-announcements": "node scripts/migrate-call-announcements.js",
+    "migrate:receptionist-calls": "node scripts/migrate-receptionist-calls.js"
   },
   "repository": {
     "type": "git",

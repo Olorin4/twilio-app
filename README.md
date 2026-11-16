@@ -120,6 +120,9 @@ safe to rerun; older calls retain an unknown message status. Initiated means the
 app returned instructions to play a greeting, and completed means Twilio reached
 the instruction after the greeting; neither proves the caller listened.
 
+Run `npm run migrate:receptionist-calls` before enabling the AI receptionist. It
+creates the `receptionist_calls` table and is safe to rerun.
+
 Run `npm run migrate:twilio-reconciliation` before starting a release with call
 callbacks and reconciliation. This migration creates call-leg and sync checkpoint
 tables; the first reconciliation looks back at least one day, and subsequent
