@@ -72,7 +72,11 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
   // turn does not pay for it. Best effort.
   async function prewarm() {
     try {
-      const { betas, fallbacks, ...shared } = params;
+      // Same prompt, tools and settings as a live request, without the
+      // refusal-fallback fields, which this endpoint does not take.
+      const shared = { ...params };
+      delete shared.betas;
+      delete shared.fallbacks;
       await client.messages.create({
         ...shared,
         max_tokens: 0,

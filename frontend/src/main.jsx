@@ -20,11 +20,14 @@ import {
   Settings2,
   ShieldCheck,
   UsersRound,
+  UserPlus,
   UserRound,
   X,
 } from "lucide-react";
 import { useVoice } from "./useVoice";
 import Contacts from "./Contacts";
+import Leads from "./Leads";
+import { leadTitle } from "./leadCard.mjs";
 import Conversations from "./Conversations";
 import Pagination from "./Pagination";
 import ActivityTable from "./ActivityTable";
@@ -264,6 +267,11 @@ function App() {
   const [syncFeedback, setSyncFeedback] = useState("");
   const syncInFlight = useRef(false);
   const [unviewed, setUnviewed] = useState({ calls: 0, messages: 0 });
+  const [leads, setLeads] = useState([]);
+  const [leadCount, setLeadCount] = useState(0);
+  const [leadsLoading, setLeadsLoading] = useState(true);
+  const [leadError, setLeadError] = useState("");
+  const announcedLeads = useRef(null);
   const [loading, setLoading] = useState(true);
   const [audioOpen, setAudioOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
@@ -381,26 +389,77 @@ function App() {
       ...Object.fromEntries(results.filter(Boolean)),
     }));
   }, [workspaces]);
+  // Calls the AI receptionist answered: the cards and the unread number.
+  const refreshLeads = useCallback(async () => {
+    const target = getApiWorkspace();
+    try {
+      const [list, count] = await Promise.all([
+        apiFetch("/leads"),
+        apiFetch("/leads/count"),
+      ]);
+      if (target !== getApiWorkspace()) return;
+      if (!list.ok) throw new Error();
+      setLeads(await list.json());
+      if (count.ok) setLeadCount((await count.json()).leads || 0);
+      setLeadError("");
+    } catch {
+      if (target === getApiWorkspace())
+        setLeadError("Could not load leads. Please try again.");
+    } finally {
+      if (target === getApiWorkspace()) setLeadsLoading(false);
+    }
+  }, [workspaceId]);
   useEffect(() => {
     refreshCounts();
     refreshWorkspaceCounts();
+    refreshLeads();
     const stream = new EventSource("/message-events");
     const update = () => {
       refreshCounts();
       refreshWorkspaceCounts();
+      refreshLeads();
       refresh();
     };
     stream.addEventListener("messages", update);
     stream.addEventListener("ready", refreshCounts);
     stream.addEventListener("ready", refreshWorkspaceCounts);
+    stream.addEventListener("ready", refreshLeads);
     const timer = setInterval(refreshCounts, 60000);
     const workspaceTimer = setInterval(refreshWorkspaceCounts, 60000);
+    const leadTimer = setInterval(refreshLeads, 60000);
     return () => {
       stream.close();
       clearInterval(timer);
       clearInterval(workspaceTimer);
+      clearInterval(leadTimer);
     };
-  }, [refresh, refreshCounts, refreshWorkspaceCounts]);
+  }, [refresh, refreshCounts, refreshWorkspaceCounts, refreshLeads]);
+  // Tell the operator about a new lead even when this tab is in the
+  // background. The first count after loading is the baseline, not news.
+  useEffect(() => {
+    const previous = announcedLeads.current;
+    announcedLeads.current = leadCount;
+    if (previous === null || leadCount <= previous) return;
+    if (!("Notification" in window) || Notification.permission !== "granted")
+      return;
+    const newest = leads.find((lead) => lead.status === "new");
+    new Notification("New lead", {
+      body: newest ? leadTitle(newest) : "A caller is waiting for a callback.",
+    });
+  }, [leadCount, leads]);
+  const setLeadStatus = async (lead, status) => {
+    try {
+      const response = await apiFetch(`/leads/${lead.callSid}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw new Error();
+      refreshLeads();
+    } catch {
+      setLeadError("Could not update the lead. Please try again.");
+    }
+  };
   const markCallViewed = async (id) => {
     try {
       const response = await apiFetch(`/activity-views/calls/${id}`, {
@@ -669,6 +728,34 @@ function App() {
             )}
           </button>
           <button
+            className={view === "leads" ? "nav-link selected" : "nav-link"}
+            onClick={() => {
+              setView("leads");
+              setSearch("");
+              setPage(1);
+              refreshLeads();
+              // Asking from a click is the only time browsers allow it.
+              if (
+                "Notification" in window &&
+                Notification.permission === "default"
+              )
+                Notification.requestPermission().catch(() => {});
+            }}
+          >
+            <UserPlus size={18} />
+            <span>Leads</span>
+            {leadCount > 0 ? (
+              <span
+                className="unviewed-count"
+                aria-label={`${leadCount} leads waiting for a callback`}
+              >
+                {leadCount}
+              </span>
+            ) : (
+              view === "leads" && <span className="nav-active" />
+            )}
+          </button>
+          <button
             className={view === "contacts" ? "nav-link selected" : "nav-link"}
             onClick={() => {
               setView("contacts");
@@ -894,7 +981,9 @@ function App() {
                     ? "Calls"
                     : view === "messages"
                       ? "Messages"
-                      : "Contacts"}
+                      : view === "leads"
+                        ? "Leads"
+                        : "Contacts"}
                 <span className="heading-period">.</span>
               </h1>
               <p>
@@ -904,7 +993,9 @@ function App() {
                     ? "Your calls and conversations, all in one place."
                     : view === "messages"
                       ? "Send and receive messages from your number."
-                      : "Your people, one call away."}
+                      : view === "leads"
+                        ? "Callers the AI receptionist spoke to, ready for your callback."
+                        : "Your people, one call away."}
               </p>
             </div>
           </div>
@@ -1185,6 +1276,21 @@ function App() {
                     setNumber(phone);
                     setView("calls");
                   }}
+                />
+              ) : view === "leads" ? (
+                <Leads
+                  leads={leads}
+                  loading={leadsLoading}
+                  error={leadError}
+                  timeZone={timeZone}
+                  canCall={online && !running}
+                  onCall={(phone) => {
+                    // Stay on this view so the script is in front of the
+                    // operator while the call connects.
+                    setNumber(phone);
+                    voice.dial(phone);
+                  }}
+                  onStatus={setLeadStatus}
                 />
               ) : (
                 <ActivityTable

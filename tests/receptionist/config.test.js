@@ -35,7 +35,7 @@ test("the feature and live mode need explicit values", () => {
   expect(getConfig({ RECEPTIONIST_TEST_MODE: "off" }).testMode).toBe(true);
 });
 
-test("test callers are trimmed into a set", () => {
+test("the test-caller list is trimmed into a set", () => {
   const c = getConfig({
     RECEPTIONIST_TEST_CALLERS: " +15551230001, +15551230002 ",
   });

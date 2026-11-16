@@ -86,7 +86,7 @@ test("a test caller reaches the agent even when saved as a contact and over the 
   expect(store.countAgentCalls).not.toHaveBeenCalled();
 });
 
-test("test mode keeps everyone else on today's behaviour", async () => {
+test("in test mode everyone else stays on today's behaviour", async () => {
   expect(
     await decideRoute({ ...base, config: on({ testMode: true }) }),
   ).toEqual({ agent: false, reason: "test_mode" });

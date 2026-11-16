@@ -181,6 +181,7 @@ test("socket close reaches session.closed", async () => {
   await until(() => sessions.length === 1);
   ws.close();
   await until(() => sessions[0].closed.mock.calls.length === 1);
+  expect(sessions[0].closed).toHaveBeenCalledTimes(1);
 });
 
 test("the finished call is handed to finalize with its context and the client", async () => {

@@ -1693,3 +1693,131 @@ h1 {
 .thread-compose p {
   margin-top: 8px;
 }
+.leads-list {
+  display: grid;
+  gap: 14px;
+  padding: 4px 28px 28px;
+}
+.lead-notice {
+  margin: 0 28px 14px;
+}
+.lead-card {
+  border: 1px solid #e4eae2;
+  border-radius: 10px;
+  padding: 18px 20px 16px;
+  min-width: 0;
+}
+.lead-unread {
+  border-color: #b9d4b3;
+  background: #fbfdfa;
+}
+.lead-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 11px;
+  color: #8a998d;
+}
+.lead-badge {
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: #eef2ec;
+  color: #566a5b;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+}
+.lead-badge-lead {
+  background: #477d4c;
+  color: #fff;
+}
+.lead-badge-failed {
+  background: #fff0ed;
+  color: #944a43;
+}
+.lead-promise {
+  color: #46594a;
+  font-weight: 600;
+}
+.lead-time {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.lead-title {
+  margin: 12px 0 0;
+  font-family: Manrope, sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.lead-carrier {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #566a5b;
+  overflow-wrap: anywhere;
+}
+.lead-section {
+  margin-top: 14px;
+}
+.lead-section h3 {
+  margin: 0 0 6px;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #8a998d;
+}
+.lead-summary {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.lead-script,
+.lead-transcript {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.lead-transcript {
+  list-style: none;
+  padding: 10px 12px;
+  margin-top: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-radius: 8px;
+  background: #f5f6f3;
+  font-size: 12px;
+}
+.lead-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #426e45;
+  font-size: 12px;
+  font-weight: 600;
+}
+.lead-chevron-open {
+  transform: rotate(180deg);
+}
+.lead-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.lead-call {
+  background: #477d4c;
+  border-color: #477d4c;
+  color: #fff;
+}
+.lead-call:hover:not(:disabled) {
+  background: #3d6c42;
+}
