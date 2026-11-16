@@ -152,3 +152,19 @@ test("both session-ended routes reach the handler", async () => {
   );
   expect(endedHandler).toHaveBeenCalledTimes(2);
 });
+
+test("the leads API is mounted on the router with a workspace", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockImplementation(async (sql) =>
+    /FROM workspaces/.test(sql)
+      ? {
+          rows: [
+            { id: "00000000-0000-4000-8000-000000000001", name: "Iron Wing" },
+          ],
+        }
+      : { rows: [{ count: "2" }] },
+  );
+  const res = await fetch(`${origin}/leads/count`);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ leads: 2 });
+});

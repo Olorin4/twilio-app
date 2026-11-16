@@ -138,11 +138,13 @@ router.use(
     "/token",
     "/messages",
     "/reconcile",
+    "/leads",
   ],
   resolveWorkspace,
 );
 router.use("/contacts", contactsRouter);
 router.use("/settings", workspaceSettings);
+router.use("/leads", require("./receptionist/routes"));
 
 router.get("/", (req, res) => res.send("Twilio VoIP API is running!"));
 
