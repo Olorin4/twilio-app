@@ -31,4 +31,18 @@ function validateWebhook(req, res, next) {
   return next();
 }
 
-module.exports = { requireLogin, validateWebhook };
+// Requests Twilio makes on its own, which carry a signature instead of the
+// operator's login. Each of these routes validates that signature itself.
+const webhookPaths = [
+  /^\/(voice|sms|sms-status|call-status)$/,
+  /^\/announcement\/(missed|closed)(\/complete)?$/,
+  /^\/receptionist\/ended$/,
+  /^\/webhooks\/[0-9a-f-]{36}\/(voice|sms|sms-status|call-status|announcement\/(missed|closed)(\/complete)?|receptionist\/ended)$/i,
+];
+function isTwilioWebhook(req) {
+  return (
+    req.method === "POST" && webhookPaths.some((path) => path.test(req.path))
+  );
+}
+
+module.exports = { requireLogin, validateWebhook, isTwilioWebhook };

@@ -4,6 +4,7 @@ const {
 const pool = require("./db");
 const { publish } = require("./messageEvents");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const { sayOptions } = require("./receptionist/config");
 
 async function saveEvent(callSid, kind, complete, owner = {}) {
   if (
@@ -61,6 +62,7 @@ async function handle(req, res) {
       !req.providerConnection ||
       req.providerConnection.workspaceId === IRON_WING_WORKSPACE_ID;
     response.say(
+      sayOptions(),
       kind === "closed"
         ? "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours."
         : ironWing

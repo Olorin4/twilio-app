@@ -21,6 +21,7 @@ const reconciliation = require("./reconciliation");
 const workspaceSettings = require("./workspaceSettings");
 const { resolveWorkspace } = require("./workspaceContext");
 const { authenticateConnectionWebhook } = require("./connectionWebhooks");
+const receptionist = require("./receptionist/twiml");
 const {
   getProvider,
   getProviderForWebhook,
@@ -77,7 +78,16 @@ router.post(
       }
       logCall(req.body, req.providerConnection);
       res.set("Content-Type", "text/xml");
-      return res.send(voiceResponse(req.body, provider));
+      // The AI receptionist takes the call when it should; otherwise (and on
+      // any failure) the call follows the path it always has.
+      const agent = outgoing
+        ? null
+        : await receptionist.agentTwiml({
+            body: req.body,
+            provider,
+            connection: req.providerConnection,
+          });
+      return res.send(agent || voiceResponse(req.body, provider));
     } catch (error) {
       return res.sendStatus(
         error.message === "Invalid configured number." ||
@@ -109,6 +119,12 @@ router.post(
   validateWebhook,
   callAnnouncements.handle,
 );
+router.post(
+  "/webhooks/:connectionId/receptionist/ended",
+  authenticateConnectionWebhook,
+  receptionist.endedHandler,
+);
+router.post("/receptionist/ended", validateWebhook, receptionist.endedHandler);
 
 router.use(
   [
@@ -161,10 +177,9 @@ router.get("/token", async (req, res) => {
 // Webhook for handling voice calls
 router.post("/voice", validateWebhook, async (req, res) => {
   try {
-    if (
-      typeof req.body.From === "string" &&
-      req.body.From.startsWith("client:")
-    ) {
+    const outgoing =
+      typeof req.body.From === "string" && req.body.From.startsWith("client:");
+    if (outgoing) {
       const selected = await getProvider(
         "00000000-0000-4000-8000-000000000001",
       );
@@ -173,7 +188,14 @@ router.post("/voice", validateWebhook, async (req, res) => {
     console.log("📞 Received call webhook event:", req.body);
     logCall(req.body);
     res.set("Content-Type", "text/xml");
-    res.send(voiceResponse(req.body));
+    const agent = outgoing
+      ? null
+      : await receptionist.agentTwiml({
+          body: req.body,
+          provider: undefined,
+          connection: undefined,
+        });
+    res.send(agent || voiceResponse(req.body));
   } catch (error) {
     console.error("Error processing voice request:", error);
     res

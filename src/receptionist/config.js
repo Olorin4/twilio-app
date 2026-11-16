@@ -77,4 +77,11 @@ function isOpen(date, hours) {
   return hour >= hours.start && hour < hours.end;
 }
 
-module.exports = { getConfig, isOpen };
+// Options for the recorded <Say> announcements. The voice is opt-in: with
+// none configured the TwiML is exactly what it was before the setting existed.
+function sayOptions(env = process.env) {
+  const voice = getConfig(env).sayVoice;
+  return voice ? { voice } : {};
+}
+
+module.exports = { getConfig, isOpen, sayOptions };

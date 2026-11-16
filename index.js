@@ -6,25 +6,14 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const router = require("./src/router");
 const { reconcile, reconcileAll } = require("./src/reconciliation");
-const { requireLogin } = require("./src/security");
+const { requireLogin, isTwilioWebhook } = require("./src/security");
 
 // Create Express webapp
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use((req, res, next) => {
-  if (
-    req.method === "POST" &&
-    (req.path === "/voice" ||
-      req.path === "/sms" ||
-      req.path === "/sms-status" ||
-      req.path === "/call-status" ||
-      /^\/announcement\/(missed|closed)(\/complete)?$/.test(req.path) ||
-      /^\/webhooks\/[0-9a-f-]{36}\/(voice|sms|sms-status|call-status|announcement\/(missed|closed)(\/complete)?)$/i.test(
-        req.path,
-      ))
-  )
-    return next();
+  if (isTwilioWebhook(req)) return next();
   return requireLogin(req, res, next);
 });
 app.use(express.static(path.join(__dirname, "dist")));

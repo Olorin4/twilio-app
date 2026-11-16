@@ -4,7 +4,7 @@ and then exporting them for use in router.js. */
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
 const { callerId, getIdentity } = require("./token");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
-const { getConfig, isOpen } = require("./receptionist/config");
+const { getConfig, isOpen, sayOptions } = require("./receptionist/config");
 
 // Debugging twilio credentials imports
 // console.log("✔ Debugging handler.js credentials:");
@@ -57,6 +57,7 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
     if (announcementBase) twiml.redirect(`${announcementBase}/closed`);
     else
       twiml.say(
+        sayOptions(),
         "Hello! Thank you for calling Iron Wing Dispatching. Our office is currently closed. Please call back during business hours.",
       );
   } else if (toNumberOrClientName == connectionCallerId) {
@@ -77,6 +78,7 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
     // **This message only plays if no one answers within 20 seconds**
     if (!announcementBase || !identity) {
       twiml.say(
+        sayOptions(),
         isIronWing
           ? "Hello! Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon."
           : "Hello! Thank you for calling. One of our representatives will call you back soon.",
