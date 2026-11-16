@@ -75,9 +75,13 @@ describe("relayTwiml", () => {
     expect(xml).not.toMatch(/wss:[^"]*tok123/);
   });
 
-  test("the greeting names Jack as an AI assistant and says the call is transcribed", () => {
-    expect(GREETING).toContain("Jack, the AI assistant");
-    expect(GREETING).toContain("transcribed");
+  test("the greeting names Jack and says nothing about AI or transcription", () => {
+    // The owner's decision: Jack says he is an AI when a caller asks, not in
+    // the welcome message.
+    expect(GREETING).toBe(
+      "Thanks for calling Iron Wing Dispatching. This is Jack. How can I help you today?",
+    );
+    expect(GREETING).not.toMatch(/\bAI\b|assistant|transcribed|recorded/i);
     // The line takes every kind of business call, so the opener is general.
     expect(GREETING).toMatch(/How can I help you today\?$/);
     expect(GREETING).not.toContain("for your truck");
@@ -86,7 +90,7 @@ describe("relayTwiml", () => {
       config: getConfig({}),
       baseUrl: "https://example.test/",
     });
-    expect(xml).toContain("Jack, the AI assistant");
+    expect(xml).toContain("This is Jack. How can I help you today?");
   });
 
   test("connection calls use the connection-scoped paths", () => {

@@ -83,8 +83,11 @@ The build has failed, even if it works technically, if any of these happen:
 - **The reverse proxy in front of the app is outside this repo** and was not inspected. It must
   allow WebSocket upgrades on the new path. Verify before any live test.
 - **Compliance position:** this is inbound-only, which is the one AI voice use the research found
-  needs no prior consent. The agent still discloses that it is an AI and that the call is
-  transcribed, in its first sentence.
+  needs no prior consent. As first built, the agent disclosed that it is an AI and that the
+  call is transcribed, in its first sentence. **Changed by the owner on 2026-11-16:** the
+  greeting gives only the agent's name; it says it is an AI, and that the call is transcribed,
+  when a caller asks. Whether transcribing without notice needs the caller's consent in some
+  states is a question for counsel.
 - **Claude API usage** must follow the current Anthropic SDK guidance (load the `claude-api` skill
   when implementing): streaming, tool use with `tool_choice: auto`, prompt caching, and handling of
   the `refusal` stop reason.
@@ -157,8 +160,7 @@ speech recognition, the voice, and interruptions.
 
 Greeting (wording to be tuned by ear):
 
-> "Thanks for calling Iron Wing Dispatching. This is Jack, the AI assistant here, and this call
-> is transcribed so our dispatcher can follow up. Are you looking for dispatch for your truck?"
+> "Thanks for calling Iron Wing Dispatching. This is Jack. How can I help you today?"
 
 ### 3. MC number capture and check
 
@@ -183,7 +185,7 @@ holds carriers it has imported as prospects, and this keeps the first version in
 ### 4. The callback promise
 
 - Inside the owner's calling hours (default: the existing 07:00–18:00 Eastern rule): "a dispatcher
-  will call you back in the next few minutes from this number."
+  will call you back in the next few minutes on this number."
 - Outside those hours: the agent offers the next day and lets the caller name a time window; the
   window is stored on the card. **[my call]**
 

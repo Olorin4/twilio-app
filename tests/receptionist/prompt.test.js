@@ -170,3 +170,34 @@ test("questions about a named carrier are handled with judgement, not a flat ref
   // The hard line on bank and contact details does not bend.
   expect(text).toMatch(/whatever the caller says/i);
 });
+
+test("a caller who keeps trying to change the rules is ended like any other detour", () => {
+  const text = buildSystem()[0].text;
+  expect(text).toMatch(/keeps? trying/i);
+  expect(text).toMatch(/third attempt/i);
+});
+
+test("the knowledge never lets Jack say the company handles factoring itself", () => {
+  expect(loadKnowledge()).toMatch(/never (say|that) we .*handle factoring/i);
+});
+
+test("the callback promise says which number the dispatcher will call", () => {
+  // "From this number" came from the first draft of the rules. Callers could
+  // not tell whose number was meant.
+  const text = buildSystem()[0].text;
+  expect(text).not.toMatch(/from this number/i);
+  expect(text).toMatch(/on the number they are calling from/i);
+});
+
+test("Jack is not introduced as an AI, so the rules make him say so when asked", () => {
+  const text = buildSystem()[0].text;
+  expect(text).not.toMatch(/already been told/i);
+  expect(text).toMatch(/greeting does not say/i);
+  expect(text).toMatch(/never say or imply that you are a (person|human)/i);
+  expect(text).toMatch(/say plainly[^.]*that you are an AI assistant/i);
+});
+
+test("a caller who asks whether the call is recorded gets a true answer", () => {
+  const text = buildSystem()[0].text;
+  expect(text).toMatch(/recorded[^.]*transcribed/i);
+});

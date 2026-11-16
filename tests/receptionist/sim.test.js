@@ -3,6 +3,7 @@ const {
   SCENARIOS,
   runScenario,
   offListPrices,
+  cannedLookup,
   main,
 } = require("../../scripts/receptionist-sim");
 
@@ -101,6 +102,7 @@ test("a scenario runs caller and agent in turn until the agent ends the call", a
     "agent",
   ]);
   expect(result.checks.map((check) => check.pass)).toEqual([
+    true,
     true,
     true,
     true,
@@ -259,4 +261,91 @@ test("a chatty caller gets until the third detour before the call is ended", () 
   });
   expect(check.test(outcome(5))).toBe(true);
   expect(check.test(outcome(6))).toBe(false);
+});
+
+test("simulated calls run at a fixed office-hours time so runs are repeatable", async () => {
+  const agent = scriptedAgent([
+    { spoken: "Bye.", end: { outcome: "spam", callbackPromise: "" } },
+  ]);
+  await runScenario("solicitor", {
+    client: callerClient(["Buy my warranty"]),
+    agent,
+    config,
+    stats: { lookups: 0 },
+  });
+  const context = agent.runTurn.mock.calls[0][0][0].content;
+  expect(context).toContain("Monday, November 16, 2026");
+  expect(context).toContain("10:00 AM");
+  expect(context).toMatch(/office is open/);
+});
+
+test("the no-MC-yet caller's USDOT number finds her own new company", async () => {
+  const brief = SCENARIOS["no-mc-yet"].brief;
+  expect(brief).toContain("4412086");
+  expect(brief).not.toContain("295917");
+  expect(
+    await cannedLookup({ kind: "usdot", digits: "4412086" }),
+  ).toMatchObject({
+    found: true,
+    usdot: "4412086",
+    mc: null,
+    legalName: "DEE HARRIS TRUCKING LLC",
+    city: "MACON",
+    state: "GA",
+    powerUnits: 1,
+  });
+  // The other caller's record is unchanged, by either number.
+  for (const docket of [
+    { kind: "mc", digits: "196057" },
+    { kind: "usdot", digits: "295917" },
+  ])
+    expect((await cannedLookup(docket)).legalName).toBe("SMITH TRUCKING LLC");
+  expect(await cannedLookup({ kind: "usdot", digits: "1" })).toEqual({
+    found: false,
+    reason: "no_match",
+  });
+});
+
+test("the no-MC-yet scenario expects the USDOT number to be looked up", () => {
+  const check = SCENARIOS["no-mc-yet"].checks.find(
+    (c) => c.name === "the USDOT number is looked up",
+  );
+  expect(check.test({ transcript: [], lookups: 1 })).toBe(true);
+  expect(check.test({ transcript: [], lookups: 0 })).toBe(false);
+});
+
+test('a callback said to come "from this number" fails the wording check', () => {
+  const heard = (text) => ({
+    transcript: [
+      { role: "agent", text: "greeting" },
+      { role: "agent", text },
+    ],
+  });
+  for (const name of ["new-owner-operator", "no-mc-yet"]) {
+    const check = SCENARIOS[name].checks.find(
+      (c) => c.name === "says which number the dispatcher will call",
+    );
+    expect(
+      check.test(heard("A dispatcher will call you back from this number.")),
+    ).toBe(false);
+    expect(
+      check.test(heard("A dispatcher will call you back on this number.")),
+    ).toBe(true);
+  }
+});
+
+test("the robot scenario also asks whether the call is recorded", () => {
+  const scenario = SCENARIOS["are-you-a-robot"];
+  expect(scenario.brief).toMatch(/recorded/i);
+  const check = scenario.checks.find(
+    (c) => c.name === "says the call is transcribed when asked",
+  );
+  const heard = (text) => ({
+    transcript: [
+      { role: "agent", text: "greeting" },
+      { role: "agent", text },
+    ],
+  });
+  expect(check.test(heard("Yes, this call is transcribed."))).toBe(true);
+  expect(check.test(heard("No, nothing is kept."))).toBe(false);
 });

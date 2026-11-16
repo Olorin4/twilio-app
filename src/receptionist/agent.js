@@ -14,6 +14,20 @@ const { buildSystem, TOOLS } = require("./prompt");
 const { lookupCarrier, parseDocket, speakDigits } = require("./carrierLookup");
 
 const LOOKUP_FILLER = "One second while I pull that up.";
+
+// The prompt tells the model to put its closing words in end_call's goodbye
+// and not to write them as text too. It sometimes does both, and the caller
+// would then hear the callback promise twice. A goodbye whose words were
+// mostly spoken already in the same reply is dropped; one that adds something
+// new (a promise after "I have Smith Trucking in Dallas") is still spoken.
+const words = (text) => text.toLowerCase().match(/[a-z0-9']{4,}/g) || [];
+function alreadySaid(goodbye, spoken) {
+  const wanted = words(goodbye);
+  if (!wanted.length || !spoken.trim()) return false;
+  const heard = new Set(words(spoken));
+  const repeated = wanted.filter((word) => heard.has(word)).length;
+  return repeated / wanted.length > 0.5;
+}
 const MAX_REQUESTS_PER_TURN = 4;
 // A request is given up on when the stream goes quiet for this long, or when
 // it has run this long in total. Either way the caller hears the fallback
@@ -152,7 +166,12 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
       const { outcome, callback_promise, goodbye } = tool.input || {};
       if (!OUTCOMES.includes(outcome))
         return { error: `outcome must be one of ${OUTCOMES.join(", ")}` };
-      if (typeof goodbye === "string" && goodbye.trim()) say(goodbye.trim());
+      if (
+        typeof goodbye === "string" &&
+        goodbye.trim() &&
+        !alreadySaid(goodbye, state.requestText)
+      )
+        say(goodbye.trim());
       state.end = {
         outcome,
         callbackPromise:

@@ -570,3 +570,67 @@ test("the filler is spoken once when one reply holds two lookups", async () => {
   });
   expect(seen.filter((t) => t === LOOKUP_FILLER)).toHaveLength(1);
 });
+
+test("a goodbye the model already spoke is not said a second time", async () => {
+  // Seen in a simulated call: the model wrote its closing words as text and
+  // also filled in end_call's goodbye, so the caller heard the promise twice.
+  const client = fakeClient([
+    {
+      text: [
+        "A dispatcher will call you back in the next few minutes. Drive safe.",
+      ],
+      tools: [
+        {
+          id: "t2",
+          name: "end_call",
+          input: {
+            outcome: "lead",
+            callback_promise: "in the next few minutes",
+            goodbye:
+              "Thanks, Dee, a dispatcher will call you back. Drive safe.",
+          },
+        },
+      ],
+      stop: "tool_use",
+    },
+  ]);
+  const seen = [];
+  const r = await createAgent({ client, config }).runTurn(history, {
+    onText: (t) => seen.push(t),
+  });
+  expect(seen).toEqual([
+    "A dispatcher will call you back in the next few minutes. Drive safe.",
+  ]);
+  expect(r.spoken).toBe(
+    "A dispatcher will call you back in the next few minutes. Drive safe.",
+  );
+  expect(r.end).toEqual({
+    outcome: "lead",
+    callbackPromise: "in the next few minutes",
+  });
+});
+
+test("a goodbye that adds something new after other words is still spoken", async () => {
+  const client = fakeClient([
+    {
+      text: ["Got it, I have Smith Trucking out of Dallas, Texas."],
+      tools: [
+        {
+          id: "t3",
+          name: "end_call",
+          input: {
+            outcome: "lead",
+            callback_promise: "in the next few minutes",
+            goodbye:
+              "A dispatcher will call you back in the next few minutes. Drive safe.",
+          },
+        },
+      ],
+      stop: "tool_use",
+    },
+  ]);
+  const r = await createAgent({ client, config }).runTurn(history);
+  expect(r.spoken).toBe(
+    "Got it, I have Smith Trucking out of Dallas, Texas. A dispatcher will call you back in the next few minutes. Drive safe.",
+  );
+});

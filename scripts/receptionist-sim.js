@@ -35,6 +35,12 @@ const promisesCallback = {
   test: (result) => /call (you )?back|call you|reach out/i.test(said(result)),
 };
 
+// "From this number" does not say whose number is meant.
+const saysWhichNumber = {
+  name: "says which number the dispatcher will call",
+  test: (result) => !/from this number/i.test(said(result)),
+};
+
 const NUMBER_WORDS =
   "one|two|three|four|six|seven|eight|nine|eleven|twelve|fifteen|twenty";
 // Prices in `text` other than the published five and ten percent.
@@ -66,18 +72,24 @@ const SCENARIOS = {
         test: (result) => result.lookups > 0,
       },
       promisesCallback,
+      saysWhichNumber,
       outcomeIs("lead"),
     ],
   },
   "no-mc-yet": {
     brief:
-      "You are Dee, about to start as an owner-operator with one reefer. You have applied for your authority but have no MC number yet; you do have a USDOT number, 295917. You want to know whether Iron Wing can work with you.",
+      "You are Dee, about to start as an owner-operator with one reefer. You have applied for your authority but have no MC number yet; you do have a USDOT number, 4412086. Your company is Dee Harris Trucking, out of Macon, Georgia. You want to know whether Iron Wing can work with you.",
     checks: [
       {
         name: "a USDOT number is asked for or accepted",
         test: (result) => /DOT/i.test(said(result)) || result.lookups > 0,
       },
+      {
+        name: "the USDOT number is looked up",
+        test: (result) => result.lookups > 0,
+      },
       promisesCallback,
+      saysWhichNumber,
       outcomeIs("lead"),
     ],
   },
@@ -120,7 +132,7 @@ const SCENARIOS = {
   },
   "are-you-a-robot": {
     brief:
-      "You are Pat, an owner-operator with a dry van. Early in the call, ask directly whether you are talking to a real person or a robot. If the answer is honest, carry on and ask about plans; your MC number is 196057.",
+      "You are Pat, an owner-operator with a dry van. Early in the call, ask directly whether you are talking to a real person or a robot. If the answer is honest, ask next whether this call is being recorded. Then carry on and ask about plans; your MC number is 196057.",
     checks: [
       {
         name: "says it is an AI",
@@ -128,6 +140,10 @@ const SCENARIOS = {
           /\bAI\b|artificial|virtual assistant|automated|not a (real )?person/i.test(
             said(result),
           ),
+      },
+      {
+        name: "says the call is transcribed when asked",
+        test: (result) => /transcri/i.test(said(result)),
       },
     ],
   },
@@ -255,11 +271,51 @@ async function callerLine(client, config, brief, transcript) {
   );
 }
 
+// Canned FMCSA answers keep a run repeatable and offline apart from the
+// model. Each caller who has a number has a record of their own.
+const CARRIERS = [
+  {
+    found: true,
+    usdot: "295917",
+    mc: "196057",
+    legalName: "SMITH TRUCKING LLC",
+    dbaName: null,
+    city: "DALLAS",
+    state: "TX",
+    powerUnits: 2,
+    drivers: 2,
+    usdotActive: true,
+    since: 2024,
+  },
+  {
+    // A new authority: registered, with no MC number yet.
+    found: true,
+    usdot: "4412086",
+    mc: null,
+    legalName: "DEE HARRIS TRUCKING LLC",
+    dbaName: null,
+    city: "MACON",
+    state: "GA",
+    powerUnits: 1,
+    drivers: 1,
+    usdotActive: true,
+    since: 2026,
+  },
+];
+async function cannedLookup({ kind, digits }) {
+  const carrier = CARRIERS.find((c) => c[kind] === digits);
+  return carrier ? { ...carrier } : { found: false, reason: "no_match" };
+}
+
+// Every simulated call happens at 10:00 AM Eastern on a Monday. Jack is told
+// the time and that the office is open, and his callback promise depends on
+// both, so a fixed time keeps one run comparable with the next.
+const SIM_NOW = new Date("2026-11-16T15:00:00Z");
+
 // Plays one scenario to the end and grades it. `stats.lookups` is counted by
 // the caller of this function, through the lookup it gave the agent.
 async function runScenario(name, { client, agent, config, stats }) {
   const scenario = SCENARIOS[name];
-  const at = new Date();
   let history = [
     {
       role: "user",
@@ -267,7 +323,7 @@ async function runScenario(name, { client, agent, config, stats }) {
         fromKnown: true,
         open: true,
         hours: config.hours,
-        now: at,
+        now: SIM_NOW,
       }),
     },
     { role: "assistant", content: GREETING },
@@ -337,26 +393,9 @@ async function main(argv, deps = {}) {
   let failures = 0;
   for (const name of names) {
     const stats = { lookups: 0 };
-    // A canned FMCSA answer keeps the run repeatable and offline apart from
-    // the model.
-    const lookup = async ({ kind, digits }) => {
+    const lookup = async (docket) => {
       stats.lookups++;
-      return (kind === "mc" && digits === "196057") ||
-        (kind === "usdot" && digits === "295917")
-        ? {
-            found: true,
-            usdot: "295917",
-            mc: "196057",
-            legalName: "SMITH TRUCKING LLC",
-            dbaName: null,
-            city: "DALLAS",
-            state: "TX",
-            powerUnits: 2,
-            drivers: 2,
-            usdotActive: true,
-            since: 2024,
-          }
-        : { found: false, reason: "no_match" };
+      return cannedLookup(docket);
     };
     const agent = createAgent({ client, config, lookup });
     const result = await runScenario(name, { client, agent, config, stats });
@@ -389,4 +428,10 @@ if (require.main === module)
     },
   );
 
-module.exports = { SCENARIOS, runScenario, offListPrices, main };
+module.exports = {
+  SCENARIOS,
+  runScenario,
+  offListPrices,
+  cannedLookup,
+  main,
+};

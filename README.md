@@ -248,8 +248,9 @@ Set `TWILIO_PREVIOUS_NUMBERS` to a comma-separated list of former Twilio numbers
 ## AI receptionist
 
 When it is switched on, inbound calls to the public Iron Wing number are answered
-by an AI phone assistant ("Jack") instead of ringing the softphone first. Jack
-tells the caller he is an AI assistant and that the call is transcribed, answers
+by an AI phone assistant ("Jack") instead of ringing the softphone first. The
+greeting gives only his name; he says he is an AI assistant, or that the call is
+transcribed, when a caller asks. Jack answers
 questions from a written knowledge document, collects the caller's MC number and
 checks it against FMCSA's public records, and promises that a dispatcher will call
 back. When the call ends, a lead card with a summary and a suggested callback
