@@ -1,9 +1,8 @@
 # Iron Wing Dispatching — what Jack knows
 
 This is everything the phone assistant may say about the business. It was
-drafted from the public website and must be reviewed by the owner before
-launch. Lines marked `TODO(owner)` are gaps the website does not answer;
-until they are filled in, the assistant says the dispatcher will cover them on
+drafted from the public website and completed with the owner's answers. For
+anything not written here, the assistant says the dispatcher will cover it on
 the callback.
 
 ## Who we are
@@ -61,8 +60,10 @@ contract and the carrier can cancel anytime.
   they cancelled.
 - Published pricing can change for future loads; a change never affects loads
   already booked.
-- TODO(owner): how and when the fee is collected (per load, weekly invoice,
-  deducted through factoring?).
+- **How the fee is collected:** we invoice the fee for each load, and it is
+  due after the carrier has been paid for that load, whether the payment comes
+  from the broker, the shipper or the carrier's factoring company. The carrier
+  does not pay us before they are paid.
 
 ## How onboarding works
 
@@ -70,28 +71,41 @@ contract and the carrier can cancel anytime.
    of trucks, trailer type) or by calling.
 2. A dispatcher calls or emails to go over the carrier's equipment, lanes and
    goals.
-3. It helps to have the MC authority, insurance certificate and W-9 ready.
+3. The carrier e-signs our dispatch service agreement.
+4. The carrier sends their documents (see "Documents needed").
+5. We set the carrier up with brokers, completing the carrier packets on
+   their behalf.
 
-- TODO(owner): what happens after that call (agreement to sign, carrier packet
-  setup, who is contacted) and how soon a first load can be booked.
+- **How soon a first load can be booked:** usually within 24 hours of our
+  receiving the carrier's documents. This is not a guarantee; it depends on how
+  quickly brokers approve the setup.
+- It helps to have the MC authority, insurance certificate and W-9 ready
+  before the dispatcher calls.
 
 ## Requirements
 
-- Trailer types we dispatch: dry van, flatbed, reefer and car hauler.
+- **Equipment we dispatch:** dry van, flatbed, reefer and power only.
+- **Equipment we do not currently dispatch:** car haulers, hotshots, box trucks
+  and step decks. If a caller runs one of these, say so plainly and offer to
+  pass their details to a dispatcher.
 - We work with owner-operators and small fleets.
-- TODO(owner): do you take carriers with a brand-new MC authority, and is
-  there a minimum authority age?
-- TODO(owner): other equipment (power only, hotshot, box truck, step deck)?
-- TODO(owner): regions or lanes you do or do not cover.
-- TODO(owner): minimum insurance coverage you need to see.
+- **New authorities:** we take carriers with a brand-new MC authority from day
+  one. There is no minimum authority age. Be straight that some brokers limit
+  how much they book with a new authority at first.
+- **Where we dispatch:** the lower 48 states, and cross-border loads to
+  Canada.
+- **Insurance:** we set no minimum of our own. The carrier needs whatever the
+  brokers they haul for require, which is usually one million dollars of auto
+  liability and one hundred thousand dollars of cargo coverage.
 
 ## Documents needed
 
 - MC authority.
 - Certificate of insurance.
 - W-9.
-- TODO(owner): anything else (dispatch agreement, factoring notice of
-  assignment, driver's licence, ELD details)?
+- Our dispatch service agreement, signed.
+- A limited power of attorney, so we can act for the carrier with brokers.
+- A notice of assignment from their factoring company, only if they factor.
 
 ## Common questions and objections
 
@@ -104,7 +118,8 @@ contract and the carrier can cancel anytime.
   level of revenue, load volume or rates.
 - **Do I have to take every load you find?** The carrier reviews the rate
   confirmation and dispatch instructions before accepting a load.
-- **Which trailers do you dispatch?** Dry van, flatbed, reefer and car hauler.
+- **Which trailers do you dispatch?** Dry van, flatbed, reefer and power only.
+  Not car haulers, hotshots, box trucks or step decks at present.
 - **Do you work with fleets?** Yes. For 3 or more trucks the dispatcher puts
   together fleet pricing.
 - **What happens after I sign up?** A dispatcher reaches out by phone or email
@@ -119,9 +134,20 @@ contract and the carrier can cancel anytime.
   service is personal; and there is no contract.
 - **Will you text me?** Only with the carrier's agreement, which a dispatcher
   asks for on a call. The assistant does not sign anyone up for texts.
-- TODO(owner): "I'm already with another dispatcher / their fee is lower."
-- TODO(owner): "How many trucks does each dispatcher handle?"
-- TODO(owner): "Which load boards and brokers do you use?"
+- **I'm already with another dispatcher, or theirs is cheaper.** There is no
+  contract with us, so a carrier can try Iron Wing and stop anytime by phone or
+  email. The Essential Plan is 5% of the linehaul rate with no fuel surcharge
+  in the fee base, and the company is run by a former owner-operator. We do
+  not match or discount other dispatchers' fees on this call; the dispatcher
+  can talk through what the carrier is getting today.
+- **How many trucks does each dispatcher handle?** Five to eight.
+- **Which load boards and brokers do you use?** DAT and Truckstop, along with
+  direct relationships with brokers.
+- **My MC is brand new. Will you work with me?** Yes, from day one.
+- **How do I pay you?** We invoice per load, and the fee is due after the
+  carrier has been paid for that load.
+- **Do you cover my lanes?** We dispatch across the lower 48 states and
+  cross-border to Canada.
 
 ## Never say
 
