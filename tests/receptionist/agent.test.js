@@ -1,0 +1,423 @@
+jest.mock("../../src/receptionist/carrierLookup", () => ({
+  ...jest.requireActual("../../src/receptionist/carrierLookup"),
+  lookupCarrier: jest.fn(),
+}));
+const { getConfig } = require("../../src/receptionist/config");
+const { buildSystem, TOOLS } = require("../../src/receptionist/prompt");
+const {
+  createAgent,
+  requestParams,
+  LOOKUP_FILLER,
+} = require("../../src/receptionist/agent");
+
+const config = getConfig({});
+const history = [
+  { role: "user", content: "<call_context>…</call_context>" },
+  { role: "assistant", content: "Thanks for calling." },
+  { role: "user", content: "I need a dispatcher" },
+];
+
+/* A stand-in for the Anthropic client. Each scripted step is one model
+request: { thinking, text: [deltas], tools: [{id,name,input}], stop, error,
+hang }. Both the standard and beta surfaces record into client.requests. */
+function fakeClient(steps) {
+  const requests = [];
+  const created = [];
+  function stream(params, options = {}) {
+    requests.push(JSON.parse(JSON.stringify(params)));
+    const step = steps[requests.length - 1] || { text: [], stop: "end_turn" };
+    const listeners = [];
+    let rejectFinal;
+    const final = new Promise((resolve, reject) => {
+      rejectFinal = reject;
+      if (step.hang) return;
+      setImmediate(() => {
+        if (step.error) return reject(step.error);
+        for (const delta of step.text || [])
+          for (const listener of listeners) listener(delta);
+        const content = [];
+        if (step.thinking)
+          content.push({ type: "thinking", thinking: "", signature: "sig" });
+        if ((step.text || []).length)
+          content.push({ type: "text", text: step.text.join("") });
+        for (const tool of step.tools || [])
+          content.push({ type: "tool_use", ...tool });
+        resolve({ content, stop_reason: step.stop || "end_turn" });
+      });
+    });
+    final.catch(() => {});
+    const abort = () =>
+      rejectFinal(
+        Object.assign(new Error("aborted"), { name: "APIUserAbortError" }),
+      );
+    options.signal?.addEventListener("abort", abort);
+    return {
+      on(event, listener) {
+        if (event === "text") listeners.push(listener);
+        return this;
+      },
+      finalMessage: () => final,
+      abort,
+    };
+  }
+  const create = jest.fn(async (params) => {
+    created.push(JSON.parse(JSON.stringify(params)));
+    return { content: [], stop_reason: "max_tokens" };
+  });
+  return {
+    requests,
+    created,
+    messages: { stream, create },
+    beta: { messages: { stream } },
+  };
+}
+
+beforeEach(() => jest.spyOn(console, "error").mockImplementation(() => {}));
+afterEach(() => {
+  jest.useRealTimers();
+  jest.restoreAllMocks();
+});
+
+test("text deltas are forwarded as they arrive", async () => {
+  const client = fakeClient([
+    { text: ["Sure. ", "What's your MC number?"], stop: "end_turn" },
+  ]);
+  const seen = [];
+  const r = await createAgent({ client, config }).runTurn(history, {
+    onText: (t) => seen.push(t),
+  });
+  expect(seen).toEqual(["Sure. ", "What's your MC number?"]);
+  expect(r).toMatchObject({
+    spoken: "Sure. What's your MC number?",
+    end: null,
+    carrier: null,
+    failed: false,
+  });
+  expect(r.history).toHaveLength(history.length + 1);
+  expect(r.history.at(-1)).toEqual({
+    role: "assistant",
+    content: [{ type: "text", text: "Sure. What's your MC number?" }],
+  });
+});
+
+test("the request uses the configured model at low effort with the cached system prompt", async () => {
+  const client = fakeClient([{ text: ["Hi."] }]);
+  await createAgent({ client, config }).runTurn(history, { onText() {} });
+  expect(client.requests[0]).toMatchObject({
+    model: "claude-opus-5-5",
+    max_tokens: 4096,
+    output_config: { effort: "low" },
+    system: buildSystem(),
+    tools: TOOLS,
+    messages: history,
+  });
+  expect(client.requests[0].tool_choice).toBeUndefined();
+});
+
+test("lookup_carrier runs, the caller hears a filler, and the model continues with the result", async () => {
+  const lookup = jest.fn().mockResolvedValue({
+    found: true,
+    legalName: "SMITH TRUCKING",
+    city: "DALLAS",
+    state: "TX",
+  });
+  const client = fakeClient([
+    {
+      tools: [
+        { id: "t1", name: "lookup_carrier", input: { number: "MC 196057" } },
+      ],
+      stop: "tool_use",
+    },
+    { text: ["I have Smith Trucking out of Dallas, Texas. Is that you?"] },
+  ]);
+  const seen = [];
+  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+    onText: (t) => seen.push(t),
+  });
+  expect(lookup).toHaveBeenCalledWith(
+    { kind: "mc", digits: "196057" },
+    expect.anything(),
+  );
+  expect(seen[0]).toBe(LOOKUP_FILLER);
+  expect(r.spoken).toBe(
+    `${LOOKUP_FILLER} I have Smith Trucking out of Dallas, Texas. Is that you?`,
+  );
+  expect(r.carrier).toMatchObject({ found: true, legalName: "SMITH TRUCKING" });
+  const toolResult = client.requests[1].messages.at(-1).content[0];
+  expect(toolResult).toMatchObject({ type: "tool_result", tool_use_id: "t1" });
+  expect(toolResult.content).toContain("SMITH TRUCKING");
+  expect(toolResult.content).toContain("1 9 6 0 5 7");
+});
+
+test("the filler is not added when the model already said something before the lookup", async () => {
+  const lookup = jest
+    .fn()
+    .mockResolvedValue({ found: false, reason: "no_match" });
+  const client = fakeClient([
+    {
+      text: ["Let me check that."],
+      tools: [{ id: "t1", name: "lookup_carrier", input: { number: "MC 5" } }],
+      stop: "tool_use",
+    },
+    { text: ["I couldn't find it."] },
+  ]);
+  const seen = [];
+  await createAgent({ client, config, lookup }).runTurn(history, {
+    onText: (t) => seen.push(t),
+  });
+  expect(seen).not.toContain(LOOKUP_FILLER);
+});
+
+test("a number that cannot be parsed is reported to the model without a lookup", async () => {
+  const lookup = jest.fn();
+  const client = fakeClient([
+    {
+      tools: [
+        { id: "t1", name: "lookup_carrier", input: { number: "one two" } },
+      ],
+      stop: "tool_use",
+    },
+    { text: ["Could you give me the digits?"] },
+  ]);
+  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+    onText() {},
+  });
+  expect(lookup).not.toHaveBeenCalled();
+  expect(client.requests[1].messages.at(-1).content[0].content).toContain(
+    "not_a_number",
+  );
+  expect(r.carrier).toBeNull();
+});
+
+test("a lookup with no match does not become the call's carrier", async () => {
+  const lookup = jest
+    .fn()
+    .mockResolvedValue({ found: false, reason: "timeout" });
+  const client = fakeClient([
+    {
+      tools: [{ id: "t1", name: "lookup_carrier", input: { number: "MC 5" } }],
+      stop: "tool_use",
+    },
+    { text: ["Let me read that back."] },
+  ]);
+  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+    onText() {},
+  });
+  expect(r.carrier).toBeNull();
+});
+
+test("end_call speaks the goodbye and ends the turn without another model request", async () => {
+  const client = fakeClient([
+    {
+      tools: [
+        {
+          id: "t2",
+          name: "end_call",
+          input: {
+            outcome: "lead",
+            callback_promise: "in the next few minutes",
+            goodbye: "Thanks, Mike. Talk soon.",
+          },
+        },
+      ],
+      stop: "tool_use",
+    },
+  ]);
+  const seen = [];
+  const r = await createAgent({ client, config }).runTurn(history, {
+    onText: (t) => seen.push(t),
+  });
+  expect(seen).toEqual(["Thanks, Mike. Talk soon."]);
+  expect(r.end).toEqual({
+    outcome: "lead",
+    callbackPromise: "in the next few minutes",
+  });
+  expect(r.failed).toBe(false);
+  expect(client.requests).toHaveLength(1);
+  // The round is closed in history so a continued call stays valid.
+  expect(r.history.at(-1).content[0]).toMatchObject({
+    type: "tool_result",
+    tool_use_id: "t2",
+  });
+});
+
+test("an end_call with an invalid outcome is rejected back to the model, not acted on", async () => {
+  const client = fakeClient([
+    {
+      tools: [{ id: "t2", name: "end_call", input: { outcome: "won" } }],
+      stop: "tool_use",
+    },
+    { text: ["Anything else?"] },
+  ]);
+  const r = await createAgent({ client, config }).runTurn(history, {
+    onText() {},
+  });
+  expect(r.end).toBeNull();
+  expect(client.requests[1].messages.at(-1).content[0]).toMatchObject({
+    type: "tool_result",
+    is_error: true,
+  });
+});
+
+test.each(["refusal", "max_tokens"])(
+  "%s is reported as failed, not thrown",
+  async (stop) => {
+    const r = await createAgent({
+      client: fakeClient([{ text: [], stop }]),
+      config,
+    }).runTurn(history, { onText() {} });
+    expect(r.failed).toBe(true);
+    expect(r.history).toEqual(history);
+  },
+);
+
+test("an API error is reported as failed", async () => {
+  const client = fakeClient([{ error: new Error("401 invalid x-api-key") }]);
+  const r = await createAgent({ client, config }).runTurn(history, {
+    onText() {},
+  });
+  expect(r).toMatchObject({ failed: true, spoken: "", end: null });
+});
+
+test("no output within 6 seconds is reported as failed", async () => {
+  jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+  const client = fakeClient([{ hang: true }]);
+  const pending = createAgent({ client, config }).runTurn(history, {
+    onText() {},
+  });
+  await jest.advanceTimersByTimeAsync(5999);
+  let settled = false;
+  pending.then(() => (settled = true));
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  await jest.advanceTimersByTimeAsync(2);
+  expect((await pending).failed).toBe(true);
+});
+
+test("a model that keeps calling tools is stopped after four requests", async () => {
+  const lookup = jest
+    .fn()
+    .mockResolvedValue({ found: false, reason: "no_match" });
+  const step = {
+    tools: [{ id: "t", name: "lookup_carrier", input: { number: "MC 5" } }],
+    stop: "tool_use",
+  };
+  const client = fakeClient([step, step, step, step, step]);
+  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+    onText() {},
+  });
+  expect(client.requests).toHaveLength(4);
+  expect(r.failed).toBe(true);
+});
+
+test("an aborted turn resolves quietly with what was spoken", async () => {
+  const client = fakeClient([{ hang: true }]);
+  const controller = new AbortController();
+  const pending = createAgent({ client, config }).runTurn(history, {
+    onText() {},
+    signal: controller.signal,
+  });
+  controller.abort();
+  expect(await pending).toMatchObject({ failed: false, spoken: "", end: null });
+});
+
+test("a turn started with an aborted signal makes no request", async () => {
+  const client = fakeClient([]);
+  const r = await createAgent({ client, config }).runTurn(history, {
+    onText() {},
+    signal: AbortSignal.abort(),
+  });
+  expect(client.requests).toHaveLength(0);
+  expect(r.failed).toBe(false);
+});
+
+test("thinking blocks are kept inside a tool round and dropped from the returned history", async () => {
+  const lookup = jest
+    .fn()
+    .mockResolvedValue({ found: false, reason: "no_match" });
+  const client = fakeClient([
+    {
+      thinking: true,
+      tools: [{ id: "t1", name: "lookup_carrier", input: { number: "MC 5" } }],
+      stop: "tool_use",
+    },
+    { thinking: true, text: ["Hi."] },
+  ]);
+  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+    onText() {},
+  });
+  expect(JSON.stringify(client.requests[1].messages)).toContain('"thinking"');
+  expect(JSON.stringify(r.history)).not.toContain('"thinking"');
+});
+
+test("system and tools are byte-identical across requests", async () => {
+  const client = fakeClient([{ text: ["One."] }, { text: ["Two."] }]);
+  const agent = createAgent({ client, config });
+  const first = await agent.runTurn(history, { onText() {} });
+  await agent.runTurn([...first.history, { role: "user", content: "ok" }], {
+    onText() {},
+  });
+  const [a, b] = client.requests;
+  expect(JSON.stringify(a.system)).toBe(JSON.stringify(b.system));
+  expect(JSON.stringify(a.tools)).toBe(JSON.stringify(b.tools));
+});
+
+test.each([
+  ["claude-opus-5-5", "off", undefined],
+  ["claude-sonnet-5-5", "off", { type: "between_tools" }],
+  ["claude-haiku-5-5", "off", { type: "disabled" }],
+  ["claude-sonnet-5-5", "default", undefined],
+])("thinking for %s/%s", (liveModel, liveThinking, expected) => {
+  expect(
+    requestParams({ ...config, liveModel, liveThinking }).thinking,
+  ).toEqual(expected);
+});
+
+test("fast mode applies to Opus only", () => {
+  expect(requestParams({ ...config, liveSpeed: "fast" }).speed).toBe("fast");
+  expect(requestParams(config).speed).toBeUndefined();
+  expect(
+    requestParams({
+      ...config,
+      liveModel: "claude-haiku-5-5",
+      liveSpeed: "fast",
+    }).speed,
+  ).toBeUndefined();
+});
+
+test("refusal fallback is requested on Opus and Sonnet, not on Haiku", async () => {
+  expect(requestParams(config)).toMatchObject({
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+  });
+  expect(
+    requestParams({ ...config, liveModel: "claude-sonnet-5-5" }).fallbacks,
+  ).toBe("default");
+  const haiku = { ...config, liveModel: "claude-haiku-5-5" };
+  expect(requestParams(haiku).fallbacks).toBeUndefined();
+  expect(requestParams(haiku).betas).toBeUndefined();
+  // Haiku requests go to the standard surface, the others to the beta one.
+  const client = fakeClient([{ text: ["Hi."] }]);
+  const spy = jest.spyOn(client.messages, "stream");
+  await createAgent({ client, config: haiku }).runTurn(history, {
+    onText() {},
+  });
+  expect(spy).toHaveBeenCalledTimes(1);
+});
+
+test("prewarm sends one zero-token request with the same prefix and never throws", async () => {
+  const client = fakeClient([]);
+  await createAgent({ client, config }).prewarm();
+  expect(client.created[0]).toMatchObject({
+    model: "claude-opus-5-5",
+    max_tokens: 0,
+    output_config: { effort: "low" },
+    system: buildSystem(),
+    tools: TOOLS,
+  });
+  expect(client.created[0].fallbacks).toBeUndefined();
+  client.messages.create.mockRejectedValueOnce(new Error("offline"));
+  await expect(
+    createAgent({ client, config }).prewarm(),
+  ).resolves.toBeUndefined();
+});

@@ -27,9 +27,9 @@ Why this call matters: the person calling is probably a trucker deciding whether
 How a good call goes:
 1. Find out what they need. If they are a carrier or owner-operator looking for dispatch, show interest in their operation: how many trucks, what trailer, where they like to run.
 2. Answer their questions from the knowledge document below. It is the only source of facts about our services, plans and prices. If the answer is not in it, say the dispatcher will cover that on the call, and move on. Never guess, and never state a price, term, earning or guarantee that is not written there.
-3. Ask for their MC number. When they give it, say "one second while I pull that up" and call lookup_carrier in that same turn. If a carrier is found, confirm it by company name and city, for example "I have Smith Trucking out of Dallas, Texas. Is that you?" If nothing is found, read the digits back one at a time and ask if you have them right; if they confirm, accept the number as given. If they have no MC number yet, that is fine: ask whether they have a USDOT number, and carry on either way. A caller can also key the number in on their phone and press pound.
+3. Ask for their MC number. When they give it, call lookup_carrier right away. While it runs, the caller automatically hears "one second while I pull that up", so do not say that yourself. If a carrier is found, confirm it by company name and city, for example "I have Smith Trucking out of Dallas, Texas. Is that you?" If nothing is found, read the digits back one at a time and ask if you have them right; if they confirm, accept the number as given. If they have no MC number yet, that is fine: ask whether they have a USDOT number, and carry on either way. A caller can also key the number in on their phone and press pound.
 4. Promise the callback. The call context tells you whether the office is open. When it is open, say a dispatcher will call them back in the next few minutes from this number. When it is closed, say a dispatcher will call them on the next day the office is open, and ask what time window suits them. When the call context says the caller's number is not known, ask for the best callback number before you promise anything.
-5. Say a short goodbye and call end_call in that same turn. Do not end the call without saying goodbye.
+5. End the call by calling end_call, with your short spoken goodbye in its goodbye field. The goodbye is spoken to the caller for you, so do not also write it as normal text in that turn.
 
 Other situations:
 - If the caller asks for a person, agree at once. Do not try to keep them. Ask for their MC number so the dispatcher is ready, promise the callback, and end the call.
@@ -74,7 +74,7 @@ const TOOLS = [
   {
     name: "end_call",
     description:
-      "End the phone call. Call it in the same turn as your spoken goodbye, after you have promised the callback. The line is closed once your goodbye has been spoken.",
+      "End the phone call, after you have promised the callback. The text in the goodbye field is spoken to the caller, then the line is closed.",
     strict: true,
     input_schema: {
       type: "object",
@@ -90,8 +90,13 @@ const TOOLS = [
           description:
             'What you told the caller about the callback, for example "in the next few minutes" or "tomorrow between 9 and 11 AM Eastern". Empty if no callback was promised.',
         },
+        goodbye: {
+          type: "string",
+          description:
+            'Your closing words, spoken to the caller exactly as written. One or two short sentences, for example "Thanks, Mike. A dispatcher will call you in the next few minutes. Drive safe."',
+        },
       },
-      required: ["outcome", "callback_promise"],
+      required: ["outcome", "callback_promise", "goodbye"],
       additionalProperties: false,
     },
   },

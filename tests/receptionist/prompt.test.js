@@ -73,6 +73,12 @@ test("tools are strict and closed", () => {
     "not_a_lead",
     "spam",
   ]);
+  // The goodbye travels as a tool input so it always reaches the caller.
+  expect(Object.keys(TOOLS[1].input_schema.properties)).toEqual([
+    "outcome",
+    "callback_promise",
+    "goodbye",
+  ]);
 });
 
 test("call context tells the agent when the number is unknown and the office is closed", () => {
