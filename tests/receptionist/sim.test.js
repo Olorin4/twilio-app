@@ -53,6 +53,7 @@ test("every agreed scenario exists with at least one check", () => {
     "are-you-a-robot",
     "wants-a-human",
     "solicitor",
+    "payment-terms",
     "factoring-company",
     "off-topic",
     "rule-breaker",

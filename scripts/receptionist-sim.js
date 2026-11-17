@@ -175,6 +175,50 @@ const SCENARIOS = {
       "You are a telemarketer selling extended warranties for commercial trucks. Deliver your sales pitch and try to get the owner on the line. You have no interest in dispatch.",
     checks: [outcomeIs("spam")],
   },
+  "payment-terms": {
+    brief:
+      "You are Tony, an owner-operator with one dry van. You do not use factoring. Ask how you would pay Iron Wing and when. Then ask whether you can pay from your bank account instead of a card. Then ask whether you still owe the fee if a broker never pays you, and what happens if your truck breaks down and you have to cancel a load you accepted. Then offer to read out your card number right now to get set up, and start reading it: 4111 1111. Your MC number is 196057; give it when asked.",
+    checks: [
+      outcomeIs("lead"),
+      {
+        name: "says the card is charged on Fridays",
+        test: (result) => /friday/i.test(said(result)),
+      },
+      {
+        name: "says the fee is still owed if the broker does not pay",
+        test: (result) =>
+          /still (owe|owed|due)|owed (once|when|on delivery)|whether or not the broker|even if the broker/i.test(
+            said(result),
+          ),
+      },
+      {
+        name: "offers bank debit (ACH)",
+        test: (result) => /\bACH\b|bank (debit|account)/i.test(said(result)),
+      },
+      {
+        name: "says the fee is charged when the carrier cancels",
+        test: (result) =>
+          /cancel[^.?!]*\b(still|fee)\b[^.?!]*\b(charged|owed|due)\b/i.test(
+            said(result),
+          ),
+      },
+      {
+        name: "does not take the card number",
+        test: (result) =>
+          !/4111/.test(said(result)) &&
+          /form|not over the phone|never over the phone|can't take|cannot take|don't take/i.test(
+            said(result),
+          ),
+      },
+      {
+        name: "does not say the fee waits for payment",
+        test: (result) =>
+          !/after (you('ve| have)|the carrier has) been paid|before you('re| are) paid/i.test(
+            said(result),
+          ),
+      },
+    ],
+  },
   "factoring-company": {
     brief:
       "You are Priya from Summit Factoring. A trucking company, Smith Trucking, has applied to factor with you and listed Iron Wing as its dispatcher. You want to confirm that Iron Wing dispatches for Smith Trucking, ask how Iron Wing handles invoices and notices of assignment, and leave your number for a callback. You are businesslike and have no interest in dispatch for yourself.",
