@@ -174,7 +174,7 @@ describe("runOnce", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  test.each([400, 401, 403, 404, 409, 422])("a %i is final", async (status) => {
+  test.each([400, 409, 410, 413, 422])("a %i is final", async (status) => {
     const db = fakeDb([pending()]);
     const counts = await sender.runOnce({
       db,
@@ -184,6 +184,43 @@ describe("runOnce", () => {
     expect(counts.failed).toBe(1);
     expect(db.updates[0].sql).toMatch(/status = 'FAILED'/);
     expect(db.updates[0].params).toEqual(["1", 1, `HTTP_${status}`]);
+  });
+
+  test.each([401, 403, 404])(
+    "a %i is retried with the long backoff",
+    async (status) => {
+      const db = fakeDb([pending({ attempts: 1 })]);
+      const counts = await sender.runOnce({
+        db,
+        fetch: respondWith(status),
+        config,
+      });
+      expect(counts).toEqual({ delivered: 0, retry: 1, failed: 0 });
+      expect(db.updates[0].sql).toMatch(/next_attempt_at = now\(\) \+/);
+      expect(db.updates[0].params).toEqual(["1", 2, `HTTP_${status}`, 1800]);
+    },
+  );
+
+  test("the long backoff starts at 15 minutes, doubles and stops at 6 hours", () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 11].map(sender.slowBackoffSeconds)).toEqual([
+      900, 1800, 3600, 7200, 14400, 21600, 21600, 21600,
+    ]);
+  });
+
+  test("a 401 still fails at the attempt cap", async () => {
+    const db = fakeDb([pending({ attempts: sender.MAX_ATTEMPTS - 1 })]);
+    const counts = await sender.runOnce({
+      db,
+      fetch: respondWith(401),
+      config,
+    });
+    expect(counts.failed).toBe(1);
+    expect(db.updates[0].sql).toMatch(/status = 'FAILED'/);
+    expect(db.updates[0].params).toEqual([
+      "1",
+      sender.MAX_ATTEMPTS,
+      "HTTP_401",
+    ]);
   });
 
   test.each([408, 429, 500, 502, 503])(

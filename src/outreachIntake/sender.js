@@ -17,8 +17,19 @@ const LEASE = "2 minutes";
 // Wait before the next try, by the number of failed attempts so far.
 const BACKOFF_SECONDS = [60, 5 * 60, 30 * 60, 2 * 60 * 60, 6 * 60 * 60];
 
+// 401/403/404 usually mean a rotated token or a route not deployed yet on
+// Outreach's side: worth retrying, but slowly (15 min, doubling, up to 6 h).
+const SLOW_STATUSES = [401, 403, 404];
+const SLOW_FIRST_SECONDS = 15 * 60;
+const SLOW_MAX_SECONDS = 6 * 60 * 60;
+
 const backoffSeconds = (attempts) =>
   BACKOFF_SECONDS[Math.min(Math.max(attempts, 1), BACKOFF_SECONDS.length) - 1];
+const slowBackoffSeconds = (attempts) =>
+  Math.min(
+    SLOW_FIRST_SECONDS * 2 ** Math.min(Math.max(attempts, 1) - 1, 10),
+    SLOW_MAX_SECONDS,
+  );
 
 // X-IW-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, t + "." + body)>
 function sign(secret, rawBody, unixSeconds) {
@@ -29,7 +40,8 @@ function sign(secret, rawBody, unixSeconds) {
   return `t=${unixSeconds},v1=${digest}`;
 }
 
-// What to do after one attempt: { result: "delivered" | "retry" | "failed", code }.
+// What to do after one attempt: { result: "delivered" | "retry" | "failed",
+// code, slow? }. `slow` asks for the long backoff.
 function classify({ status, error }) {
   if (error) {
     if (error.name === "AbortError" || error.name === "TimeoutError")
@@ -39,6 +51,8 @@ function classify({ status, error }) {
   if (status >= 200 && status < 300) return { result: "delivered", code: null };
   if (status === 408 || status === 429 || status >= 500)
     return { result: "retry", code: `HTTP_${status}` };
+  if (SLOW_STATUSES.includes(status))
+    return { result: "retry", code: `HTTP_${status}`, slow: true };
   if (status >= 400) return { result: "failed", code: `HTTP_${status}` };
   // 1xx/3xx should not reach here (redirects are refused); try again later.
   return { result: "retry", code: `HTTP_${status}` };
@@ -83,7 +97,12 @@ async function record(db, row, outcome) {
     `UPDATE outreach_outbox SET attempts = $2, last_error_code = $3,
        next_attempt_at = now() + make_interval(secs => $4)
      WHERE id = $1`,
-    [row.id, attempts, outcome.code, backoffSeconds(attempts)],
+    [
+      row.id,
+      attempts,
+      outcome.code,
+      outcome.slow ? slowBackoffSeconds(attempts) : backoffSeconds(attempts),
+    ],
   );
   return "retry";
 }
@@ -171,6 +190,7 @@ module.exports = {
   TIMEOUT_MS,
   INTERVAL_MS,
   backoffSeconds,
+  slowBackoffSeconds,
   sign,
   classify,
   runOnce,
