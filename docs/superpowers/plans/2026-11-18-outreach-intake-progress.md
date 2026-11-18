@@ -23,3 +23,12 @@ Branch feat/outreach-intake. Design §6, plan T1–T2.
   (src/outreachIntake/payload.js). Never change it.
 
 ## Log
+- T1 c347bc0 outbox migration 009, events queued in finishCall/updateSummary tx, payload + zod schema + fixture
+- T2 ac6b4ac sender (bearer + X-IW-Signature, backoff, 4xx final except 408/429), index.js start behind OUTREACH_INTAKE_ENABLED=1, backfill script
+
+Verified on a throwaway postgres:18.4 (`twilio_intake_test`): migration
+rerun, lead saved when the outbox table is missing, rev 1/2 queued once,
+non-lead skipped, backfill dry-run/real/rerun counts, sender claim + retry +
+deliver updates. Sender claims with a 2-minute lease on next_attempt_at
+(no transaction held across the HTTP call). Revisions of one call may arrive
+out of order after a retry; Outreach must keep the highest record.revision.
