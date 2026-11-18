@@ -13,10 +13,15 @@ Branch feat/outreach-intake. Design §6, plan T1–T2.
   migrated yet) the call row is still committed and only the event is
   skipped (logged with the PG error code only); the backfill recovers it.
   Saving Jack's lead wins over telling Outreach.
-- Only rows whose outcome is `lead` after the change are queued. A call the
-  summary downgrades from lead to not_a_lead keeps its revision 1 in the
-  outbox and gets no revision 2 (contract only allows outcome "lead").
-  Open question for Outreach: how to retract such a lead.
+- Contract amendment (orchestrator, agreed with Outreach): `call.outcome` is
+  `lead | not_a_lead`; `not_a_lead` only when `record.revision > 1` (zod
+  refine). updateSummary queues revision 2 `not_a_lead` only when a revision 1
+  row exists for the call (guarded inside the INSERT ... WHERE EXISTS, same
+  transaction/savepoint). Calls never reported as leads queue nothing.
+  Backfill: not_a_lead calls with a stored summary get revision 2 only when
+  revision 1 is already in the outbox; what a call was first reported as is
+  not stored, so one without revision 1 is treated as never reported
+  (counted as `skipped`).
 - source_link base = TWILIO_WEBHOOK_BASE_URL (the app's public origin);
   APP_ORIGIN is only a dev frontend origin.
 - Event id namespace constant: `3b0c7f52-5d0e-4c55-9a7e-6f0a1f8e2d41`

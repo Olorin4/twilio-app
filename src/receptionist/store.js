@@ -22,7 +22,7 @@ async function changeWithEvent(sql, params, revision) {
     await client.query("BEGIN");
     const result = await client.query(sql, params);
     const row = result.rows[0] || null;
-    if (outbox.shouldEnqueue(row)) {
+    if (outbox.shouldEnqueue(row, revision)) {
       await client.query("SAVEPOINT outreach_event");
       try {
         await outbox.enqueue(client, row, revision);
@@ -142,7 +142,8 @@ async function countNew(workspaceId) {
 // Adds the after-call summary to a call that is already saved. The
 // transcript and carrier record written when the call closed are left alone.
 // A lead also queues revision 2 of its Outreach event (summary or
-// UNAVAILABLE).
+// UNAVAILABLE); so does a call reported as a lead that the summary found was
+// not_a_lead, so Outreach can retract it.
 async function updateSummary(callSid, fields = {}) {
   if (!OUTCOMES.includes(fields.outcome))
     throw new Error("Unknown receptionist call outcome.");

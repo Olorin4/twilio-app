@@ -147,9 +147,34 @@ describe("updateSummary", () => {
     });
   });
 
-  test("a call the summary marks not_a_lead is not queued", async () => {
+  test("a lead downgraded to not_a_lead queues revision 2 only if revision 1 exists", async () => {
     respond(savedRow({ outcome: "not_a_lead", summary: "Broker." }));
     await store.updateSummary(sid, { outcome: "not_a_lead" });
-    expect(outboxInserts()).toHaveLength(0);
+    const [[insert, params]] = outboxInserts();
+    expect(insert).toMatch(
+      /WHERE \$6::boolean OR EXISTS \(\s*SELECT 1 FROM outreach_outbox WHERE call_sid = \$2 AND revision = 1\)/,
+    );
+    expect(params[2]).toBe(2);
+    expect(params[5]).toBe(false);
+    const payload = JSON.parse(params[4]);
+    expect(payload.call.outcome).toBe("not_a_lead");
+    expect(payload.record.revision).toBe(2);
+    expect(statements()).toContain("SAVEPOINT outreach_event");
+    expect(statements().pop()).toBe("COMMIT");
   });
+
+  test("a lead's insert is unconditional", async () => {
+    respond(savedRow({ summary: "Wants dispatch." }));
+    await store.updateSummary(sid, { outcome: "lead" });
+    expect(outboxInserts()[0][1][5]).toBe(true);
+  });
+
+  test.each(["spam", "abandoned", "failed"])(
+    "a %s summary queues nothing",
+    async (outcome) => {
+      respond(savedRow({ outcome }));
+      await store.updateSummary(sid, { outcome });
+      expect(outboxInserts()).toHaveLength(0);
+    },
+  );
 });

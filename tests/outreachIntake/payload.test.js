@@ -96,6 +96,25 @@ describe("jack.call.v1 contract", () => {
       expect(text).not.toContain(leak);
   });
 
+  test("not_a_lead is valid only after revision 1", () => {
+    const rev2 = buildPayload(row({ outcome: "not_a_lead" }), options);
+    expect(rev2.call.outcome).toBe("not_a_lead");
+    expect(jackCallV1.safeParse(rev2).success).toBe(true);
+    const rev1 = buildPayload(row({ outcome: "not_a_lead" }), {
+      ...options,
+      revision: 1,
+    });
+    const result = jackCallV1.safeParse(rev1);
+    expect(result.success).toBe(false);
+    expect(result.error.issues[0].path).toEqual(["call", "outcome"]);
+  });
+
+  test("other outcomes are rejected", () => {
+    const payload = buildPayload(row(), options);
+    payload.call.outcome = "spam";
+    expect(jackCallV1.safeParse(payload).success).toBe(false);
+  });
+
   test("the schema rejects extra fields", () => {
     const payload = buildPayload(row(), options);
     payload.call.transcript = [];

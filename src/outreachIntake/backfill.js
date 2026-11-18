@@ -1,10 +1,12 @@
 /* Queues jack.call.v1 events for lead calls that closed before the outbox
 existed (or while it could not be written). Revision 1 for every closed
-lead, revision 2 when its summary was stored. The outbox's unique keys make
-a rerun a no-op. Returns counts only. */
+lead, revision 2 when its summary was stored. A not_a_lead call gets a
+revision 2 only when its revision 1 is already in the outbox: the stored row
+does not say what the call was first reported as, so a call with no
+revision 1 is treated as never reported. The outbox's unique keys make a
+rerun a no-op. Returns counts only. */
 
 const { enqueue } = require("./outbox");
-const { eventId } = require("./payload");
 
 async function backfill({ db, since, dryRun = false, env = process.env }) {
   const at = new Date(since);
@@ -12,13 +14,14 @@ async function backfill({ db, since, dryRun = false, env = process.env }) {
     throw new Error("--since must be an ISO date.");
   const { rows } = await db.query(
     `SELECT * FROM receptionist_calls
-     WHERE outcome = 'lead' AND ended_at IS NOT NULL AND ended_at >= $1
+     WHERE ended_at IS NOT NULL AND ended_at >= $1
+       AND (outcome = 'lead' OR (outcome = 'not_a_lead' AND summary IS NOT NULL))
      ORDER BY ended_at, call_sid`,
     [at],
   );
   const events = [];
   for (const row of rows) {
-    events.push({ row, revision: 1 });
+    if (row.outcome === "lead") events.push({ row, revision: 1 });
     if (row.summary != null) events.push({ row, revision: 2 });
   }
   const counts = {
@@ -26,32 +29,30 @@ async function backfill({ db, since, dryRun = false, env = process.env }) {
     events: events.length,
     queued: 0,
     existing: 0,
+    skipped: 0,
   };
-  if (dryRun) {
-    const ids = events.map(({ row, revision }) =>
-      eventId(row.call_sid, revision),
-    );
-    const found = ids.length
-      ? await db.query(
-          "SELECT count(*) FROM outreach_outbox WHERE event_id = ANY($1::uuid[])",
-          [ids],
-        )
-      : { rows: [{ count: 0 }] };
-    counts.existing = Number(found.rows[0].count);
-    counts.queued = counts.events - counts.existing;
-    return { ...counts, dryRun: true };
-  }
+  const sids = rows.map((row) => row.call_sid);
+  const found = sids.length
+    ? await db.query(
+        "SELECT call_sid, revision FROM outreach_outbox WHERE call_sid = ANY($1::text[])",
+        [sids],
+      )
+    : { rows: [] };
+  const have = new Set(found.rows.map((r) => `${r.call_sid}:${r.revision}`));
   for (const { row, revision } of events) {
+    if (have.has(`${row.call_sid}:${revision}`)) counts.existing += 1;
+    else if (row.outcome !== "lead" && !have.has(`${row.call_sid}:1`))
+      counts.skipped += 1;
+    else if (dryRun) counts.queued += 1;
     // There is no stored time for the summary, so both revisions use the
     // time the call ended: the same event every rerun.
-    const added = await enqueue(db, row, revision, {
-      env,
-      occurredAt: row.ended_at,
-    });
-    if (added) counts.queued += 1;
+    else if (
+      await enqueue(db, row, revision, { env, occurredAt: row.ended_at })
+    )
+      counts.queued += 1;
     else counts.existing += 1;
   }
-  return { ...counts, dryRun: false };
+  return { ...counts, dryRun };
 }
 
 module.exports = { backfill };

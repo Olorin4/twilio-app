@@ -52,7 +52,7 @@ function buildPayload(row, { revision, occurredAt, sourceBaseUrl } = {}) {
     call: {
       started_at: iso(row.started_at),
       ended_at: iso(row.ended_at),
-      outcome: "lead",
+      outcome: row.outcome === "not_a_lead" ? "not_a_lead" : "lead",
       from_number: callableNumber(row.from_number),
       callback_number: callableNumber(row.callback_number),
       caller_name: str(row.caller_name),
