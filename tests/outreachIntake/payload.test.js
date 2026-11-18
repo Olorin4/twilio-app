@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { jackCallV1 } = require("../../src/outreachIntake/contract");
+const { jackCallV1, LIMITS } = require("../../src/outreachIntake/contract");
 const {
   uuidV5,
   eventId,
@@ -155,6 +155,55 @@ describe("buildPayload", () => {
     const payload = buildPayload(row({ summary: "x".repeat(2500) }), options);
     expect(payload.call.summary).toHaveLength(2000);
     expect(jackCallV1.safeParse(payload).success).toBe(true);
+  });
+
+  test("long text fields are cut to Outreach's limits", () => {
+    expect(LIMITS).toEqual({
+      caller_name: 200,
+      company: 200,
+      mc_number: 32,
+      usdot: 32,
+      callback_promise: 500,
+      fleet_size: 100,
+      summary: 2000,
+    });
+    const long = (n) => "a".repeat(n + 50);
+    const payload = buildPayload(
+      row({
+        caller_name: long(200),
+        company: long(200),
+        mc_number: "9".repeat(80),
+        usdot: "8".repeat(80),
+        callback_promise: long(500),
+        details: { fleetSize: long(100), interest: "high" },
+        summary: long(2000),
+      }),
+      options,
+    );
+    for (const [field, max] of Object.entries(LIMITS))
+      expect(payload.call[field]).toHaveLength(max);
+    expect(jackCallV1.safeParse(payload).success).toBe(true);
+  });
+
+  test("values at the limit are kept whole, and a cut never splits a surrogate pair", () => {
+    const payload = buildPayload(
+      row({
+        caller_name: "b".repeat(200),
+        company: `${"c".repeat(199)}\u{1F69A}tail`,
+      }),
+      options,
+    );
+    expect(payload.call.caller_name).toBe("b".repeat(200));
+    expect(payload.call.company).toBe("c".repeat(199));
+    expect(jackCallV1.safeParse(payload).success).toBe(true);
+  });
+
+  test("the schema rejects a value over its limit", () => {
+    for (const [field, max] of Object.entries(LIMITS)) {
+      const event = structuredClone(fixture);
+      event.call[field] = "z".repeat(max + 1);
+      expect(jackCallV1.safeParse(event).success).toBe(false);
+    }
   });
 
   test("missing details fall back to unknown interest and no fleet size", () => {

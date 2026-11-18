@@ -9,12 +9,22 @@ const { z } = require("zod");
 
 const CONTRACT = "jack.call.v1";
 const SUMMARY_MAX = 2000;
+// Outreach's column limits; the payload builder cuts values to fit.
+const LIMITS = Object.freeze({
+  caller_name: 200,
+  company: 200,
+  mc_number: 32,
+  usdot: 32,
+  callback_promise: 500,
+  fleet_size: 100,
+  summary: SUMMARY_MAX,
+});
 
 const phone = z
   .string()
   .regex(/^\+[1-9]\d{7,14}$/)
   .nullable();
-const text = z.string().nullable();
+const text = (max) => z.string().max(max).nullable();
 const isoTime = z.iso.datetime();
 
 const jackCallV1 = z
@@ -32,15 +42,15 @@ const jackCallV1 = z
       outcome: z.enum(["lead", "not_a_lead"]),
       from_number: phone,
       callback_number: phone,
-      caller_name: text,
-      company: text,
-      mc_number: text,
-      usdot: text,
+      caller_name: text(LIMITS.caller_name),
+      company: text(LIMITS.company),
+      mc_number: text(LIMITS.mc_number),
+      usdot: text(LIMITS.usdot),
       mc_verified: z.boolean(),
       interest: z.enum(["high", "medium", "low", "unknown"]),
-      callback_promise: text,
-      fleet_size: text,
-      summary: z.string().max(SUMMARY_MAX).nullable(),
+      callback_promise: text(LIMITS.callback_promise),
+      fleet_size: text(LIMITS.fleet_size),
+      summary: text(LIMITS.summary),
       summary_status: z.enum(["PENDING", "READY", "UNAVAILABLE"]),
     }),
     source_link: z.url().nullable(),
@@ -55,4 +65,4 @@ const jackCallV1 = z
     },
   );
 
-module.exports = { CONTRACT, SUMMARY_MAX, jackCallV1 };
+module.exports = { CONTRACT, SUMMARY_MAX, LIMITS, jackCallV1 };

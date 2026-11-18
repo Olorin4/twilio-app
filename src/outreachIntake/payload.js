@@ -2,7 +2,7 @@
 contract lists is copied: never the transcript, script, usage or costs. */
 
 const crypto = require("crypto");
-const { CONTRACT, SUMMARY_MAX } = require("./contract");
+const { CONTRACT, LIMITS } = require("./contract");
 const { callableNumber } = require("../receptionist/phone");
 const { NO_SUMMARY } = require("../receptionist/noSummary");
 
@@ -30,6 +30,15 @@ const eventId = (callSid, revision) => uuidV5(`${callSid}:${revision}`);
 const iso = (value) => (value == null ? null : new Date(value).toISOString());
 const str = (value) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
+// Trimmed text cut to Outreach's limit for `field` (by UTF-16 code units, as
+// zod and JavaScript count; a cut never leaves half a surrogate pair).
+function clamp(value, field) {
+  const s = str(value);
+  if (s == null || s.length <= LIMITS[field]) return s;
+  let cut = s.slice(0, LIMITS[field]);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return cut.trimEnd() || null;
+}
 
 // Revision 1 is the call as it closed (summary still pending); revision 2
 // carries the stored summary, or UNAVAILABLE when the summary failed.
@@ -38,7 +47,7 @@ function summaryFields(row, revision) {
   const summary = str(row.summary);
   if (!summary || summary === NO_SUMMARY)
     return { summary: null, summary_status: "UNAVAILABLE" };
-  return { summary: summary.slice(0, SUMMARY_MAX), summary_status: "READY" };
+  return { summary: clamp(summary, "summary"), summary_status: "READY" };
 }
 
 function buildPayload(row, { revision, occurredAt, sourceBaseUrl } = {}) {
@@ -55,16 +64,16 @@ function buildPayload(row, { revision, occurredAt, sourceBaseUrl } = {}) {
       outcome: row.outcome === "not_a_lead" ? "not_a_lead" : "lead",
       from_number: callableNumber(row.from_number),
       callback_number: callableNumber(row.callback_number),
-      caller_name: str(row.caller_name),
-      company: str(row.company),
-      mc_number: str(row.mc_number),
-      usdot: str(row.usdot),
+      caller_name: clamp(row.caller_name, "caller_name"),
+      company: clamp(row.company, "company"),
+      mc_number: clamp(row.mc_number, "mc_number"),
+      usdot: clamp(row.usdot, "usdot"),
       mc_verified: Boolean(row.mc_verified),
       interest: INTERESTS.includes(details.interest)
         ? details.interest
         : "unknown",
-      callback_promise: str(row.callback_promise),
-      fleet_size: str(details.fleetSize),
+      callback_promise: clamp(row.callback_promise, "callback_promise"),
+      fleet_size: clamp(details.fleetSize, "fleet_size"),
       ...summaryFields(row, revision),
     },
     source_link: sourceBaseUrl
