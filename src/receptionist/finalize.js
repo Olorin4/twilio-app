@@ -11,7 +11,7 @@ const { getConfig } = require("./config");
 const { addUsage, claudeCost, relayCost } = require("./costs");
 const { publish } = require("../messageEvents");
 
-const NO_SUMMARY = "Summary unavailable — read the transcript.";
+const { NO_SUMMARY } = require("./noSummary");
 const EMAILED_AFTER_SUMMARY = ["lead", "not_a_lead"];
 
 // The shape the lead email reads, for when no saved row is available.

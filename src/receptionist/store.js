@@ -3,11 +3,44 @@ answered. A row is opened when the call is handed to the agent and closed
 once, by the after-call step. */
 
 const pool = require("../db");
+const outbox = require("../outreachIntake/outbox");
 
 const OUTCOMES = ["lead", "not_a_lead", "spam", "abandoned", "failed"];
 const STATUSES = ["new", "called", "dismissed"];
 
 const json = (value) => (value == null ? null : JSON.stringify(value));
+
+// Runs `change` (the call row update) and, for a lead, queues the Outreach
+// event in the same transaction, so a committed lead always has its event.
+// The event insert runs under a savepoint: if it fails (say the outbox table
+// is not migrated yet) the call row is still saved and only the event is
+// skipped - the backfill script can add it later. Saving the lead matters
+// more than telling Outreach about it.
+async function changeWithEvent(sql, params, revision) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query(sql, params);
+    const row = result.rows[0] || null;
+    if (outbox.shouldEnqueue(row)) {
+      await client.query("SAVEPOINT outreach_event");
+      try {
+        await outbox.enqueue(client, row, revision);
+        await client.query("RELEASE SAVEPOINT outreach_event");
+      } catch (error) {
+        await client.query("ROLLBACK TO SAVEPOINT outreach_event");
+        console.error("Outreach event not queued:", error.code || "ERROR");
+      }
+    }
+    await client.query("COMMIT");
+    return row;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 async function startCall({ callSid, workspaceId, connectionId, from }) {
   await pool.query(
@@ -19,11 +52,12 @@ async function startCall({ callSid, workspaceId, connectionId, from }) {
 }
 
 // Closes a call. Only an open call is updated, so whichever caller gets
-// there first wins and a second attempt changes nothing.
+// there first wins and a second attempt changes nothing. A lead also queues
+// revision 1 of its Outreach event (summary pending).
 async function finishCall(callSid, fields = {}) {
   if (!OUTCOMES.includes(fields.outcome))
     throw new Error("Unknown receptionist call outcome.");
-  const result = await pool.query(
+  return changeWithEvent(
     `UPDATE receptionist_calls SET
        ended_at = now(), outcome = $2, caller_name = $3, company = $4,
        mc_number = $5, usdot = $6, mc_verified = $7, callback_number = $8,
@@ -48,8 +82,8 @@ async function finishCall(callSid, fields = {}) {
       json(fields.script),
       json(fields.transcript),
     ],
+    1,
   );
-  return result.rows[0] || null;
 }
 
 async function countAgentCalls(from, hours = 24) {
@@ -107,10 +141,12 @@ async function countNew(workspaceId) {
 
 // Adds the after-call summary to a call that is already saved. The
 // transcript and carrier record written when the call closed are left alone.
+// A lead also queues revision 2 of its Outreach event (summary or
+// UNAVAILABLE).
 async function updateSummary(callSid, fields = {}) {
   if (!OUTCOMES.includes(fields.outcome))
     throw new Error("Unknown receptionist call outcome.");
-  const result = await pool.query(
+  return changeWithEvent(
     `UPDATE receptionist_calls SET
        outcome = $2, caller_name = $3, company = $4, mc_number = $5,
        usdot = $6, mc_verified = $7, callback_number = $8,
@@ -132,8 +168,8 @@ async function updateSummary(callSid, fields = {}) {
       fields.summary || null,
       json(fields.script),
     ],
+    2,
   );
-  return result.rows[0] || null;
 }
 
 // Records what the call cost beyond Twilio's own call charge. Either figure

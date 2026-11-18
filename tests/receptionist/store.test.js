@@ -1,11 +1,21 @@
-jest.mock("../../src/db", () => ({ query: jest.fn() }));
+jest.mock("../../src/db", () => ({ query: jest.fn(), connect: jest.fn() }));
 const pool = require("../../src/db");
 const store = require("../../src/receptionist/store");
 
 const sid = `CA${"1".repeat(32)}`;
 const ws = "00000000-0000-4000-8000-000000000001";
 
-beforeEach(() => jest.clearAllMocks());
+// finishCall and updateSummary run in a transaction on a pooled client; the
+// fake client sends its statements through pool.query so they can be seen.
+beforeEach(() => {
+  jest.clearAllMocks();
+  pool.connect.mockResolvedValue({
+    query: (...args) => pool.query(...args),
+    release: jest.fn(),
+  });
+});
+const callUpdate = () =>
+  pool.query.mock.calls.find(([sql]) => /UPDATE receptionist_calls/.test(sql));
 
 test("startCall records the call once", async () => {
   pool.query.mockResolvedValue({ rowCount: 1 });
@@ -27,7 +37,7 @@ test("finishCall only closes an open call and serialises json fields", async () 
     transcript: [{ role: "caller", text: "hi" }],
     carrier: { legalName: "X" },
   });
-  const [sql, params] = pool.query.mock.calls[0];
+  const [sql, params] = callUpdate();
   expect(sql).toMatch(/ended_at IS NULL/);
   expect(params[0]).toBe(sid);
   expect(params).toContain("lead");
@@ -101,7 +111,7 @@ test("updateSummary fills in a saved call without reopening it", async () => {
     script: { opener: "Hi" },
     details: { interest: "low" },
   });
-  const [sql, params] = pool.query.mock.calls[0];
+  const [sql, params] = callUpdate();
   expect(sql).toMatch(/UPDATE receptionist_calls/);
   expect(sql).toMatch(/ended_at IS NOT NULL/);
   expect(sql).not.toMatch(/transcript =/);

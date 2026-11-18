@@ -1,0 +1,24 @@
+{
+    "contract": "jack.call.v1",
+    "event_id": "6f1d3c2e-8a4b-5c7d-9e0f-1a2b3c4d5e6f",
+    "occurred_at": "2026-11-18T15:04:05.000Z",
+    "record": { "id": "CA00000000000000000000000000000001", "revision": 2 },
+    "call": {
+        "started_at": "2026-11-18T14:58:00.000Z",
+        "ended_at": "2026-11-18T15:03:40.000Z",
+        "outcome": "lead",
+        "from_number": null,
+        "callback_number": "+15555550123",
+        "caller_name": "Sam Example",
+        "company": "Example Freight LLC",
+        "mc_number": null,
+        "usdot": null,
+        "mc_verified": false,
+        "interest": "high",
+        "callback_promise": "Dispatcher will call back tomorrow morning",
+        "fleet_size": "2 trucks",
+        "summary": "Owner-operator with two dry vans asked about full-service dispatch and weekly fees.",
+        "summary_status": "READY"
+    },
+    "source_link": "https://twilio-app.example.test/leads#CA00000000000000000000000000000001"
+}
