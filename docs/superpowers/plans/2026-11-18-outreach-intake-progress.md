@@ -38,3 +38,10 @@ deliver updates. Sender claims with a 2-minute lease on next_attempt_at
 (no transaction held across the HTTP call). Revisions of one call may arrive
 out of order after a retry; Outreach must keep the highest record.revision.
 - amend 8d22b10 jack.call.v1 not_a_lead on revision >1; downgrade queues rev 2 only if rev 1 exists; backfill same rule
+
+## Review fixes
+
+- R-T1 789763c OUTREACH_INTAKE_WORKSPACE_ID (uuid, lowercased) required: isReady needs it; shouldEnqueue/enqueue refuse rows of other workspaces; backfill SELECT filters `workspace_id = $2` and the row check repeats it; unset → nothing queued/read, `WORKSPACE_ID_UNSET` logged once per process
+- R-T2 07b5d9c LIMITS in contract.js (caller_name/company 200, mc_number/usdot 32, callback_promise 500, fleet_size 100, summary 2000) enforced by zod; payload clamps (trim, cut, no split surrogate pair)
+- R-T3 ec9c574 401/403/404 retry with slow backoff 15 min doubling, cap 6 h, still FAILED at MAX_ATTEMPTS (12); other 4xx except 408/429 final
+- R-T4 24d9562 tests/outreachIntake/outbox.pg.test.js, opt-in (OUTREACH_INTAKE_PG_TEST=1 + DB_URL db name ending _test; drops/recreates receptionist_calls + outreach_outbox). Ran once on throwaway postgres:18.4 at 127.0.0.1:55435 (twilio_intake_test): 3/3 pass; container removed. Skips (3 skipped) when off or the db name lacks _test.
