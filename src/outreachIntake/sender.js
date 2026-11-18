@@ -186,11 +186,13 @@ function start(deps = {}) {
 }
 
 module.exports = {
+  BATCH,
   MAX_ATTEMPTS,
   TIMEOUT_MS,
   INTERVAL_MS,
   backoffSeconds,
   slowBackoffSeconds,
+  claim,
   sign,
   classify,
   runOnce,
