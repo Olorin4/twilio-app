@@ -45,6 +45,10 @@ if (!global.cleanupScheduled) {
       60 * 1000,
     );
   }
+  // Sends Jack's leads to Outreach; off unless OUTREACH_INTAKE_ENABLED=1 and
+  // the endpoint, token and signing secret are all set.
+  if (require("./src/outreachIntake/sender").start())
+    console.log("Outreach intake sender started.");
   // setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
   console.log("🔄 Auto-sync for calls & messages scheduled.");
 }

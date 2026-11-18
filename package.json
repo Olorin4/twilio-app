@@ -21,6 +21,7 @@
     "migrate:receptionist-calls": "node scripts/migrate-receptionist-calls.js",
     "migrate:call-costs": "node scripts/migrate-call-costs.js",
     "migrate:outreach-outbox": "node scripts/migrate-outreach-outbox.js",
+    "outreach-intake:backfill": "node scripts/outreach-intake-backfill.js",
     "receptionist:sim": "node scripts/receptionist-sim.js"
   },
   "repository": {
