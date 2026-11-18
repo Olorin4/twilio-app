@@ -9,8 +9,11 @@ const { eventId } = require("../../src/outreachIntake/payload");
 const { NO_SUMMARY } = require("../../src/receptionist/noSummary");
 
 const sid = `CA${"3".repeat(32)}`;
+const WORKSPACE = "00000000-0000-4000-8000-000000000001";
+const OTHER_WORKSPACE = "00000000-0000-4000-8000-000000000002";
 const savedRow = (overrides = {}) => ({
   call_sid: sid,
+  workspace_id: WORKSPACE,
   from_number: "+15551230009",
   started_at: new Date("2026-11-18T14:58:00.000Z"),
   ended_at: new Date("2026-11-18T15:03:40.000Z"),
@@ -40,10 +43,47 @@ const outboxInserts = () =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.OUTREACH_INTAKE_WORKSPACE_ID = WORKSPACE;
   pool.connect.mockResolvedValue(client);
   jest.spyOn(console, "error").mockImplementation(() => {});
 });
-afterEach(() => console.error.mockRestore());
+afterEach(() => {
+  console.error.mockRestore();
+  delete process.env.OUTREACH_INTAKE_WORKSPACE_ID;
+});
+
+describe("workspace scoping", () => {
+  test("a lead in another workspace is never queued", async () => {
+    respond(savedRow({ workspace_id: OTHER_WORKSPACE, summary: "x" }));
+    await store.finishCall(sid, { outcome: "lead" });
+    await store.updateSummary(sid, { outcome: "lead", summary: "x" });
+    expect(outboxInserts()).toHaveLength(0);
+    expect(statements()).not.toContain("SAVEPOINT outreach_event");
+    expect(statements().pop()).toBe("COMMIT");
+  });
+
+  test("with no workspace configured nothing is queued, and that is logged once", async () => {
+    jest.resetModules();
+    jest.doMock("../../src/db", () => pool);
+    const fresh = require("../../src/receptionist/store");
+    delete process.env.OUTREACH_INTAKE_WORKSPACE_ID;
+    respond(savedRow());
+    await fresh.finishCall(sid, { outcome: "lead" });
+    await fresh.finishCall(sid, { outcome: "lead" });
+    expect(outboxInserts()).toHaveLength(0);
+    const unset = console.error.mock.calls.filter(
+      ([, code]) => code === "WORKSPACE_ID_UNSET",
+    );
+    expect(unset).toHaveLength(1);
+  });
+
+  test("the workspace id is matched case-insensitively", async () => {
+    process.env.OUTREACH_INTAKE_WORKSPACE_ID = WORKSPACE.toUpperCase();
+    respond(savedRow());
+    await store.finishCall(sid, { outcome: "lead" });
+    expect(outboxInserts()).toHaveLength(1);
+  });
+});
 
 describe("finishCall", () => {
   test("a lead queues revision 1 in the same transaction", async () => {

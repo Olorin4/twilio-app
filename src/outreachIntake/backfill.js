@@ -3,22 +3,28 @@ existed (or while it could not be written). Revision 1 for every closed
 lead, revision 2 when its summary was stored. A not_a_lead call gets a
 revision 2 only when its revision 1 is already in the outbox: the stored row
 does not say what the call was first reported as, so a call with no
-revision 1 is treated as never reported. The outbox's unique keys make a
-rerun a no-op. Returns counts only. */
+revision 1 is treated as never reported. Only calls of
+OUTREACH_INTAKE_WORKSPACE_ID are read; with it unset nothing is queued. The
+outbox's unique keys make a rerun a no-op. Returns counts only. */
 
 const { enqueue } = require("./outbox");
+const { getConfig, warnWorkspaceUnset } = require("./config");
 
 async function backfill({ db, since, dryRun = false, env = process.env }) {
   const at = new Date(since);
   if (!since || Number.isNaN(at.getTime()))
     throw new Error("--since must be an ISO date.");
-  const { rows } = await db.query(
-    `SELECT * FROM receptionist_calls
-     WHERE ended_at IS NOT NULL AND ended_at >= $1
-       AND (outcome = 'lead' OR (outcome = 'not_a_lead' AND summary IS NOT NULL))
-     ORDER BY ended_at, call_sid`,
-    [at],
-  );
+  const { workspaceId } = getConfig(env);
+  if (!workspaceId) warnWorkspaceUnset();
+  const { rows } = workspaceId
+    ? await db.query(
+        `SELECT * FROM receptionist_calls
+         WHERE ended_at IS NOT NULL AND ended_at >= $1 AND workspace_id = $2
+           AND (outcome = 'lead' OR (outcome = 'not_a_lead' AND summary IS NOT NULL))
+         ORDER BY ended_at, call_sid`,
+        [at, workspaceId],
+      )
+    : { rows: [] };
   const events = [];
   for (const row of rows) {
     if (row.outcome === "lead") events.push({ row, revision: 1 });

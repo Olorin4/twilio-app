@@ -10,8 +10,9 @@ const STATUSES = ["new", "called", "dismissed"];
 
 const json = (value) => (value == null ? null : JSON.stringify(value));
 
-// Runs `change` (the call row update) and, for a lead, queues the Outreach
-// event in the same transaction, so a committed lead always has its event.
+// Runs `change` (the call row update) and, for a lead of the Outreach intake
+// workspace, queues the Outreach event in the same transaction, so a
+// committed lead always has its event.
 // The event insert runs under a savepoint: if it fails (say the outbox table
 // is not migrated yet) the call row is still saved and only the event is
 // skipped - the backfill script can add it later. Saving the lead matters

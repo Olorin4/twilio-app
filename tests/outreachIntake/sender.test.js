@@ -15,6 +15,7 @@ const config = {
   url: "https://outreach.example.test/internal/sales/intake/jack",
   token: "test-token",
   signingSecret: "test-signing-secret",
+  workspaceId: "00000000-0000-4000-8000-000000000001",
   sourceBaseUrl: null,
 };
 const NOW = 1763478245000; // fixed clock
@@ -47,8 +48,9 @@ describe("config", () => {
     OUTREACH_INTAKE_URL: "https://outreach.example.test/x",
     OUTREACH_INTAKE_TOKEN: "t",
     OUTREACH_INTAKE_SIGNING_SECRET: "s",
+    OUTREACH_INTAKE_WORKSPACE_ID: "00000000-0000-4000-8000-000000000001",
   };
-  test("is ready only when switched on with url, token and secret", () => {
+  test("is ready only when switched on with url, token, secret and workspace", () => {
     expect(isReady(getConfig(full))).toBe(true);
     expect(isReady(getConfig({}))).toBe(false);
     expect(
@@ -58,8 +60,12 @@ describe("config", () => {
       "OUTREACH_INTAKE_URL",
       "OUTREACH_INTAKE_TOKEN",
       "OUTREACH_INTAKE_SIGNING_SECRET",
+      "OUTREACH_INTAKE_WORKSPACE_ID",
     ])
       expect(isReady(getConfig({ ...full, [key]: "" }))).toBe(false);
+    expect(
+      isReady(getConfig({ ...full, OUTREACH_INTAKE_WORKSPACE_ID: "ws-1" })),
+    ).toBe(false);
     expect(
       isReady(getConfig({ ...full, OUTREACH_INTAKE_URL: "not a url" })),
     ).toBe(false);

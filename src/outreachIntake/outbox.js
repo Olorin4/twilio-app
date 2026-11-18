@@ -4,23 +4,25 @@ unique keys on event_id and (call_sid, revision) make a repeat a no-op. */
 
 const { CONTRACT } = require("./contract");
 const { buildPayload } = require("./payload");
-const { getConfig } = require("./config");
+const { getConfig, inWorkspace } = require("./config");
 
-// Leads go to Outreach. A later revision may also report not_a_lead, but
+// Leads of the configured workspace go to Outreach (a call from any other
+// workspace never does). A later revision may also report not_a_lead, but
 // only for a call already reported as a lead (checked in the insert).
-const shouldEnqueue = (row, revision = 1) =>
+const shouldEnqueue = (row, revision = 1, env = process.env) =>
   Boolean(
     row &&
       (row.outcome === "lead" ||
-        (row.outcome === "not_a_lead" && revision > 1)),
+        (row.outcome === "not_a_lead" && revision > 1)) &&
+      inWorkspace(row, getConfig(env)),
   );
 
 // Inserts the event for `row` at `revision`. Returns true when a new event
 // was stored, false when the row does not qualify, the event already exists,
 // or (for not_a_lead) the call was never reported as a lead.
 async function enqueue(db, row, revision, options = {}) {
-  if (!shouldEnqueue(row, revision)) return false;
   const { env = process.env, occurredAt } = options;
+  if (!shouldEnqueue(row, revision, env)) return false;
   const payload = buildPayload(row, {
     revision,
     occurredAt,
