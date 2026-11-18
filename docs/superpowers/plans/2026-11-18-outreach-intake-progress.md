@@ -37,3 +37,4 @@ non-lead skipped, backfill dry-run/real/rerun counts, sender claim + retry +
 deliver updates. Sender claims with a 2-minute lease on next_attempt_at
 (no transaction held across the HTTP call). Revisions of one call may arrive
 out of order after a retry; Outreach must keep the highest record.revision.
+- amend 8d22b10 jack.call.v1 not_a_lead on revision >1; downgrade queues rev 2 only if rev 1 exists; backfill same rule
