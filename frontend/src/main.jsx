@@ -7,6 +7,7 @@ import {
   ChevronDown,
   CornerDownLeft,
   Delete,
+  Grid3x3,
   Headphones,
   MessageSquare,
   Mic,
@@ -269,6 +270,7 @@ function App() {
   const [view, setView] = useState("calls");
   const [number, setNumber] = useState("");
   const [phoneOpen, setPhoneOpen] = useState(false);
+  const [callKeypadOpen, setCallKeypadOpen] = useState(false);
   const [phoneContext, setPhoneContext] = useState(null);
   const [assistSelected, setAssistSelected] = useState(false);
   const [sessionId, setSessionId] = useState(null);
@@ -651,11 +653,15 @@ function App() {
   useEffect(() => {
     if (running) setSmsOpen(false);
   }, [running]);
+  const live = voice.call?.phase === "active";
+  useEffect(() => {
+    if (!live) setCallKeypadOpen(false);
+  }, [live]);
   const ringing =
     voice.call?.direction === "incoming" && voice.call.phase === "ringing";
   const phoneState = ringing
     ? "ringing"
-    : voice.call?.phase === "active"
+    : live
       ? "live"
       : running
         ? "connecting"
@@ -732,7 +738,7 @@ function App() {
     }
   };
   const pressing = (value) => {
-    if (running && voice.call.phase === "active") voice.digit(value);
+    if (live && callKeypadOpen) voice.digit(value);
     else if (!running) editNumber(number + value);
   };
   const keyDown = (event) => {
@@ -1697,13 +1703,35 @@ function App() {
               </button>
             </div>
           </div>
+          {live && (
+            <div className="call-actions">
+              <button
+                type="button"
+                className="call-action-button"
+                onClick={voice.toggleMute}
+              >
+                {voice.muted ? <MicOff size={17} /> : <Mic size={17} />}
+                {voice.muted ? "Unmute" : "Mute"}
+              </button>
+              <button
+                type="button"
+                className="call-action-button"
+                aria-expanded={callKeypadOpen}
+                aria-controls="phone-keypad"
+                onClick={() => setCallKeypadOpen((open) => !open)}
+              >
+                <Grid3x3 size={17} />
+                {callKeypadOpen ? "Hide keypad" : "Keypad"}
+              </button>
+            </div>
+          )}
           <div className="keypad-area">
             <div
+              id="phone-keypad"
               className="keypad"
+              hidden={live && !callKeypadOpen}
               inert={smsOpen ? true : undefined}
-              aria-label={
-                voice.call?.phase === "active" ? "Call keypad" : "Dial pad"
-              }
+              aria-label={live ? "Call keypad" : "Dial pad"}
             >
               {keypad.map(([value, letters]) => (
                 <button
@@ -1760,16 +1788,7 @@ function App() {
             </label>
           )}
           <div className="dial-buttons">
-            {running ? (
-              <div className="call-actions">
-                {voice.call.phase === "active" && (
-                  <button className="mute-button" onClick={voice.toggleMute}>
-                    {voice.muted ? <MicOff size={17} /> : <Mic size={17} />}{" "}
-                    {voice.muted ? "Unmute" : "Mute"}
-                  </button>
-                )}
-              </div>
-            ) : (
+            {!running && (
               <button
                 className="call-button"
                 disabled={!online || !number.trim() || preparing}

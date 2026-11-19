@@ -580,6 +580,9 @@ h1 {
   gap: 8px;
   margin: 17px 0 18px;
 }
+.keypad[hidden] {
+  display: none;
+}
 .keypad button {
   border: 1px solid #edf1eb;
   background: #fbfcfa;
@@ -631,17 +634,23 @@ h1 {
 .call-actions {
   display: flex;
   gap: 8px;
+  margin-top: 12px;
 }
-.mute-button {
+.call-action-button {
   border: 1px solid #e3e9df;
   background: #fff;
   border-radius: 8px;
+  min-height: 44px;
   padding: 0 12px;
   display: flex;
   gap: 6px;
   align-items: center;
   color: #435747;
   font-size: 12px;
+}
+.call-action-button[aria-expanded="true"] {
+  background: #edf5ea;
+  border-color: #b7d1b6;
 }
 .call-panel {
   border-radius: 8px;
