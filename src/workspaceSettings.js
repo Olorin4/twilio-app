@@ -21,7 +21,10 @@ const {
   updateAssistantSettings,
 } = require("./assistantSettings");
 const { getConfig: receptionistConfig } = require("./receptionist/config");
-const { config: callAssistConfig, eligible } = require("./callAssist/config");
+const {
+  config: callAssistConfig,
+  available: callAssistAvailable,
+} = require("./callAssist/config");
 const router = Router();
 router.get("/config", (req, res) =>
   res.json({
@@ -101,18 +104,12 @@ function publicError(res, error) {
 }
 
 function assistantState(workspace, preferences) {
-  const live = callAssistConfig();
   return {
     preferences,
     available: {
       jack:
         workspace === IRON_WING_WORKSPACE_ID && receptionistConfig().enabled,
-      liveAssist: eligible(live, {
-        workspace,
-        connection: live.connection,
-        number: live.number,
-        destination: live.destinations.values().next().value,
-      }),
+      liveAssist: callAssistAvailable(callAssistConfig()),
     },
   };
 }

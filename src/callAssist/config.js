@@ -14,9 +14,6 @@ function numberSetting(value, fallback, min, max) {
 function config(env = process.env) {
   return {
     enabled: env.CALL_ASSIST_ENABLED === "true",
-    workspace: env.CALL_ASSIST_WORKSPACE_ID?.toLowerCase(),
-    connection: env.CALL_ASSIST_CONNECTION_ID?.toLowerCase(),
-    number: env.CALL_ASSIST_NUMBER,
     destinations: new Set(
       (env.CALL_ASSIST_DESTINATIONS || "")
         .split(",")
@@ -36,22 +33,25 @@ function config(env = process.env) {
   };
 }
 
-function eligible(settings, { workspace, connection, number, destination }) {
+function available(settings) {
   return (
     settings.enabled &&
     /^https:\/\//.test(settings.baseUrl || "") &&
-    uuid.test(settings.workspace || "") &&
-    uuid.test(settings.connection || "") &&
-    e164.test(settings.number || "") &&
-    settings.workspace === workspace &&
-    settings.connection === connection &&
-    settings.number === number &&
+    settings.destinations.size > 0
+  );
+}
+
+function eligible(settings, { number, destination }) {
+  return (
+    available(settings) &&
+    e164.test(number || "") &&
     settings.destinations.has(destination)
   );
 }
 
 module.exports = {
   config,
+  available,
   eligible,
   uuid,
   callSid,

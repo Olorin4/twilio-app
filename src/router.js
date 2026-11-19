@@ -19,7 +19,10 @@ const callEvents = require("./callEvents");
 const callAnnouncements = require("./callAnnouncements");
 const reconciliation = require("./reconciliation");
 const workspaceSettings = require("./workspaceSettings");
-const { resolveWorkspace } = require("./workspaceContext");
+const {
+  IRON_WING_WORKSPACE_ID,
+  resolveWorkspace,
+} = require("./workspaceContext");
 const { authenticateConnectionWebhook } = require("./connectionWebhooks");
 const receptionist = require("./receptionist/twiml");
 const callAssist = require("./callAssist/store");
@@ -118,17 +121,34 @@ router.post(
   authenticateConnectionWebhook,
   callEvents.callback,
 );
+async function transcriptionCallback(req, res) {
+  try {
+    await callAssist.ingest(req, res);
+  } catch (error) {
+    console.error("Call assist webhook failed:", error.code || "unavailable");
+    res.sendStatus(503);
+  }
+}
 router.post(
   "/webhooks/:connectionId/transcription/:sessionId",
   authenticateConnectionWebhook,
-  async (req, res) => {
-    try {
-      await callAssist.ingest(req, res);
-    } catch (error) {
-      console.error("Call assist webhook failed:", error.code || "unavailable");
-      res.sendStatus(503);
-    }
+  transcriptionCallback,
+);
+router.post(
+  "/transcription/:sessionId",
+  validateWebhook,
+  (req, res, next) => {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    if (!accountSid || req.body?.AccountSid !== accountSid)
+      return res.sendStatus(403);
+    req.providerConnection = {
+      workspaceId: IRON_WING_WORKSPACE_ID,
+      id: null,
+      accountSid,
+    };
+    return next();
   },
+  transcriptionCallback,
 );
 router.post(
   "/webhooks/:connectionId/announcement/:kind/:phase?",
@@ -205,9 +225,7 @@ router.post("/voice", validateWebhook, async (req, res) => {
     const outgoing =
       typeof req.body.From === "string" && req.body.From.startsWith("client:");
     if (outgoing) {
-      const selected = await getProvider(
-        "00000000-0000-4000-8000-000000000001",
-      );
+      const selected = await getProvider(IRON_WING_WORKSPACE_ID);
       if (!selected.legacy) return res.sendStatus(409);
       if (req.body.AssistIntent) await bindCallIntent(req.body, selected);
     }

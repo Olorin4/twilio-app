@@ -3,6 +3,7 @@ const { setTimeout: delay } = require("node:timers/promises");
 const twilio = require("twilio");
 const pool = require("../db");
 const { loadConnectionAuth } = require("../connectionWebhooks");
+const { legacyProvider } = require("../providerContext");
 const { publish } = require("../messageEvents");
 const { config, eligible } = require("./config");
 const { analyze } = require("./model");
@@ -10,14 +11,14 @@ const { analyze } = require("./model");
 const terminal = ["completed", "busy", "failed", "no-answer", "canceled"];
 const canCapture = (settings, row) =>
   eligible(settings, {
-    workspace: row.workspace_id,
-    connection: row.provider_connection_id,
     number: row.from_number,
     destination: row.destination,
   });
 
 async function transcription(row) {
-  const connection = await loadConnectionAuth(row.provider_connection_id);
+  const connection = row.provider_connection_id
+    ? await loadConnectionAuth(row.provider_connection_id)
+    : legacyProvider(row.workspace_id);
   if (
     connection?.workspaceId !== row.workspace_id ||
     connection.accountSid !== row.account_sid
@@ -37,7 +38,7 @@ async function startCapture(row, settings) {
        AND NOT stop_requested
        AND NOT EXISTS (SELECT 1 FROM twilio_call_legs
          WHERE parent_call_sid = $2 AND workspace_id = $3
-           AND provider_connection_id = $4 AND status = ANY($5))
+           AND provider_connection_id IS NOT DISTINCT FROM $4::uuid AND status = ANY($5))
      RETURNING id`,
     [
       row.id,
@@ -51,13 +52,16 @@ async function startCapture(row, settings) {
   try {
     const list = await transcription(row);
     if (!canCapture(config(), row)) return;
+    const prefix = row.provider_connection_id
+      ? `/webhooks/${row.provider_connection_id}`
+      : "";
     const options = {
       name: row.id,
       track: "both_tracks",
       partialResults: false,
       inboundTrackLabel: "Dispatcher",
       outboundTrackLabel: "Caller",
-      statusCallbackUrl: `${settings.baseUrl}/webhooks/${row.provider_connection_id}/transcription/${row.id}`,
+      statusCallbackUrl: `${settings.baseUrl}${prefix}/transcription/${row.id}`,
     };
     let started;
     try {
@@ -70,7 +74,7 @@ async function startCapture(row, settings) {
           AND capture_ended_at IS NULL AND transcription_sid IS NULL AND NOT stop_requested
           AND NOT EXISTS (SELECT 1 FROM twilio_call_legs l
             WHERE l.parent_call_sid = s.call_sid AND l.workspace_id = s.workspace_id
-              AND l.provider_connection_id = s.provider_connection_id AND l.status = ANY($2))`,
+              AND l.provider_connection_id IS NOT DISTINCT FROM s.provider_connection_id AND l.status = ANY($2))`,
         [row.id, terminal],
       );
       if (!rowCount || !canCapture(config(), row)) return;
@@ -226,6 +230,7 @@ async function runModel(row, settings, kind) {
       result = await analyze({
         model: summary ? settings.summaryModel : settings.model,
         kind,
+        workspaceId: session.workspace_id,
         transcript: turns
           .slice()
           .reverse()
@@ -363,7 +368,7 @@ function startWorker() {
          FROM phone_call_sessions s LEFT JOIN LATERAL (
            SELECT status FROM twilio_call_legs WHERE parent_call_sid = s.call_sid
              AND workspace_id = s.workspace_id
-             AND provider_connection_id = s.provider_connection_id
+             AND provider_connection_id IS NOT DISTINCT FROM s.provider_connection_id
            ORDER BY updated_at DESC LIMIT 1
          ) l ON true
          WHERE s.assist AND s.call_sid IS NOT NULL

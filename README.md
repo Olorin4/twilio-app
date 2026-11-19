@@ -368,10 +368,10 @@ Calls to save or review its outcome and notes.
 The top-bar **Phone settings** menu stores **AI assistant (Jack)** and
 **Live Assist** preferences per workspace. Both default to on and apply to new
 calls. Jack follows the server's receptionist settings and routing rules.
-For the internal Live Assist pilot, set
-`CALL_ASSIST_ENABLED=true`, the test workspace and connection IDs, its E.164
-outbound number, and the comma-separated E.164 test destinations in
-`.env.example`. The standard signed webhook origin and server-side Anthropic
+For internal Live Assist testing, set `CALL_ASSIST_ENABLED=true` and list the
+comma-separated E.164 test destinations in `CALL_ASSIST_DESTINATIONS`.
+Every workspace can use its selected voice connection and its own **Live
+Assist** switch. The standard signed webhook origin and server-side Anthropic
 configuration are required. An eligible call starts with the drawer's
 **Live assist** option selected, and it can be cleared before dialing. Capture
 starts after the test recipient answers and can be stopped

@@ -37,8 +37,6 @@ async function bindIntent(body, provider) {
       destination,
       provider.phoneNumber,
       eligible(config(), {
-        workspace: provider.workspaceId,
-        connection: provider.id,
         number: provider.phoneNumber,
         destination,
       }) && (await getAssistantSettings(provider.workspaceId)).liveAssist,
@@ -88,7 +86,7 @@ async function ingest(req, res) {
       rows: [row],
     } = await client.query(
       `SELECT * FROM phone_call_sessions WHERE id = $1 AND call_sid = $2
-       AND workspace_id = $3 AND provider_connection_id = $4 AND account_sid = $5
+       AND workspace_id = $3 AND provider_connection_id IS NOT DISTINCT FROM $4::uuid AND account_sid = $5
        AND assist AND capture_started_at IS NOT NULL
        AND (transcription_sid IS NULL OR transcription_sid = $6) FOR UPDATE`,
       [
@@ -105,8 +103,6 @@ async function ingest(req, res) {
       return res.sendStatus(204);
     }
     const allowed = eligible(config(), {
-      workspace: row.workspace_id,
-      connection: row.provider_connection_id,
       number: row.from_number,
       destination: row.destination,
     });

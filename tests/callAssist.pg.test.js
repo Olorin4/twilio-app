@@ -16,6 +16,12 @@ jest.mock("twilio", () => () => ({
 jest.mock("../src/connectionWebhooks", () => ({
   loadConnectionAuth: jest.fn(),
 }));
+jest.mock("../src/token", () => ({
+  accountSid: "AC" + "a".repeat(32),
+  authToken: "synthetic",
+  callerId: "+12025550100",
+  getIdentity: () => "operator",
+}));
 jest.mock("../src/callAssist/model", () => ({ analyze: jest.fn() }));
 
 const url = process.env.DB_URL;
@@ -64,9 +70,6 @@ suite("Call assist against PostgreSQL", () => {
   beforeAll(async () => {
     Object.assign(process.env, {
       CALL_ASSIST_ENABLED: "true",
-      CALL_ASSIST_WORKSPACE_ID: workspace,
-      CALL_ASSIST_CONNECTION_ID: connection,
-      CALL_ASSIST_NUMBER: from,
       CALL_ASSIST_DESTINATIONS: destination,
       CALL_ASSIST_RETAIN_TRANSCRIPT: "false",
       TWILIO_WEBHOOK_BASE_URL: "https://example.test",
@@ -184,12 +187,21 @@ suite("Call assist against PostgreSQL", () => {
     await pool.end();
   });
 
-  async function send(event, fields = {}, owner = workspace) {
+  async function send(
+    event,
+    fields = {},
+    owner = workspace,
+    connectionId = connection,
+  ) {
     const result = response();
     await ingest(
       {
         params: { sessionId: id },
-        providerConnection: { workspaceId: owner, id: connection, accountSid },
+        providerConnection: {
+          workspaceId: owner,
+          id: connectionId,
+          accountSid,
+        },
         body: {
           CallSid: callSid,
           TranscriptionSid: transcriptionSid,
@@ -207,6 +219,57 @@ suite("Call assist against PostgreSQL", () => {
     Track: track,
     Final: "true",
     TranscriptionData: JSON.stringify({ transcript: line }),
+  });
+
+  it("allows a second workspace to use the same test allowlist", async () => {
+    const { body, provider } = binding();
+    await pool.query(
+      "UPDATE phone_call_sessions SET workspace_id = $2 WHERE id = $1",
+      [id, otherWorkspace],
+    );
+    await bindIntent(body, { ...provider, workspaceId: otherWorkspace });
+    expect(await read()).toMatchObject({ call_sid: callSid, assist: true });
+  });
+
+  it("keeps destinations outside the global test allowlist unassisted", async () => {
+    const { body, provider } = binding();
+    const outside = "+12025550199";
+    await pool.query(
+      "UPDATE phone_call_sessions SET destination = $2 WHERE id = $1",
+      [id, outside],
+    );
+    await bindIntent({ ...body, To: outside }, provider);
+    expect(await read()).toMatchObject({ call_sid: callSid, assist: false });
+  });
+
+  it("starts and receives transcription on the default environment connection", async () => {
+    const { body, provider } = binding();
+    await pool.query(
+      "UPDATE phone_call_sessions SET provider_connection_id = NULL WHERE id = $1",
+      [id],
+    );
+    await bindIntent(
+      { ...body, From: "client:operator" },
+      { ...provider, id: null, legacy: true },
+    );
+    expect(await read()).toMatchObject({
+      call_sid: callSid,
+      assist: true,
+      provider_connection_id: null,
+    });
+    await processCapture(await read(), config());
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCallbackUrl: `https://example.test/transcription/${id}`,
+      }),
+    );
+    await send(
+      "transcription-content",
+      finalTurn(1, "outbound_track", "A test call"),
+      workspace,
+      null,
+    );
+    expect((await utterances()).rowCount).toBe(1);
   });
 
   it("captures once on answer, deduplicates callbacks, and finalizes after late utterances", async () => {

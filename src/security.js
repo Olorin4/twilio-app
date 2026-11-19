@@ -41,6 +41,7 @@ const webhookPaths = [
   /^\/(voice|sms|sms-status|call-status)$/,
   /^\/announcement\/(missed|closed)(\/complete)?$/,
   /^\/receptionist\/ended$/,
+  /^\/transcription\/[0-9a-f-]{36}$/i,
   /^\/webhooks\/[0-9a-f-]{36}\/transcription\/[0-9a-f-]{36}$/i,
   /^\/webhooks\/[0-9a-f-]{36}\/(voice|sms|sms-status|call-status|announcement\/(missed|closed)(\/complete)?|receptionist\/ended)$/i,
 ];

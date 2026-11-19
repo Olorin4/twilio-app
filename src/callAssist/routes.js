@@ -30,8 +30,6 @@ const safe = (handler) => async (req, res) => {
 
 function context(provider, destination) {
   return {
-    workspace: provider.workspaceId,
-    connection: provider.id,
     number: provider.phoneNumber,
     destination,
   };
@@ -55,8 +53,6 @@ async function snapshot(workspace, key, sid = false, includeTranscript = true) {
   if (!row) return null;
   const settings = config();
   const captureAllowed = eligible(settings, {
-    workspace: row.workspace_id,
-    connection: row.provider_connection_id,
     number: row.from_number,
     destination: row.destination,
   });
@@ -80,6 +76,7 @@ async function snapshot(workspace, key, sid = false, includeTranscript = true) {
     callSid: row.call_sid,
     leadSid: row.lead_sid,
     assist: row.assist,
+    canRetrySummary: captureAllowed && row.summary_state === "unavailable",
     capture:
       row.assist && !captureAllowed && !row.capture_ended_at
         ? "unavailable"
@@ -134,11 +131,7 @@ router.get(
   safe(async (req, res) => {
     const settings = config();
     const destination = normalize(req.query.destination);
-    if (
-      !settings.enabled ||
-      settings.workspace !== req.workspace.id ||
-      !settings.destinations.has(destination)
-    )
+    if (!settings.enabled || !settings.destinations.has(destination))
       return res.json({ enabled: false });
     const provider = await getProvider(req.workspace.id);
     return res.json({
@@ -349,12 +342,7 @@ router.post(
         "UPDATE phone_call_sessions SET next_suggestion_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2 AND capture_ended_at IS NULL AND NOT stop_requested",
         [id, workspace],
       );
-    } else if (
-      action === "retry" &&
-      data.summaryState === "unavailable" &&
-      config().enabled &&
-      config().workspace === workspace
-    ) {
+    } else if (action === "retry" && data.canRetrySummary) {
       const { rowCount } = await pool.query(
         `UPDATE phone_call_sessions SET summary_state = 'pending', summary_attempts = 0, summary_at = now(),
        updated_at = now() WHERE id = $1 AND workspace_id = $2 AND summary_state = 'unavailable'
