@@ -3,6 +3,7 @@ call follows today's path (ring the softphone, or an announcement). */
 
 const pool = require("../db");
 const store = require("./store");
+const { getAssistantSettings } = require("../assistantSettings");
 const { callableNumber } = require("./phone");
 const { IRON_WING_WORKSPACE_ID } = require("../workspaceContext");
 
@@ -17,6 +18,8 @@ async function decideRoute({ from, to, provider, config }) {
   if (!to || to !== publicNumber) return no("not_public_number");
   if (provider && provider.workspaceId !== IRON_WING_WORKSPACE_ID)
     return no("not_iron_wing");
+  if (!(await getAssistantSettings(IRON_WING_WORKSPACE_ID)).jack)
+    return no("workspace_disabled");
 
   // A blocked or missing caller ID still gets the agent, which then asks for
   // a callback number.

@@ -30,6 +30,7 @@ import { useVoice } from "./useVoice";
 import Contacts from "./Contacts";
 import Leads, { Script } from "./Leads";
 import PhoneDrawer from "./PhoneDrawer";
+import AssistantSettings, { useAssistantSettings } from "./AssistantSettings";
 import {
   CallResult,
   HistoryResult,
@@ -272,14 +273,16 @@ function App() {
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [callKeypadOpen, setCallKeypadOpen] = useState(false);
   const [phoneContext, setPhoneContext] = useState(null);
-  const [assistSelected, setAssistSelected] = useState(false);
+  const [assistSelected, setAssistSelected] = useState(true);
   const [sessionId, setSessionId] = useState(null);
   const [sessionRevision, setSessionRevision] = useState(0);
   const [preparing, setPreparing] = useState(false);
   const preparingRef = useRef(false);
+  const assistantSettings = useAssistantSettings(workspaceId);
   const assistEligible = useAssistEligibility(
     workspaceId,
     normalizePhone(number),
+    assistantSettings.preferences.liveAssist,
   );
   const callSession = useCallSession(workspaceId, sessionId, sessionRevision);
   const [search, setSearch] = useState("");
@@ -621,7 +624,7 @@ function App() {
     setPage(1);
     setNumber("");
     setPhoneOpen(false);
-    setAssistSelected(false);
+    setAssistSelected(true);
     setSessionId(null);
     setPhoneContext(null);
     setSmsBody("");
@@ -691,14 +694,14 @@ function App() {
     if (value === number) return;
     setPhoneContext(null);
     setSessionId(null);
-    setAssistSelected(false);
+    setAssistSelected(true);
     setSmsBody("");
     setSmsFeedback(null);
   };
   const openPhone = (phone, context = null) => {
     if (!running && !preparingRef.current) {
       setSessionId(null);
-      setAssistSelected(false);
+      setAssistSelected(true);
       editNumber(phone);
       setPhoneContext(context);
     }
@@ -732,6 +735,7 @@ function App() {
       if (getApiWorkspace() === workspaceId) {
         setSessionId(intent || null);
         voice.dial(number, intent);
+        setAssistSelected(true);
       }
       preparingRef.current = false;
       setPreparing(false);
@@ -1019,10 +1023,10 @@ function App() {
             <div className="audio-control" ref={audioRef}>
               <button
                 className="icon-button top-settings"
-                title="Audio settings"
-                aria-label="Audio settings"
+                title="Phone settings"
+                aria-label="Phone settings"
                 aria-expanded={audioOpen}
-                aria-controls="audio-settings"
+                aria-controls="phone-settings"
                 onClick={() => setAudioOpen((open) => !open)}
               >
                 <Settings2 size={18} />
@@ -1030,13 +1034,14 @@ function App() {
               {audioOpen && (
                 <section
                   className="status-popover audio-popover"
-                  id="audio-settings"
-                  aria-labelledby="audio-title"
+                  id="phone-settings"
+                  aria-labelledby="phone-settings-title"
                 >
                   <div className="status-popover-heading">
-                    <strong id="audio-title">Audio settings</strong>
+                    <strong id="phone-settings-title">Phone settings</strong>
                   </div>
-                  <p>Choose where you hear calls and incoming ringtones.</p>
+                  <AssistantSettings settings={assistantSettings} />
+                  <h3 className="audio-settings-title">Audio devices</h3>
                   {!online ? (
                     <div className="settings-empty">
                       Connect your phone to manage audio devices.
@@ -1171,7 +1176,7 @@ function App() {
                 setNumber("");
                 setPhoneContext(null);
                 setSessionId(null);
-                setAssistSelected(false);
+                setAssistSelected(true);
                 setSmsBody("");
                 setSmsOpen(false);
                 await loadWorkspaces();

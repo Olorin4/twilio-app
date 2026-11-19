@@ -1,9 +1,13 @@
 jest.mock("../../src/db", () => ({ query: jest.fn() }));
 jest.mock("../../src/token", () => ({ callerId: "+15550000001" }));
+jest.mock("../../src/assistantSettings", () => ({
+  getAssistantSettings: jest.fn(),
+}));
 jest.mock("../../src/receptionist/store", () => ({
   countAgentCalls: jest.fn(),
 }));
 const pool = require("../../src/db");
+const { getAssistantSettings } = require("../../src/assistantSettings");
 const store = require("../../src/receptionist/store");
 const { getConfig } = require("../../src/receptionist/config");
 const { decideRoute } = require("../../src/receptionist/routing");
@@ -22,6 +26,7 @@ const on = (extra = {}) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   pool.query.mockResolvedValue({ rows: [] });
+  getAssistantSettings.mockResolvedValue({ jack: true, liveAssist: true });
   store.countAgentCalls.mockResolvedValue(0);
 });
 
@@ -83,6 +88,16 @@ test("a test caller reaches the agent even when saved as a contact and over the 
     reason: "test_caller",
   });
   expect(pool.query).not.toHaveBeenCalled();
+  expect(store.countAgentCalls).not.toHaveBeenCalled();
+});
+
+test("the workspace switch turns Jack off even for a test caller", async () => {
+  getAssistantSettings.mockResolvedValue({ jack: false, liveAssist: true });
+  const config = on({ testCallers: new Set([base.from]) });
+  expect(await decideRoute({ ...base, config })).toEqual({
+    agent: false,
+    reason: "workspace_disabled",
+  });
   expect(store.countAgentCalls).not.toHaveBeenCalled();
 });
 

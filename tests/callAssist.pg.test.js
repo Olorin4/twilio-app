@@ -38,6 +38,10 @@ suite("Call assist against PostgreSQL", () => {
 
   const pool = require("../src/db");
   const { config } = require("../src/callAssist/config");
+  const {
+    getAssistantSettings,
+    updateAssistantSettings,
+  } = require("../src/assistantSettings");
   const { bindIntent, ingest } = require("../src/callAssist/store");
   const { processCapture, runModel } = require("../src/callAssist/worker");
   const { loadConnectionAuth } = require("../src/connectionWebhooks");
@@ -81,6 +85,15 @@ suite("Call assist against PostgreSQL", () => {
     );
     await pool.query(sql);
     await pool.query(sql);
+    const settingsMigration = fs.readFileSync(
+      path.join(
+        __dirname,
+        "../migrations/011_workspace_assistant_settings.sql",
+      ),
+      "utf8",
+    );
+    await pool.query(settingsMigration);
+    await pool.query(settingsMigration);
     await pool.query(
       "INSERT INTO workspaces VALUES ($1), ($2) ON CONFLICT DO NOTHING",
       [workspace, otherWorkspace],
@@ -101,7 +114,7 @@ suite("Call assist against PostgreSQL", () => {
     });
     mockCreate.mockResolvedValue({ sid: transcriptionSid });
     await pool.query(
-      "TRUNCATE phone_call_utterances, phone_call_sessions, twilio_call_legs",
+      "TRUNCATE phone_call_utterances, phone_call_sessions, twilio_call_legs, workspace_assistant_settings",
     );
     await pool.query(
       `INSERT INTO phone_call_sessions
@@ -135,6 +148,36 @@ suite("Call assist against PostgreSQL", () => {
     await bindIntent(body, provider);
     await bindIntent({ ...body, CallSid: childSid }, provider);
     expect((await read()).call_sid).toBe(callSid);
+  });
+
+  it("defaults both switches on and saves independent workspace preferences", async () => {
+    expect(await getAssistantSettings(workspace)).toEqual({
+      jack: true,
+      liveAssist: true,
+    });
+    await Promise.all([
+      updateAssistantSettings(workspace, { jack: false }),
+      updateAssistantSettings(workspace, { liveAssist: false }),
+    ]);
+    expect(await getAssistantSettings(workspace)).toEqual({
+      jack: false,
+      liveAssist: false,
+    });
+    expect(await getAssistantSettings(otherWorkspace)).toEqual({
+      jack: true,
+      liveAssist: true,
+    });
+    expect(await updateAssistantSettings(workspace, { jack: true })).toEqual({
+      jack: true,
+      liveAssist: false,
+    });
+  });
+
+  it("links a normal call when Live Assist is turned off before binding", async () => {
+    const { body, provider } = binding();
+    await updateAssistantSettings(workspace, { liveAssist: false });
+    await bindIntent(body, provider);
+    expect(await read()).toMatchObject({ call_sid: callSid, assist: false });
   });
 
   afterAll(async () => {

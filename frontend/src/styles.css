@@ -1455,6 +1455,79 @@ h1 {
 .audio-popover {
   width: min(300px, calc(100vw - 32px));
 }
+.assistant-settings {
+  border-bottom: 1px solid #edf1eb;
+  padding: 4px 0;
+}
+.assistant-setting {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  cursor: pointer;
+}
+.assistant-setting strong,
+.assistant-setting small {
+  display: block;
+}
+.assistant-setting small {
+  margin-top: 3px;
+  color: #66796b;
+  font-size: 11px;
+}
+.assistant-switch-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.assistant-switch-track {
+  position: relative;
+  width: 36px;
+  height: 21px;
+  border-radius: 20px;
+  background: #a6b3a9;
+  transition: background 150ms ease;
+}
+.assistant-switch-track::after {
+  position: absolute;
+  content: "";
+  inset: 3px auto auto 3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 150ms ease;
+}
+.assistant-switch-input:checked + .assistant-switch-track {
+  background: #315c3e;
+}
+.assistant-switch-input:checked + .assistant-switch-track::after {
+  transform: translateX(15px);
+}
+.assistant-switch-input:focus-visible + .assistant-switch-track {
+  outline: 2px solid #537c56;
+  outline-offset: 3px;
+}
+.assistant-switch-input:disabled + .assistant-switch-track {
+  opacity: 0.5;
+}
+.audio-popover .assistant-settings-error {
+  margin: 0 0 8px;
+  color: #a44e48;
+}
+.audio-settings-title {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-switch-track,
+  .assistant-switch-track::after {
+    transition: none;
+  }
+}
 .audio-popover > .button {
   margin-top: 16px;
 }

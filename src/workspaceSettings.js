@@ -12,6 +12,16 @@ const {
   addConnectionNumbers,
 } = require("./workspaceConnections");
 const { validateTwilioConnection } = require("./twilioConnectionValidation");
+const {
+  resolveWorkspace,
+  IRON_WING_WORKSPACE_ID,
+} = require("./workspaceContext");
+const {
+  getAssistantSettings,
+  updateAssistantSettings,
+} = require("./assistantSettings");
+const { getConfig: receptionistConfig } = require("./receptionist/config");
+const { config: callAssistConfig, eligible } = require("./callAssist/config");
 const router = Router();
 router.get("/config", (req, res) =>
   res.json({
@@ -89,6 +99,63 @@ function publicError(res, error) {
     .status(500)
     .json({ error: "Could not update workspace settings." });
 }
+
+function assistantState(workspace, preferences) {
+  const live = callAssistConfig();
+  return {
+    preferences,
+    available: {
+      jack:
+        workspace === IRON_WING_WORKSPACE_ID && receptionistConfig().enabled,
+      liveAssist: eligible(live, {
+        workspace,
+        connection: live.connection,
+        number: live.number,
+        destination: live.destinations.values().next().value,
+      }),
+    },
+  };
+}
+
+router.get("/assist", resolveWorkspace, async (req, res) => {
+  try {
+    return res.json(
+      assistantState(
+        req.workspace.id,
+        await getAssistantSettings(req.workspace.id),
+      ),
+    );
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+
+router.patch(
+  "/assist",
+  requireSettingsWrite,
+  resolveWorkspace,
+  async (req, res) => {
+    const entries = Object.entries(req.body || {});
+    if (
+      !entries.length ||
+      entries.some(
+        ([key, value]) =>
+          !["jack", "liveAssist"].includes(key) || typeof value !== "boolean",
+      )
+    )
+      return res.status(400).json({ error: "Enter valid assistant settings." });
+    try {
+      return res.json(
+        assistantState(
+          req.workspace.id,
+          await updateAssistantSettings(req.workspace.id, req.body),
+        ),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
 
 router.get("/workspaces", async (req, res) => {
   try {

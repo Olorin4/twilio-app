@@ -359,17 +359,22 @@ conversation with PASS/FAIL checks. It calls the Claude API and costs money.
 
 ### Internal call assist
 
-Run `npm run migrate:call-assist` after the workspace and receptionist migrations.
+Run `npm run migrate:call-assist` and `npm run migrate:assistant-settings` after
+the workspace and receptionist migrations.
 The green phone button opens the dialer on every screen. Leads callbacks open a
 prepared script before dialing. Operators can reopen a call from **Details** in
 Calls to save or review its outcome and notes.
 
-Live suggestions and summaries are off by default. For an internal pilot, set
+The top-bar **Phone settings** menu stores **AI assistant (Jack)** and
+**Live Assist** preferences per workspace. Both default to on and apply to new
+calls. Jack follows the server's receptionist settings and routing rules.
+For the internal Live Assist pilot, set
 `CALL_ASSIST_ENABLED=true`, the test workspace and connection IDs, its E.164
 outbound number, and the comma-separated E.164 test destinations in
 `.env.example`. The standard signed webhook origin and server-side Anthropic
-configuration are required. Choose **Live assist** before dialing an eligible
-callback. Capture starts after the test recipient answers and can be stopped
+configuration are required. An eligible call starts with the drawer's
+**Live assist** option selected, and it can be cleared before dialing. Capture
+starts after the test recipient answers and can be stopped
 independently of the call. Leave recording off. Enable
 `CALL_ASSIST_RETAIN_TRANSCRIPT` only for a pilot that needs to review the
 captured text after the call.

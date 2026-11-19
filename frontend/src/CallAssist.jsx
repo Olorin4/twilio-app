@@ -6,10 +6,11 @@ const scope = (workspace) => ({ "X-Workspace-Id": workspace });
 const fetchDetails = (path, workspace, signal) =>
   apiFetch(path, { headers: scope(workspace), signal });
 
-export function useAssistEligibility(workspace, destination) {
+export function useAssistEligibility(workspace, destination, enabled) {
   const [eligible, setEligible] = useState(null);
   useEffect(() => {
-    if (!/^\+[1-9]\d{7,14}$/.test(destination)) return;
+    setEligible(null);
+    if (!enabled || !/^\+[1-9]\d{7,14}$/.test(destination)) return;
     const controller = new AbortController();
     fetchDetails(
       `/call-assist/eligibility?destination=${encodeURIComponent(destination)}`,
@@ -23,9 +24,11 @@ export function useAssistEligibility(workspace, destination) {
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [workspace, destination]);
+  }, [workspace, destination, enabled]);
   return (
-    eligible?.workspace === workspace && eligible.destination === destination
+    enabled &&
+    eligible?.workspace === workspace &&
+    eligible.destination === destination
   );
 }
 

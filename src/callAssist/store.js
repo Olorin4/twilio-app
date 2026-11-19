@@ -1,4 +1,5 @@
 const pool = require("../db");
+const { getAssistantSettings } = require("../assistantSettings");
 const {
   config,
   eligible,
@@ -40,7 +41,7 @@ async function bindIntent(body, provider) {
         connection: provider.id,
         number: provider.phoneNumber,
         destination,
-      }),
+      }) && (await getAssistantSettings(provider.workspaceId)).liveAssist,
     ],
   );
 }

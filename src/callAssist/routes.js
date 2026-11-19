@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { randomUUID } = require("node:crypto");
 const pool = require("../db");
 const { getProvider } = require("../providerContext");
+const { getAssistantSettings } = require("../assistantSettings");
 const { callableNumber } = require("../receptionist/phone");
 const {
   config,
@@ -143,7 +144,8 @@ router.get(
     return res.json({
       enabled:
         provider.voiceEnabled &&
-        eligible(settings, context(provider, destination)),
+        eligible(settings, context(provider, destination)) &&
+        (await getAssistantSettings(req.workspace.id)).liveAssist,
     });
   }),
 );
@@ -159,7 +161,9 @@ router.post(
     const provider = await getProvider(req.workspace.id);
     if (
       !provider.voiceEnabled ||
-      (assist && !eligible(config(), context(provider, destination)))
+      (assist &&
+        (!eligible(config(), context(provider, destination)) ||
+          !(await getAssistantSettings(req.workspace.id)).liveAssist))
     )
       return res
         .status(409)
