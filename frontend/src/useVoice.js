@@ -273,7 +273,7 @@ export function useVoice(workspace) {
     return shouldResume;
   }, [start]);
   const dial = useCallback(
-    async (number) => {
+    async (number, intentId) => {
       const device = deviceRef.current;
       if (!device || callRef.current || dialingRef.current || !number.trim())
         return;
@@ -289,7 +289,11 @@ export function useVoice(workspace) {
       });
       try {
         const instance = await device.connect({
-          params: { To: number.trim(), FromNumber: phoneNumberRef.current },
+          params: {
+            To: number.trim(),
+            FromNumber: phoneNumberRef.current,
+            ...(intentId ? { AssistIntent: intentId } : {}),
+          },
         });
         if (device.audio?.isOutputSelectionSupported) {
           try {

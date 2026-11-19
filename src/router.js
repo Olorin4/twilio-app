@@ -22,6 +22,13 @@ const workspaceSettings = require("./workspaceSettings");
 const { resolveWorkspace } = require("./workspaceContext");
 const { authenticateConnectionWebhook } = require("./connectionWebhooks");
 const receptionist = require("./receptionist/twiml");
+const callAssist = require("./callAssist/store");
+const bindCallIntent = (body, provider) =>
+  callAssist
+    .bindIntent(body, provider)
+    .catch((error) =>
+      console.error("Could not link callback:", error.code || "unavailable"),
+    );
 const {
   getProvider,
   getProviderForWebhook,
@@ -76,6 +83,8 @@ router.post(
         )
           return res.sendStatus(409);
       }
+      if (outgoing && req.body.AssistIntent)
+        await bindCallIntent(req.body, provider);
       logCall(req.body, req.providerConnection);
       res.set("Content-Type", "text/xml");
       // The AI receptionist takes the call when it should; otherwise (and on
@@ -110,6 +119,18 @@ router.post(
   callEvents.callback,
 );
 router.post(
+  "/webhooks/:connectionId/transcription/:sessionId",
+  authenticateConnectionWebhook,
+  async (req, res) => {
+    try {
+      await callAssist.ingest(req, res);
+    } catch (error) {
+      console.error("Call assist webhook failed:", error.code || "unavailable");
+      res.sendStatus(503);
+    }
+  },
+);
+router.post(
   "/webhooks/:connectionId/announcement/:kind/:phase?",
   authenticateConnectionWebhook,
   callAnnouncements.handle,
@@ -139,12 +160,14 @@ router.use(
     "/messages",
     "/reconcile",
     "/leads",
+    "/call-assist",
   ],
   resolveWorkspace,
 );
 router.use("/contacts", contactsRouter);
 router.use("/settings", workspaceSettings);
 router.use("/leads", require("./receptionist/routes"));
+router.use("/call-assist", require("./callAssist/routes"));
 
 router.get("/", (req, res) => res.send("Twilio VoIP API is running!"));
 
@@ -186,6 +209,7 @@ router.post("/voice", validateWebhook, async (req, res) => {
         "00000000-0000-4000-8000-000000000001",
       );
       if (!selected.legacy) return res.sendStatus(409);
+      if (req.body.AssistIntent) await bindCallIntent(req.body, selected);
     }
     console.log("📞 Received call webhook event:", req.body);
     logCall(req.body);

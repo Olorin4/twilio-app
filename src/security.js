@@ -14,7 +14,10 @@ function requireLogin(req, res, next) {
   const decoded = match ? Buffer.from(match[1], "base64").toString("utf8") : "";
   const valid = equalSecret(decoded, `operator:${password}`);
   if (!valid) {
-    res.set("WWW-Authenticate", 'Basic realm="Iron Wing Dispatching", charset="UTF-8"');
+    res.set(
+      "WWW-Authenticate",
+      'Basic realm="Iron Wing Dispatching", charset="UTF-8"',
+    );
     return res.status(401).send("Authentication required.");
   }
   res.set("Cache-Control", "no-store");
@@ -27,7 +30,8 @@ function validateWebhook(req, res, next) {
   if (!baseUrl || !token) return res.sendStatus(503);
   const signature = req.get("X-Twilio-Signature") || "";
   const url = baseUrl.replace(/\/$/, "") + req.originalUrl;
-  if (!twilio.validateRequest(token, signature, url, req.body)) return res.sendStatus(403);
+  if (!twilio.validateRequest(token, signature, url, req.body))
+    return res.sendStatus(403);
   return next();
 }
 
@@ -37,6 +41,7 @@ const webhookPaths = [
   /^\/(voice|sms|sms-status|call-status)$/,
   /^\/announcement\/(missed|closed)(\/complete)?$/,
   /^\/receptionist\/ended$/,
+  /^\/webhooks\/[0-9a-f-]{36}\/transcription\/[0-9a-f-]{36}$/i,
   /^\/webhooks\/[0-9a-f-]{36}\/(voice|sms|sms-status|call-status|announcement\/(missed|closed)(\/complete)?|receptionist\/ended)$/i,
 ];
 function isTwilioWebhook(req) {

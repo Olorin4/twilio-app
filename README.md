@@ -356,3 +356,26 @@ conversation with PASS/FAIL checks. It calls the Claude API and costs money.
    for anything the document does not state.
 8. Set `RECEPTIONIST_TEST_MODE=false`. Read every transcript for the first two
    weeks.
+
+### Internal call assist
+
+Run `npm run migrate:call-assist` after the workspace and receptionist migrations.
+The green phone button opens the dialer on every screen. Leads callbacks open a
+prepared script before dialing. Operators can reopen a call from **Details** in
+Calls to save or review its outcome and notes.
+
+Live suggestions and summaries are off by default. For an internal pilot, set
+`CALL_ASSIST_ENABLED=true`, the test workspace and connection IDs, its E.164
+outbound number, and the comma-separated E.164 test destinations in
+`.env.example`. The standard signed webhook origin and server-side Anthropic
+configuration are required. Choose **Live assist** before dialing an eligible
+callback. Capture starts after the test recipient answers and can be stopped
+independently of the call. Leave recording off. Enable
+`CALL_ASSIST_RETAIN_TRANSCRIPT` only for a pilot that needs to review the
+captured text after the call.
+
+On rollback, set `CALL_ASSIST_ENABLED=false` and restart the app so the worker
+can stop active pilot transcriptions and suppress pending model work. The other
+phone controls remain available. See the
+[implementation plan](docs/superpowers/plans/2026-11-19-phone-drawer-and-live-call-assist.md)
+for the pilot checks and data retention.

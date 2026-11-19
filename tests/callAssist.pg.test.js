@@ -1,0 +1,255 @@
+// Use a throwaway database with a name ending in _test. No external Twilio or
+// Anthropic calls are made.
+const fs = require("fs");
+const path = require("path");
+const { randomUUID } = require("node:crypto");
+
+const mockCreate = jest.fn();
+const mockStop = jest.fn();
+jest.mock("twilio", () => () => ({
+  calls: () => ({
+    transcriptions: Object.assign(() => ({ update: mockStop }), {
+      create: mockCreate,
+    }),
+  }),
+}));
+jest.mock("../src/connectionWebhooks", () => ({
+  loadConnectionAuth: jest.fn(),
+}));
+jest.mock("../src/callAssist/model", () => ({ analyze: jest.fn() }));
+
+const url = process.env.DB_URL;
+const enabled =
+  process.env.CALL_ASSIST_PG_TEST === "1" &&
+  url &&
+  new URL(url).pathname.endsWith("_test");
+const suite = enabled ? describe : describe.skip;
+
+suite("Call assist against PostgreSQL", () => {
+  const workspace = "00000000-0000-4000-8000-000000000001";
+  const otherWorkspace = "00000000-0000-4000-8000-000000000002";
+  const connection = "00000000-0000-4000-8000-000000000003";
+  const from = "+12025550100";
+  const destination = "+12025550111";
+  const accountSid = "AC" + "a".repeat(32);
+  const callSid = "CA" + "a".repeat(32);
+  const childSid = "CA" + "b".repeat(32);
+  const transcriptionSid = "GT" + "a".repeat(32);
+
+  const pool = require("../src/db");
+  const { config } = require("../src/callAssist/config");
+  const { bindIntent, ingest } = require("../src/callAssist/store");
+  const { processCapture, runModel } = require("../src/callAssist/worker");
+  const { loadConnectionAuth } = require("../src/connectionWebhooks");
+  const { analyze } = require("../src/callAssist/model");
+
+  let id;
+  const response = () => ({ sendStatus: jest.fn() });
+  const read = async (leg_status = "in-progress") => ({
+    ...(
+      await pool.query("SELECT * FROM phone_call_sessions WHERE id = $1", [id])
+    ).rows[0],
+    leg_status,
+  });
+  const utterances = () =>
+    pool.query(
+      "SELECT * FROM phone_call_utterances WHERE session_id = $1 ORDER BY sequence_id",
+      [id],
+    );
+
+  beforeAll(async () => {
+    Object.assign(process.env, {
+      CALL_ASSIST_ENABLED: "true",
+      CALL_ASSIST_WORKSPACE_ID: workspace,
+      CALL_ASSIST_CONNECTION_ID: connection,
+      CALL_ASSIST_NUMBER: from,
+      CALL_ASSIST_DESTINATIONS: destination,
+      CALL_ASSIST_RETAIN_TRANSCRIPT: "false",
+      TWILIO_WEBHOOK_BASE_URL: "https://example.test",
+    });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS workspaces (id uuid PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS provider_connections (id uuid PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS twilio_call_legs (
+        call_sid text PRIMARY KEY, parent_call_sid text, workspace_id uuid,
+        provider_connection_id uuid, status text, updated_at timestamptz DEFAULT now()
+      );
+    `);
+    const sql = fs.readFileSync(
+      path.join(__dirname, "../migrations/010_call_assist.sql"),
+      "utf8",
+    );
+    await pool.query(sql);
+    await pool.query(sql);
+    await pool.query(
+      "INSERT INTO workspaces VALUES ($1), ($2) ON CONFLICT DO NOTHING",
+      [workspace, otherWorkspace],
+    );
+    await pool.query(
+      "INSERT INTO provider_connections VALUES ($1) ON CONFLICT DO NOTHING",
+      [connection],
+    );
+  });
+
+  beforeEach(async () => {
+    id = randomUUID();
+    jest.resetAllMocks();
+    loadConnectionAuth.mockResolvedValue({
+      workspaceId: workspace,
+      accountSid,
+      authToken: "synthetic",
+    });
+    mockCreate.mockResolvedValue({ sid: transcriptionSid });
+    await pool.query(
+      "TRUNCATE phone_call_utterances, phone_call_sessions, twilio_call_legs",
+    );
+    await pool.query(
+      `INSERT INTO phone_call_sessions
+       (id, workspace_id, provider_connection_id, account_sid, from_number, destination, assist)
+       VALUES ($1, $2, $3, $4, $5, $6, true)`,
+      [id, workspace, connection, accountSid, from, destination],
+    );
+  });
+
+  function binding() {
+    const body = {
+      AssistIntent: id,
+      From: "client:" + "connection_" + connection.replace(/-/g, ""),
+      To: destination,
+      CallSid: callSid,
+      AccountSid: accountSid,
+    };
+    const provider = {
+      id: connection,
+      workspaceId: workspace,
+      accountSid,
+      phoneNumber: from,
+    };
+    return { body, provider };
+  }
+
+  it("binds an intent only to its workspace and canonical call", async () => {
+    const { body, provider } = binding();
+    await bindIntent(body, { ...provider, workspaceId: otherWorkspace });
+    expect((await read()).call_sid).toBeNull();
+    await bindIntent(body, provider);
+    await bindIntent({ ...body, CallSid: childSid }, provider);
+    expect((await read()).call_sid).toBe(callSid);
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  async function send(event, fields = {}, owner = workspace) {
+    const result = response();
+    await ingest(
+      {
+        params: { sessionId: id },
+        providerConnection: { workspaceId: owner, id: connection, accountSid },
+        body: {
+          CallSid: callSid,
+          TranscriptionSid: transcriptionSid,
+          TranscriptionEvent: event,
+          ...fields,
+        },
+      },
+      result,
+    );
+    expect(result.sendStatus).toHaveBeenCalledWith(204);
+  }
+
+  const finalTurn = (sequence, track, line) => ({
+    SequenceId: String(sequence),
+    Track: track,
+    Final: "true",
+    TranscriptionData: JSON.stringify({ transcript: line }),
+  });
+
+  it("captures once on answer, deduplicates callbacks, and finalizes after late utterances", async () => {
+    const { body, provider } = binding();
+    await bindIntent(body, provider);
+    await processCapture(await read("ringing"), config());
+    expect(mockCreate).not.toHaveBeenCalled();
+    const row = await read();
+    await Promise.all([
+      processCapture(row, config()),
+      processCapture(row, config()),
+    ]);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ track: "both_tracks", partialResults: false }),
+    );
+    const turn = finalTurn(4, "outbound_track", "Two reefers");
+    await send("transcription-content", turn, otherWorkspace);
+    expect((await utterances()).rowCount).toBe(0);
+    await send("transcription-content", turn);
+    await send("transcription-content", turn);
+    await send(
+      "transcription-content",
+      finalTurn(3, "inbound_track", "What are you running?"),
+    );
+    expect((await utterances()).rows.map((entry) => entry.speaker)).toEqual([
+      "Dispatcher",
+      "Caller",
+    ]);
+
+    await pool.query(
+      "UPDATE phone_call_sessions SET next_suggestion_at = now() WHERE id = $1",
+      [id],
+    );
+    analyze.mockResolvedValueOnce({
+      output: { line: "Which lanes do you run?", hint: null },
+      input: 10,
+      tokens: 5,
+    });
+    await runModel(await read(), config(), "suggestion");
+    expect((await read()).suggestion.line).toBe("Which lanes do you run?");
+
+    await processCapture(await read("completed"), config());
+    await send("transcription-stopped");
+    await send(
+      "transcription-content",
+      finalTurn(5, "outbound_track", "The Midwest"),
+    );
+    await pool.query(
+      "UPDATE phone_call_sessions SET capture_ended_at = now() - interval '9 seconds' WHERE id = $1",
+      [id],
+    );
+    const summary = { outcome: "Follow up", commitments: [], unanswered: [] };
+    analyze.mockResolvedValueOnce({ output: summary, input: 10, tokens: 5 });
+    await runModel(await read("completed"), config(), "summary");
+    expect(analyze).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        transcript: expect.arrayContaining([
+          { speaker: "Caller", content: "The Midwest" },
+        ]),
+      }),
+    );
+    expect(await read()).toMatchObject({
+      summary,
+      summary_state: "ready",
+      input_tokens: "20",
+    });
+    expect((await utterances()).rowCount).toBe(0);
+  });
+
+  it("keeps the call active when stopping capture and never starts capture on no answer", async () => {
+    const { body, provider } = binding();
+    await bindIntent(body, provider);
+    await processCapture(await read(), config());
+    await pool.query(
+      "UPDATE phone_call_sessions SET stop_requested = true WHERE id = $1",
+      [id],
+    );
+    await processCapture(await read(), config());
+    expect(mockStop).toHaveBeenCalledWith({ status: "stopped" });
+    expect(await read()).toMatchObject({
+      capture_state: "stopped",
+      partial: true,
+      ended_at: null,
+    });
+    await processCapture(await read("no-answer"), config());
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+});

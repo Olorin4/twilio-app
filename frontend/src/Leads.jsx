@@ -11,7 +11,7 @@ import {
   unread,
 } from "./leadCard.mjs";
 
-function Script({ lead }) {
+export function Script({ lead, fallback = false }) {
   const script = lead.script || {};
   const unanswered = lead.details?.unanswered || [];
   const hasScript =
@@ -19,11 +19,18 @@ function Script({ lead }) {
     script.next_step ||
     script.points?.length ||
     script.objections?.length;
-  if (!hasScript && !unanswered.length) return null;
+  if (!hasScript && !unanswered.length && !fallback) return null;
   return (
     <div className="lead-section">
       <h3>Suggested script</h3>
       <ol className="lead-script">
+        {!script.opener && fallback && (
+          <li>
+            {lead.outcome === "lead"
+              ? "Hi, this is [your name] from Iron Wing. Jack said you called about dispatch. Is now a good time? What are you running, and what would you like help with first?"
+              : "Hi, this is [your name] from Iron Wing, returning your call. Is there a deadline I should know about? Let me confirm the next step before we hang up."}
+          </li>
+        )}
         {script.opener && (
           <li>
             <strong>Open:</strong> {script.opener}
@@ -121,9 +128,9 @@ function LeadCard({ lead, timeZone, canCall, onCall, onStatus }) {
               ? "The caller gave no number to call back"
               : canCall
                 ? `Call ${target}`
-                : "Connect the phone and finish any current call first"
+                : "Finish the current call first"
           }
-          onClick={() => onCall(target)}
+          onClick={() => onCall(target, lead)}
         >
           <PhoneOutgoing size={14} />
           {target ? `Call back ${target}` : "No callback number"}

@@ -424,7 +424,7 @@ h1 {
 }
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(315px, 390px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -1122,9 +1122,6 @@ h1 {
   .page {
     padding: 35px 26px;
   }
-  .content-grid {
-    grid-template-columns: minmax(290px, 340px) minmax(0, 1fr);
-  }
   .dial-card {
     padding: 22px;
   }
@@ -1198,9 +1195,6 @@ h1 {
   }
   .heading-actions .button {
     flex: 1;
-  }
-  .content-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
   .activity-card {
     min-height: 430px;
@@ -1376,11 +1370,6 @@ h1 {
   }
 }
 
-.communication-panel {
-  display: grid;
-  gap: 20px;
-  min-width: 0;
-}
 .sms-compose {
   padding: 24px 27px;
 }
@@ -1827,4 +1816,198 @@ h1 {
 }
 .lead-call:hover:not(:disabled) {
   background: #3d6c42;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+.phone-launcher {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 12px;
+  flex: none;
+  background: #315c3e;
+  color: #fff;
+  border: 0;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.phone-launcher:hover {
+  background: #244a31;
+}
+
+.phone-drawer {
+  position: fixed;
+  z-index: 40;
+  inset: 66px 0 max(8px, env(safe-area-inset-bottom)) auto;
+  width: min(33.25rem, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f4f8f1;
+  border: 1px solid #e4eae2;
+  border-radius: 16px 0 0 16px;
+  box-shadow: 0 24px 48px rgba(24, 46, 29, 0.25);
+  transform: translateX(calc(100% + 40px));
+  visibility: hidden;
+  transition:
+    transform 300ms ease-out,
+    visibility 0s 300ms;
+}
+
+.phone-drawer-open {
+  visibility: visible;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+.phone-drawer > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e4eae2;
+}
+
+.phone-drawer > header h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.phone-drawer > header button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.phone-drawer-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.phone-brief {
+  padding: 14px 16px;
+}
+
+.phone-brief h3,
+.phone-brief p {
+  margin: 0 0 8px;
+}
+
+@media (min-width: 600px) and (max-width: 1023px) {
+  .phone-drawer {
+    width: 80vw;
+  }
+}
+
+@media (min-width: 1280px) {
+  .phone-drawer {
+    max-width: calc(40vw + 1.25rem);
+  }
+}
+
+@media (max-width: 599px) {
+  .phone-drawer {
+    inset: max(0px, env(safe-area-inset-top)) 0 0 auto;
+    width: 100%;
+    border-radius: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .phone-launcher span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phone-drawer {
+    transition: none;
+  }
+}
+
+.live-prompter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #edf5ea;
+}
+
+.live-prompter .prompt-line {
+  font-size: 19px;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.phone-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.phone-assist-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 10px 0;
+  font-weight: 600;
+}
+
+.phone-assist-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #315c3e;
+}
+
+.phone-result label {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0;
+}
+
+.phone-result textarea,
+.phone-result select {
+  font: inherit;
+  border: 1px solid #d5e0d4;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.phone-summary {
+  margin: 0 0 12px;
+}
+
+.phone-summary dt {
+  font-weight: 700;
+}
+
+.phone-summary dd {
+  margin: 0 0 8px;
+  white-space: pre-line;
+}
+
+.phone-live-controls {
+  display: flex;
+  gap: 6px;
+  margin-inline-start: auto;
+  margin-inline-end: 8px;
+}
+
+.phone-live-controls .hangup-button {
+  width: auto;
+  gap: 5px;
+  padding: 8px;
+  white-space: nowrap;
 }

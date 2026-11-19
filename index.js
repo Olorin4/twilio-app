@@ -49,6 +49,7 @@ if (!global.cleanupScheduled) {
   // the endpoint, token and signing secret are all set.
   if (require("./src/outreachIntake/sender").start())
     console.log("Outreach intake sender started.");
+  require("./src/callAssist/worker").startWorker();
   // setInterval(cleanupOldLogs, 365 * 24 * 60 * 60 * 1000); // Cleanup every year
   console.log("🔄 Auto-sync for calls & messages scheduled.");
 }

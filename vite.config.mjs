@@ -7,6 +7,8 @@ export default defineConfig({
     proxy: Object.fromEntries(
       [
         "/token",
+        "/leads",
+        "/call-assist",
         "/call-logs",
         "/activity-counts",
         "/activity-views",

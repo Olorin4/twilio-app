@@ -138,11 +138,18 @@ exports.getCallLogs = async (req, res) => {
   try {
     console.log("📥 [DEBUG] Fetching call log from postgreSQL...");
 
+    const callResult = `(SELECT CASE WHEN s.summary_state = 'ready' THEN 'summary'
+                WHEN s.summary_state = 'pending' THEN 'processing'
+                WHEN s.notes <> '' OR s.outcome IS NOT NULL THEN 'result' END
+              FROM phone_call_sessions s WHERE s.call_sid = cl.call_sid
+                AND s.workspace_id = cl.workspace_id
+                AND s.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id)`;
     const callQuery = `
-      SELECT cl.id, 
+      SELECT cl.id, cl.call_sid,
              cl.from_number, 
              cl.to_number, 
              cl.direction,
+             ${callResult} AS call_result,
              COALESCE((SELECT leg.status FROM twilio_call_legs leg WHERE (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id ORDER BY leg.updated_at DESC LIMIT 1), cl.status) AS status,
              (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.status IN ('busy', 'failed', 'no-answer', 'canceled') AND NOT leg.answered) AND NOT EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered)) AS missed,
              EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered) AS answered,
@@ -215,13 +222,25 @@ exports.getCallLogs = async (req, res) => {
         GROUP BY groups.group_key, groups.latest, groups.newest_id
         ORDER BY groups.latest DESC NULLS LAST, groups.newest_id DESC`
       : `${callQuery} ORDER BY cl.timestamp DESC NULLS LAST, cl.id DESC LIMIT $4 OFFSET $3`;
-    const result = await pool.query(query, [
+    const values = [
       process.env.TWILIO_CALLER_ID,
       params.search,
       params.offset,
       params.pageSize + 1,
       req.workspace?.id || IRON_WING_WORKSPACE_ID,
-    ]);
+    ];
+
+    let result;
+    try {
+      result = await pool.query(query, values);
+    } catch (error) {
+      if (
+        error.code !== "42P01" ||
+        !error.message.includes("phone_call_sessions")
+      )
+        throw error;
+      result = await pool.query(query.replace(callResult, "NULL"), values);
+    }
 
     res.set("X-Has-More", String(result.rows.length > params.pageSize));
     res.json(result.rows.slice(0, params.pageSize));
