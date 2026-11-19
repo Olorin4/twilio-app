@@ -12,6 +12,7 @@ import {
   Mic,
   MicOff,
   Phone,
+  PhoneCall,
   PhoneIncoming,
   PhoneOff,
   Power,
@@ -652,6 +653,30 @@ function App() {
   }, [running]);
   const ringing =
     voice.call?.direction === "incoming" && voice.call.phase === "ringing";
+  const phoneState = ringing
+    ? "ringing"
+    : voice.call?.phase === "active"
+      ? "live"
+      : running
+        ? "connecting"
+        : "idle";
+  const launcherLabel = {
+    idle: "Open phone",
+    ringing: "Incoming call, open phone",
+    connecting: "Call connecting, open phone",
+    live: "Live call, open phone",
+  }[phoneState];
+  const launcherStatus = {
+    ringing: "Ringing",
+    connecting: "Dialing",
+    live: "Live",
+  }[phoneState];
+  const LauncherIcon =
+    phoneState === "ringing"
+      ? PhoneIncoming
+      : phoneState === "live"
+        ? PhoneCall
+        : Phone;
   useEffect(() => {
     if (ringing) setPhoneOpen(true);
   }, [ringing]);
@@ -1087,19 +1112,18 @@ function App() {
               type="button"
               className="phone-launcher"
               data-phone-opener
-              aria-label={
-                ringing
-                  ? "Incoming call, open phone"
-                  : running
-                    ? "Active call, open phone"
-                    : "Open phone"
-              }
+              data-call-state={phoneState}
+              aria-label={launcherLabel}
               aria-expanded={phoneOpen}
               aria-controls="phone-drawer"
               onClick={() => setPhoneOpen((value) => !value)}
             >
-              {ringing ? <PhoneIncoming size={24} /> : <Phone size={24} />}
-              {running && <span>{ringing ? "Incoming" : "On call"}</span>}
+              <LauncherIcon size={24} aria-hidden="true" />
+              {launcherStatus && (
+                <span className="phone-launcher-status" aria-hidden="true">
+                  {launcherStatus}
+                </span>
+              )}
             </button>
             <p>
               {view === "settings"
@@ -1502,12 +1526,17 @@ function App() {
       </main>
       <PhoneDrawer
         open={phoneOpen}
+        ringing={ringing}
         onClose={() => setPhoneOpen(false)}
         callControls={
           running && (
             <div className="phone-live-controls">
               {ringing && (
-                <button className="button" onClick={voice.accept}>
+                <button
+                  className="button"
+                  data-answer-call
+                  onClick={voice.accept}
+                >
                   <PhoneIncoming size={15} /> Answer
                 </button>
               )}
@@ -1529,7 +1558,26 @@ function App() {
             </button>
           </div>
         )}
-        {phoneContext?.history && (
+        {voice.call && (
+          <div className="call-panel" role="status">
+            <div>
+              <span className="live-dot" />{" "}
+              {ringing
+                ? "Incoming call"
+                : phoneState === "live"
+                  ? "Call in progress"
+                  : "Connecting"}
+            </div>
+            <strong>{voice.call.number}</strong>
+            {voice.call.workspaceName && (
+              <span>
+                {voice.call.workspaceName}
+                {voice.call.localNumber ? ` · ${voice.call.localNumber}` : ""}
+              </span>
+            )}
+          </div>
+        )}
+        {phoneContext?.history && !ringing && (
           <HistoryResult
             key={phoneContext.history}
             callSid={phoneContext.history}
@@ -1753,26 +1801,6 @@ function App() {
             >
               {smsFeedback.text}
             </p>
-          )}
-          {voice.call && (
-            <div className="call-panel" role="status">
-              <div>
-                <span className="live-dot" />{" "}
-                {voice.call.direction === "incoming" &&
-                voice.call.phase === "ringing"
-                  ? "INCOMING CALL"
-                  : voice.call.phase === "active"
-                    ? "CALL IN PROGRESS"
-                    : "CONNECTING"}
-              </div>
-              <strong>{voice.call.number}</strong>
-              {voice.call.workspaceName && (
-                <span>
-                  {voice.call.workspaceName}
-                  {voice.call.localNumber ? ` · ${voice.call.localNumber}` : ""}
-                </span>
-              )}
-            </div>
           )}
           <div className="dial-footer">
             <ShieldCheck size={14} />

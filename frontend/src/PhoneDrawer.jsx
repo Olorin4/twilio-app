@@ -2,8 +2,15 @@ import React, { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
-export default function PhoneDrawer({ open, onClose, callControls, children }) {
+export default function PhoneDrawer({
+  open,
+  ringing,
+  onClose,
+  callControls,
+  children,
+}) {
   const panel = useRef(null);
+  const body = useRef(null);
   const close = useRef(onClose);
   close.current = onClose;
   useLayoutEffect(() => {
@@ -67,6 +74,14 @@ export default function PhoneDrawer({ open, onClose, callControls, children }) {
     };
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!open || !ringing) return;
+    body.current.scrollTop = 0;
+    panel.current
+      .querySelector("[data-answer-call]")
+      ?.focus({ preventScroll: true });
+  }, [open, ringing]);
+
   return createPortal(
     <aside
       id="phone-drawer"
@@ -89,7 +104,9 @@ export default function PhoneDrawer({ open, onClose, callControls, children }) {
           <X size={20} />
         </button>
       </header>
-      <div className="phone-drawer-body">{children}</div>
+      <div className="phone-drawer-body" ref={body}>
+        {children}
+      </div>
     </aside>,
     document.body,
   );

@@ -1845,6 +1845,53 @@ html {
   background: #244a31;
 }
 
+.phone-launcher[data-call-state="ringing"] {
+  background: #77501b;
+}
+
+.phone-launcher[data-call-state="connecting"] {
+  background: #486148;
+}
+
+.phone-launcher[data-call-state="live"] {
+  background: #1d6740;
+  box-shadow: 0 0 0 3px #badac1;
+}
+
+.phone-launcher-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.phone-launcher-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d5f2da;
+}
+
+.phone-launcher[data-call-state="ringing"] .phone-launcher-status::before {
+  background: #ffe2a9;
+  animation: phone-indicator-pulse 1.1s ease-out infinite;
+}
+
+.phone-launcher[data-call-state="connecting"] .phone-launcher-status::before {
+  background: #f1df9d;
+}
+
+@keyframes phone-indicator-pulse {
+  from {
+    box-shadow: 0 0 0 0 rgb(255 226 169 / 55%);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgb(255 226 169 / 0%);
+  }
+}
+
 .phone-drawer {
   position: fixed;
   z-index: 40;
@@ -1928,15 +1975,15 @@ html {
     border-radius: 0;
     padding-bottom: env(safe-area-inset-bottom);
   }
-
-  .phone-launcher span {
-    display: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .phone-drawer {
     transition: none;
+  }
+
+  .phone-launcher[data-call-state="ringing"] .phone-launcher-status::before {
+    animation: none;
   }
 }
 
