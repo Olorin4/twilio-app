@@ -884,9 +884,10 @@ h1 {
   background: #f6f8f6;
 }
 .call-timeline-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr) auto 78px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 9px;
   color: #728579;
   font-size: 11px;
@@ -900,11 +901,35 @@ h1 {
 }
 .call-timeline-detail {
   display: grid;
-  flex: 1;
+  min-width: 0;
   gap: 4px;
 }
+.call-timeline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 9px;
+}
+.call-timeline-meta .mark-viewed {
+  padding: 0;
+}
 .call-timeline-duration {
+  text-align: right;
   white-space: nowrap;
+}
+.call-timeline-result {
+  width: 100%;
+  justify-content: center;
+  padding-inline: 8px;
+}
+@media (max-width: 599px) {
+  .call-timeline {
+    padding-left: 8px;
+  }
+  .call-timeline-item {
+    grid-template-columns: 13px minmax(0, 1fr) auto 69px;
+    column-gap: 6px;
+  }
 }
 /* The cost of a call; hovering shows what it is made of. */
 .call-cost {

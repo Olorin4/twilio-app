@@ -1393,18 +1393,6 @@ function App() {
                                         {formatDuration(row.duration)}
                                       </span>
                                     </div>
-                                    {row.call_sid && (
-                                      <button
-                                        className="button button-light"
-                                        onClick={() =>
-                                          openCallDetails(row.call_sid)
-                                        }
-                                      >
-                                        {row.call_result === "summary"
-                                          ? "Summary"
-                                          : "Details"}
-                                      </button>
-                                    )}
                                     {phone && (
                                       <button
                                         type="button"
@@ -1468,16 +1456,33 @@ function App() {
                                                 ` · ${announcementLabel(call)}`}
                                               <CallCost row={call} />
                                             </strong>
-                                            <time>
-                                              {formatCallDate(
-                                                call.timestamp,
-                                                timeZone,
+                                            <div className="call-timeline-meta">
+                                              <time>
+                                                {formatCallDate(
+                                                  call.timestamp,
+                                                  timeZone,
+                                                )}
+                                              </time>
+                                              {call.unviewed && (
+                                                <button
+                                                  type="button"
+                                                  className="mark-viewed"
+                                                  onClick={() =>
+                                                    markCallViewed(call.id)
+                                                  }
+                                                >
+                                                  Mark viewed
+                                                </button>
                                               )}
-                                            </time>
+                                            </div>
                                           </div>
+                                          <span className="call-timeline-duration">
+                                            {formatDuration(call.duration)}
+                                          </span>
                                           {call.call_sid && (
                                             <button
-                                              className="button button-light"
+                                              type="button"
+                                              className="button button-light call-timeline-result"
                                               onClick={() =>
                                                 openCallDetails(call.call_sid)
                                               }
@@ -1485,19 +1490,6 @@ function App() {
                                               {call.call_result === "summary"
                                                 ? "Summary"
                                                 : "Details"}
-                                            </button>
-                                          )}
-                                          <span className="call-timeline-duration">
-                                            {formatDuration(call.duration)}
-                                          </span>
-                                          {call.unviewed && (
-                                            <button
-                                              className="mark-viewed"
-                                              onClick={() =>
-                                                markCallViewed(call.id)
-                                              }
-                                            >
-                                              Mark viewed
                                             </button>
                                           )}
                                         </div>
@@ -1583,13 +1575,6 @@ function App() {
             )}
           </div>
         )}
-        {phoneContext?.history && !ringing && (
-          <HistoryResult
-            key={phoneContext.history}
-            callSid={phoneContext.history}
-            workspace={workspaceId}
-          />
-        )}
         {phoneContext?.notice && (
           <p className="notice" role="status">
             {phoneContext.notice}
@@ -1604,27 +1589,6 @@ function App() {
               workspace={workspaceId}
             />
           )}
-        {!running && callSession?.callSid && !phoneContext?.history && (
-          <CallResult
-            key={callSession.id}
-            data={callSession}
-            workspace={workspaceId}
-            onRetry={() => setSessionRevision((value) => value + 1)}
-            onLeadDone={
-              phoneContext?.lead?.callSid === callSession.leadSid &&
-              phoneContext?.lead?.status === "new"
-                ? async () => {
-                    const saved = await setLeadStatus(
-                      phoneContext.lead,
-                      "called",
-                    );
-                    if (saved) setPhoneContext(null);
-                    return saved;
-                  }
-                : undefined
-            }
-          />
-        )}
         {phoneContext?.lead && voice.call?.direction !== "incoming" && (
           <section className="card phone-brief">
             <h3>Callback preparation</h3>
@@ -1826,6 +1790,34 @@ function App() {
             <span>Connected securely with Twilio</span>
           </div>
         </section>
+        {phoneContext?.history && !ringing && (
+          <HistoryResult
+            key={phoneContext.history}
+            callSid={phoneContext.history}
+            workspace={workspaceId}
+          />
+        )}
+        {!running && callSession?.callSid && !phoneContext?.history && (
+          <CallResult
+            key={callSession.id}
+            data={callSession}
+            workspace={workspaceId}
+            onRetry={() => setSessionRevision((value) => value + 1)}
+            onLeadDone={
+              phoneContext?.lead?.callSid === callSession.leadSid &&
+              phoneContext?.lead?.status === "new"
+                ? async () => {
+                    const saved = await setLeadStatus(
+                      phoneContext.lead,
+                      "called",
+                    );
+                    if (saved) setPhoneContext(null);
+                    return saved;
+                  }
+                : undefined
+            }
+          />
+        )}
       </PhoneDrawer>
     </div>
   );
