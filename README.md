@@ -357,7 +357,7 @@ conversation with PASS/FAIL checks. It calls the Claude API and costs money.
 8. Set `RECEPTIONIST_TEST_MODE=false`. Read every transcript for the first two
    weeks.
 
-### Internal call assist
+### Live call assist
 
 Run `npm run migrate:call-assist` and `npm run migrate:assistant-settings` after
 the workspace and receptionist migrations.
@@ -368,19 +368,17 @@ Calls to save or review its outcome and notes.
 The top-bar **Phone settings** menu stores **AI assistant (Jack)** and
 **Live Assist** preferences per workspace. Both default to on and apply to new
 calls. Jack follows the server's receptionist settings and routing rules.
-For internal Live Assist testing, set `CALL_ASSIST_ENABLED=true` and list the
-comma-separated E.164 test destinations in `CALL_ASSIST_DESTINATIONS`.
-Every workspace can use its selected voice connection and its own **Live
-Assist** switch. The standard signed webhook origin and server-side Anthropic
-configuration are required. An eligible call starts with the drawer's
-**Live assist** option selected, and it can be cleared before dialing. Capture
-starts after the test recipient answers and can be stopped
+Set `CALL_ASSIST_ENABLED=true` to make Live Assist available on outbound phone
+calls. Each workspace can turn it on or off for new calls with its switch. A
+signed HTTPS webhook origin and server-side Anthropic configuration are
+required. When Live Assist is on for the workspace, the drawer's **Live assist**
+option starts selected and can be cleared before dialing. Capture
+starts after the recipient answers and can be stopped
 independently of the call. Leave recording off. Enable
-`CALL_ASSIST_RETAIN_TRANSCRIPT` only for a pilot that needs to review the
-captured text after the call.
+`CALL_ASSIST_RETAIN_TRANSCRIPT` when operators need to review the captured text after the call.
 
 On rollback, set `CALL_ASSIST_ENABLED=false` and restart the app so the worker
 can stop active pilot transcriptions and suppress pending model work. The other
 phone controls remain available. See the
 [implementation plan](docs/superpowers/plans/2026-11-19-phone-drawer-and-live-call-assist.md)
-for the pilot checks and data retention.
+for the test checks and data retention.

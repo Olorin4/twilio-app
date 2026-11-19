@@ -77,11 +77,7 @@ export default function AssistantSettings({ settings }) {
           "AI assistant (Jack)",
           "Jack handles eligible incoming calls.",
         ],
-        [
-          "liveAssist",
-          "Live Assist",
-          "Suggestions on eligible internal calls.",
-        ],
+        ["liveAssist", "Live Assist", "Suggestions during outbound calls."],
       ].map(([key, label, description]) => (
         <label className="assistant-setting" key={key}>
           <span>

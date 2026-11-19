@@ -131,7 +131,7 @@ router.get(
   safe(async (req, res) => {
     const settings = config();
     const destination = normalize(req.query.destination);
-    if (!settings.enabled || !settings.destinations.has(destination))
+    if (!settings.enabled || !e164.test(destination))
       return res.json({ enabled: false });
     const provider = await getProvider(req.workspace.id);
     return res.json({

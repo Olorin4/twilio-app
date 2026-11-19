@@ -14,12 +14,6 @@ function numberSetting(value, fallback, min, max) {
 function config(env = process.env) {
   return {
     enabled: env.CALL_ASSIST_ENABLED === "true",
-    destinations: new Set(
-      (env.CALL_ASSIST_DESTINATIONS || "")
-        .split(",")
-        .map(normalize)
-        .filter((value) => e164.test(value)),
-    ),
     baseUrl: env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/$/, ""),
     model:
       env.CALL_ASSIST_MODEL || env.RECEPTIONIST_LIVE_MODEL || "claude-opus-5-5",
@@ -34,18 +28,14 @@ function config(env = process.env) {
 }
 
 function available(settings) {
-  return (
-    settings.enabled &&
-    /^https:\/\//.test(settings.baseUrl || "") &&
-    settings.destinations.size > 0
-  );
+  return settings.enabled && /^https:\/\//.test(settings.baseUrl || "");
 }
 
 function eligible(settings, { number, destination }) {
   return (
     available(settings) &&
     e164.test(number || "") &&
-    settings.destinations.has(destination)
+    e164.test(destination || "")
   );
 }
 

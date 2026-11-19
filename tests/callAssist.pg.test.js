@@ -70,7 +70,6 @@ suite("Call assist against PostgreSQL", () => {
   beforeAll(async () => {
     Object.assign(process.env, {
       CALL_ASSIST_ENABLED: "true",
-      CALL_ASSIST_DESTINATIONS: destination,
       CALL_ASSIST_RETAIN_TRANSCRIPT: "false",
       TWILIO_WEBHOOK_BASE_URL: "https://example.test",
     });
@@ -221,7 +220,7 @@ suite("Call assist against PostgreSQL", () => {
     TranscriptionData: JSON.stringify({ transcript: line }),
   });
 
-  it("allows a second workspace to use the same test allowlist", async () => {
+  it("allows Live Assist in a second workspace", async () => {
     const { body, provider } = binding();
     await pool.query(
       "UPDATE phone_call_sessions SET workspace_id = $2 WHERE id = $1",
@@ -231,14 +230,25 @@ suite("Call assist against PostgreSQL", () => {
     expect(await read()).toMatchObject({ call_sid: callSid, assist: true });
   });
 
-  it("keeps destinations outside the global test allowlist unassisted", async () => {
+  it("allows valid numbers outside the previous pilot", async () => {
     const { body, provider } = binding();
-    const outside = "+12025550199";
+    const otherDestination = "+12025550199";
     await pool.query(
       "UPDATE phone_call_sessions SET destination = $2 WHERE id = $1",
-      [id, outside],
+      [id, otherDestination],
     );
-    await bindIntent({ ...body, To: outside }, provider);
+    await bindIntent({ ...body, To: otherDestination }, provider);
+    expect(await read()).toMatchObject({ call_sid: callSid, assist: true });
+  });
+
+  it("keeps a non-phone destination unassisted", async () => {
+    const { body, provider } = binding();
+    const invalidDestination = "operator";
+    await pool.query(
+      "UPDATE phone_call_sessions SET destination = $2 WHERE id = $1",
+      [id, invalidDestination],
+    );
+    await bindIntent({ ...body, To: invalidDestination }, provider);
     expect(await read()).toMatchObject({ call_sid: callSid, assist: false });
   });
 
