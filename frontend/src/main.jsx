@@ -1068,52 +1068,50 @@ function App() {
               )}
             </div>
           </div>
-          <button
-            type="button"
-            className="phone-launcher"
-            data-phone-opener
-            aria-label={
-              ringing
-                ? "Incoming call, open phone"
-                : running
-                  ? "Active call, open phone"
-                  : "Open phone"
-            }
-            aria-expanded={phoneOpen}
-            aria-controls="phone-drawer"
-            onClick={() => setPhoneOpen((value) => !value)}
-          >
-            {ringing ? <PhoneIncoming size={24} /> : <Phone size={24} />}
-            {running && <span>{ringing ? "Incoming" : "On call"}</span>}
-          </button>
         </header>
         <div className="page">
           <div className="page-heading">
-            <div>
-              <h1>
-                {view === "settings"
-                  ? "Settings"
-                  : view === "calls"
-                    ? "Calls"
-                    : view === "messages"
-                      ? "Messages"
-                      : view === "leads"
-                        ? "Leads"
-                        : "Contacts"}
-                <span className="heading-period">.</span>
-              </h1>
-              <p>
-                {view === "settings"
-                  ? "Manage workspaces and Twilio connections."
-                  : view === "calls"
-                    ? "Your calls and conversations, all in one place."
-                    : view === "messages"
-                      ? "Send and receive messages from your number."
-                      : view === "leads"
-                        ? "Callers the AI receptionist spoke to, ready for your callback."
-                        : "Your people, one call away."}
-              </p>
-            </div>
+            <h1>
+              {view === "settings"
+                ? "Settings"
+                : view === "calls"
+                  ? "Calls"
+                  : view === "messages"
+                    ? "Messages"
+                    : view === "leads"
+                      ? "Leads"
+                      : "Contacts"}
+              <span className="heading-period">.</span>
+            </h1>
+            <button
+              type="button"
+              className="phone-launcher"
+              data-phone-opener
+              aria-label={
+                ringing
+                  ? "Incoming call, open phone"
+                  : running
+                    ? "Active call, open phone"
+                    : "Open phone"
+              }
+              aria-expanded={phoneOpen}
+              aria-controls="phone-drawer"
+              onClick={() => setPhoneOpen((value) => !value)}
+            >
+              {ringing ? <PhoneIncoming size={24} /> : <Phone size={24} />}
+              {running && <span>{ringing ? "Incoming" : "On call"}</span>}
+            </button>
+            <p>
+              {view === "settings"
+                ? "Manage workspaces and Twilio connections."
+                : view === "calls"
+                  ? "Your calls and conversations, all in one place."
+                  : view === "messages"
+                    ? "Send and receive messages from your number."
+                    : view === "leads"
+                      ? "Callers the AI receptionist spoke to, ready for your callback."
+                      : "Your people, one call away."}
+            </p>
           </div>
           {voice.error && !phoneOpen && (
             <div className="notice error" role="alert">
