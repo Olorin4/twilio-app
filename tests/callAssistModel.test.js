@@ -32,3 +32,19 @@ test.each([
     expect(result).toMatchObject({ input: 20, tokens: 5 });
   },
 );
+
+test("uses Haiku without thinking for a short live suggestion", async () => {
+  await analyze({
+    model: "claude-haiku-5-5",
+    kind: "suggestion",
+    transcript: [{ speaker: "Caller", content: "What time is pickup?" }],
+  });
+  expect(mockParse).toHaveBeenCalledWith(
+    expect.objectContaining({
+      thinking: { type: "disabled" },
+      max_tokens: 350,
+      output_config: expect.objectContaining({ effort: "low" }),
+    }),
+    expect.anything(),
+  );
+});

@@ -195,13 +195,13 @@ async function runModel(row, settings, kind) {
   const lease = randomUUID();
   const condition = summary
     ? "capture_ended_at <= now() - interval '8 seconds' AND summary_state IN ('none', 'pending') AND summary_attempts < 3 AND COALESCE(summary_at, '-infinity') <= now()"
-    : "capture_ended_at IS NULL AND NOT stop_requested AND next_suggestion_at <= now() AND COALESCE(last_suggestion_at, '-infinity') <= now() - interval '5 seconds' AND suggestion_count < $3";
+    : "capture_ended_at IS NULL AND NOT stop_requested AND next_suggestion_at <= now() AND COALESCE(last_suggestion_at, '-infinity') <= now() - interval '1500 milliseconds' AND suggestion_count < $3";
   const values = summary
     ? [row.id, lease]
     : [row.id, lease, settings.maxSuggestions];
   const claimed = await pool.query(
     `UPDATE phone_call_sessions SET model_lease_until = now() + interval '30 seconds',
-      model_lease_id = $2, ${summary ? "summary_state = 'pending', summary_attempts = summary_attempts + 1" : "suggestion_count = suggestion_count + 1, next_suggestion_at = NULL"},
+      model_lease_id = $2, ${summary ? "summary_state = 'pending', summary_attempts = summary_attempts + 1" : "suggestion_count = suggestion_count + 1, next_suggestion_at = NULL, last_suggestion_at = now()"},
       updated_at = now()
      WHERE id = $1 AND COALESCE(model_lease_until, '-infinity') <= now() AND ${condition}
      RETURNING *`,
@@ -212,10 +212,11 @@ async function runModel(row, settings, kind) {
   const { rows: turns } = await pool.query(
     `SELECT sequence_id, speaker, content, received_at FROM phone_call_utterances
      WHERE session_id = $1 ORDER BY sequence_id DESC LIMIT $2`,
-    [row.id, summary ? 180 : 16],
+    [row.id, summary ? 180 : 8],
   );
   const latestCaller = turns.find((turn) => turn.speaker === "Caller");
   let result;
+  let modelStartedAt;
   let failed = false;
   try {
     if (turns.length && canCapture(config(), session)) {
@@ -227,6 +228,7 @@ async function runModel(row, settings, kind) {
             [session.lead_sid, session.workspace_id],
           )
         ).rows[0];
+      modelStartedAt = Date.now();
       result = await analyze({
         model: summary ? settings.summaryModel : settings.model,
         kind,
@@ -284,6 +286,19 @@ async function runModel(row, settings, kind) {
     return;
   }
   const line = result?.output?.line?.trim().slice(0, 500);
+  const generatedAt = Date.now();
+  const timing =
+    latestCaller && modelStartedAt
+      ? {
+          latencyMs: generatedAt - latestCaller.received_at.getTime(),
+          queueMs: Math.max(
+            0,
+            modelStartedAt - latestCaller.received_at.getTime(),
+          ),
+          modelMs: generatedAt - modelStartedAt,
+          generatedAt,
+        }
+      : { generatedAt };
   const suggestion =
     currentlyEnabled &&
     line &&
@@ -291,23 +306,20 @@ async function runModel(row, settings, kind) {
       ? JSON.stringify({
           line,
           hint: result.output.hint?.slice(0, 300),
-          latencyMs: latestCaller
-            ? Date.now() - latestCaller.received_at.getTime()
-            : null,
+          ...timing,
         })
       : null;
-  await pool.query(
+  const {
+    rows: [saved],
+  } = await pool.query(
     `UPDATE phone_call_sessions SET
        suggestion = CASE WHEN capture_ended_at IS NULL AND NOT stop_requested
            AND NOT EXISTS (SELECT 1 FROM phone_call_utterances WHERE session_id = $1
                AND speaker = 'Caller' AND sequence_id > $4)
          THEN COALESCE($3::jsonb, suggestion) ELSE suggestion END,
        suggestion_failed = $5, model_lease_until = NULL, model_lease_id = NULL,
-       next_suggestion_at = CASE WHEN next_suggestion_at IS NOT NULL
-         THEN GREATEST(next_suggestion_at, now() + interval '5 seconds') END,
-       last_suggestion_at = now(),
        input_tokens = input_tokens + $6, output_tokens = output_tokens + $7, updated_at = now()
-     WHERE id = $1 AND model_lease_id = $2`,
+     WHERE id = $1 AND model_lease_id = $2 RETURNING suggestion`,
     [
       row.id,
       lease,
@@ -318,9 +330,15 @@ async function runModel(row, settings, kind) {
       result?.tokens || 0,
     ],
   );
-  if (suggestion && latestCaller) {
-    const latency = Date.now() - latestCaller.received_at.getTime();
-    console.info("Call assist suggestion latency (ms):", latency);
+  if (suggestion && saved?.suggestion?.generatedAt === generatedAt) {
+    console.info(
+      "Call assist suggestion timing:",
+      JSON.stringify({
+        latencyMs: timing.latencyMs,
+        queueMs: timing.queueMs,
+        modelMs: timing.modelMs,
+      }),
+    );
   }
 }
 

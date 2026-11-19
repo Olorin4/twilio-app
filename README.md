@@ -377,6 +377,9 @@ starts after the recipient answers and can be stopped
 independently of the call. Leave recording off. Enable
 `CALL_ASSIST_RETAIN_TRANSCRIPT` when operators need to review the captured text after the call.
 
+Live suggestions default to Claude Haiku 5.5. Set `CALL_ASSIST_MODEL` to
+override it. Post-call summaries continue to use the separate summary model.
+
 On rollback, set `CALL_ASSIST_ENABLED=false` and restart the app so the worker
 can stop active pilot transcriptions and suppress pending model work. The other
 phone controls remain available. See the

@@ -350,6 +350,34 @@ suite("Call assist against PostgreSQL", () => {
     expect((await utterances()).rowCount).toBe(0);
   });
 
+  it("runs the next suggestion once the start-to-start interval has passed", async () => {
+    const { body, provider } = binding();
+    await bindIntent(body, provider);
+    await processCapture(await read(), config());
+    await send(
+      "transcription-content",
+      finalTurn(1, "outbound_track", "What is the pickup deadline?"),
+    );
+    await pool.query(
+      `UPDATE phone_call_sessions
+      SET next_suggestion_at = now(), last_suggestion_at = now() - interval '2 seconds' WHERE id = $1`,
+      [id],
+    );
+    analyze.mockResolvedValueOnce({
+      output: { line: "What is the load reference?" },
+    });
+    await runModel(await read(), config(), "suggestion");
+    const result = await read();
+    expect(result.suggestion.line).toBe("What is the load reference?");
+    expect(result.suggestion).toEqual(
+      expect.objectContaining({
+        latencyMs: expect.any(Number),
+        queueMs: expect.any(Number),
+        modelMs: expect.any(Number),
+      }),
+    );
+  });
+
   it("keeps the call active when stopping capture and never starts capture on no answer", async () => {
     const { body, provider } = binding();
     await bindIntent(body, provider);

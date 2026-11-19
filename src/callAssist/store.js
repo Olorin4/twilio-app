@@ -122,7 +122,7 @@ async function ingest(req, res) {
       );
       if (inserted.rowCount && speaker === "Caller" && !row.capture_ended_at) {
         await client.query(
-          `UPDATE phone_call_sessions SET next_suggestion_at = COALESCE(next_suggestion_at, now() + interval '500 milliseconds')
+          `UPDATE phone_call_sessions SET next_suggestion_at = COALESCE(next_suggestion_at, now() + interval '150 milliseconds')
            WHERE id = $1`,
           [row.id],
         );

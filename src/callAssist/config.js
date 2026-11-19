@@ -15,8 +15,7 @@ function config(env = process.env) {
   return {
     enabled: env.CALL_ASSIST_ENABLED === "true",
     baseUrl: env.TWILIO_WEBHOOK_BASE_URL?.replace(/\/$/, ""),
-    model:
-      env.CALL_ASSIST_MODEL || env.RECEPTIONIST_LIVE_MODEL || "claude-opus-5-5",
+    model: env.CALL_ASSIST_MODEL || "claude-haiku-5-5",
     summaryModel:
       env.CALL_ASSIST_SUMMARY_MODEL ||
       env.RECEPTIONIST_SUMMARY_MODEL ||
