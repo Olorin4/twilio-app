@@ -7,6 +7,7 @@ const { legacyProvider } = require("../providerContext");
 const { publish } = require("../messageEvents");
 const { config, eligible } = require("./config");
 const { analyze } = require("./model");
+const { events, clearCaptions } = require("./live");
 
 const terminal = ["completed", "busy", "failed", "no-answer", "canceled"];
 const canCapture = (settings, row) =>
@@ -58,7 +59,7 @@ async function startCapture(row, settings) {
     const options = {
       name: row.id,
       track: "both_tracks",
-      partialResults: false,
+      partialResults: true,
       inboundTrackLabel: "Dispatcher",
       outboundTrackLabel: "Caller",
       statusCallbackUrl: `${settings.baseUrl}${prefix}/transcription/${row.id}`,
@@ -174,6 +175,7 @@ async function processCapture(row, settings) {
         ],
       );
     }
+    clearCaptions(row.id);
     if (!ended) await stopCapture(row);
     return;
   }
@@ -215,6 +217,47 @@ async function runModel(row, settings, kind) {
     [row.id, summary ? 180 : 8],
   );
   const latestCaller = turns.find((turn) => turn.speaker === "Caller");
+  let earlyCue;
+  function measure(generatedAt) {
+    return latestCaller && modelStartedAt
+      ? {
+          latencyMs: generatedAt - latestCaller.received_at.getTime(),
+          queueMs: Math.max(
+            0,
+            modelStartedAt - latestCaller.received_at.getTime(),
+          ),
+          modelMs: generatedAt - modelStartedAt,
+          generatedAt,
+        }
+      : { generatedAt };
+  }
+  function logTiming({ latencyMs, queueMs, modelMs }) {
+    console.info(
+      "Call assist suggestion timing:",
+      JSON.stringify({ latencyMs, queueMs, modelMs }),
+    );
+  }
+  async function publishCue(value) {
+    const line = value.trim().slice(0, 500);
+    if (
+      !line ||
+      !canCapture(config(), session) ||
+      line.toLowerCase() === session.suggestion?.line?.toLowerCase()
+    )
+      return;
+    const cue = { line, ...measure(Date.now()) };
+    const saved = await pool.query(
+      `UPDATE phone_call_sessions SET suggestion = $3, suggestion_failed = false, updated_at = now()
+       WHERE id = $1 AND model_lease_id = $2 AND capture_ended_at IS NULL AND NOT stop_requested
+         AND NOT EXISTS (SELECT 1 FROM phone_call_utterances WHERE session_id = $1
+           AND speaker = 'Caller' AND sequence_id > $4)`,
+      [row.id, lease, JSON.stringify(cue), latestCaller?.sequence_id ?? -1],
+    );
+    if (!saved.rowCount) return;
+    earlyCue = cue;
+    logTiming(cue);
+    events.emit(row.id);
+  }
   let result;
   let modelStartedAt;
   let failed = false;
@@ -242,6 +285,7 @@ async function runModel(row, settings, kind) {
           })),
         lead,
         previous: summary ? undefined : session.suggestion?.line,
+        onCue: summary ? undefined : publishCue,
       });
       failed = !result.output;
     }
@@ -286,27 +330,15 @@ async function runModel(row, settings, kind) {
     return;
   }
   const line = result?.output?.line?.trim().slice(0, 500);
-  const generatedAt = Date.now();
-  const timing =
-    latestCaller && modelStartedAt
-      ? {
-          latencyMs: generatedAt - latestCaller.received_at.getTime(),
-          queueMs: Math.max(
-            0,
-            modelStartedAt - latestCaller.received_at.getTime(),
-          ),
-          modelMs: generatedAt - modelStartedAt,
-          generatedAt,
-        }
-      : { generatedAt };
+  const timing = earlyCue?.line === line ? earlyCue : measure(Date.now());
   const suggestion =
     currentlyEnabled &&
     line &&
     line.toLowerCase() !== session.suggestion?.line?.toLowerCase()
       ? JSON.stringify({
+          ...timing,
           line,
           hint: result.output.hint?.slice(0, 300),
-          ...timing,
         })
       : null;
   const {
@@ -330,16 +362,13 @@ async function runModel(row, settings, kind) {
       result?.tokens || 0,
     ],
   );
-  if (suggestion && saved?.suggestion?.generatedAt === generatedAt) {
-    console.info(
-      "Call assist suggestion timing:",
-      JSON.stringify({
-        latencyMs: timing.latencyMs,
-        queueMs: timing.queueMs,
-        modelMs: timing.modelMs,
-      }),
-    );
-  }
+  if (
+    !earlyCue &&
+    suggestion &&
+    saved?.suggestion?.generatedAt === timing.generatedAt
+  )
+    logTiming(timing);
+  events.emit(row.id);
 }
 
 async function cleanup(settings) {
@@ -376,7 +405,7 @@ function startWorker() {
         .finally(() => jobs.delete(key)),
     );
   };
-  const timer = setInterval(async () => {
+  async function tick() {
     if (running || Date.now() < nextCheck) return;
     running = true;
     try {
@@ -433,9 +462,14 @@ function startWorker() {
     } finally {
       running = false;
     }
-  }, 350);
+  }
+  const timer = setInterval(tick, 350);
   timer.unref();
-  return () => clearInterval(timer);
+  events.on("caller-turn", tick);
+  return () => {
+    clearInterval(timer);
+    events.off("caller-turn", tick);
+  };
 }
 
 module.exports = { startWorker, processCapture, runModel, cleanup };

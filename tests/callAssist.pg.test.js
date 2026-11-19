@@ -51,6 +51,7 @@ suite("Call assist against PostgreSQL", () => {
   const { bindIntent, ingest } = require("../src/callAssist/store");
   const { processCapture, runModel } = require("../src/callAssist/worker");
   const { loadConnectionAuth } = require("../src/connectionWebhooks");
+  const { readCaptions } = require("../src/callAssist/live");
   const { analyze } = require("../src/callAssist/model");
 
   let id;
@@ -294,7 +295,7 @@ suite("Call assist against PostgreSQL", () => {
     ]);
     expect(mockCreate).toHaveBeenCalledTimes(1);
     expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ track: "both_tracks", partialResults: false }),
+      expect.objectContaining({ track: "both_tracks", partialResults: true }),
     );
     const turn = finalTurn(4, "outbound_track", "Two reefers");
     await send("transcription-content", turn, otherWorkspace);
@@ -348,6 +349,52 @@ suite("Call assist against PostgreSQL", () => {
       input_tokens: "20",
     });
     expect((await utterances()).rowCount).toBe(0);
+  });
+
+  it("shows interim captions without saving them or scheduling the model", async () => {
+    const { body, provider } = binding();
+    await bindIntent(body, provider);
+    await processCapture(await read(), config());
+    const interim = {
+      ...finalTurn(1, "outbound_track", "What is the"),
+      Final: "false",
+    };
+    await send("transcription-content", interim, otherWorkspace);
+    expect(readCaptions(id)).toEqual([]);
+    await send("transcription-content", interim);
+    expect(readCaptions(id)).toMatchObject([
+      { text: "What is the", final: false },
+    ]);
+    expect((await utterances()).rowCount).toBe(0);
+    expect((await read()).next_suggestion_at).toBeNull();
+
+    await send(
+      "transcription-content",
+      finalTurn(2, "outbound_track", "What is the deadline?"),
+    );
+    await send("transcription-content", interim);
+    expect(readCaptions(id)).toMatchObject([{ sequence: 2, final: true }]);
+    expect((await utterances()).rowCount).toBe(1);
+
+    let firstCue;
+    analyze.mockImplementationOnce(async ({ onCue }) => {
+      await onCue("What is the load number?");
+      firstCue = (await read()).suggestion;
+      return { output: { line: firstCue.line, hint: "Check the schedule" } };
+    });
+    await runModel(await read(), config(), "suggestion");
+    expect(firstCue).toMatchObject({
+      line: "What is the load number?",
+      modelMs: expect.any(Number),
+    });
+    expect((await read()).suggestion).toEqual({
+      ...firstCue,
+      hint: "Check the schedule",
+    });
+
+    await send("transcription-stopped");
+    await send("transcription-content", { ...interim, SequenceId: "3" });
+    expect(readCaptions(id)).toEqual([]);
   });
 
   it("runs the next suggestion once the start-to-start interval has passed", async () => {

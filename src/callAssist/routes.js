@@ -1,6 +1,7 @@
 const { Router } = require("express");
 const { randomUUID } = require("node:crypto");
 const pool = require("../db");
+const { events, readCaptions, clearCaptions } = require("./live");
 const { getProvider } = require("../providerContext");
 const { getAssistantSettings } = require("../assistantSettings");
 const { callableNumber } = require("../receptionist/phone");
@@ -14,6 +15,8 @@ const {
 } = require("./config");
 
 const router = Router();
+const terminalStatus = (status) =>
+  ["completed", "busy", "failed", "no-answer", "canceled"].includes(status);
 const outcomes = ["connected", "no-answer", "follow-up"];
 const safe = (handler) => async (req, res) => {
   try {
@@ -86,6 +89,15 @@ async function snapshot(workspace, key, sid = false, includeTranscript = true) {
       captureAllowed &&
       !row.capture_ended_at &&
       Boolean(row.model_lease_until),
+    captions:
+      !includeTranscript &&
+      row.assist &&
+      captureAllowed &&
+      !row.capture_ended_at &&
+      !row.stop_requested &&
+      !terminalStatus(row.leg_status)
+        ? readCaptions(row.id)
+        : undefined,
     suggestion: row.suggestion,
     suggestionFailed: row.suggestion_failed,
     suggestionLimit: row.suggestion_count >= settings.maxSuggestions,
@@ -282,6 +294,7 @@ router.get(
     res.flushHeaders();
     let previous;
     let busy = false;
+    let queued = false;
     let heartbeat = Date.now();
     function write() {
       if (res.writableEnded || res.destroyed) return;
@@ -294,8 +307,12 @@ router.get(
       previous = serialized;
     }
     write();
-    const timer = setInterval(async () => {
-      if (busy || res.destroyed) return;
+    async function refresh() {
+      if (res.destroyed || res.writableEnded) return;
+      if (busy) {
+        queued = true;
+        return;
+      }
       busy = true;
       try {
         data = await snapshot(workspace, key, false, false);
@@ -305,9 +322,18 @@ router.get(
         res.end();
       } finally {
         busy = false;
+        if (queued) {
+          queued = false;
+          void refresh();
+        }
       }
-    }, 400);
-    res.on("close", () => clearInterval(timer));
+    }
+    events.on(key, refresh);
+    const timer = setInterval(refresh, 400);
+    res.on("close", () => {
+      clearInterval(timer);
+      events.off(key, refresh);
+    });
   }),
 );
 
@@ -337,11 +363,14 @@ router.post(
         "UPDATE phone_call_sessions SET stop_requested = true, updated_at = now() WHERE id = $1 AND workspace_id = $2",
         [id, workspace],
       );
+      clearCaptions(id);
+      events.emit(id);
     } else if (action === "suggest" && data.canSuggest) {
       await pool.query(
         "UPDATE phone_call_sessions SET next_suggestion_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2 AND capture_ended_at IS NULL AND NOT stop_requested",
         [id, workspace],
       );
+      events.emit("caller-turn");
     } else if (action === "retry" && data.canRetrySummary) {
       const { rowCount } = await pool.query(
         `UPDATE phone_call_sessions SET summary_state = 'pending', summary_attempts = 0, summary_at = now(),

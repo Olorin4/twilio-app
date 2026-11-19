@@ -1,16 +1,24 @@
 const mockParse = jest.fn();
+const mockStream = jest.fn();
 jest.mock("@anthropic-ai/sdk", () => ({
-  default: jest.fn(() => ({ messages: { parse: mockParse } })),
+  default: jest.fn(() => ({
+    messages: { parse: mockParse, stream: mockStream },
+  })),
 }));
 const { analyze } = require("../src/callAssist/model");
 
+const reply = {
+  stop_reason: "end_turn",
+  parsed_output: { line: "When should I call back?" },
+  usage: { input_tokens: 20, output_tokens: 5 },
+};
+
 beforeEach(() => {
-  mockParse.mockReset();
-  mockParse.mockResolvedValue({
-    stop_reason: "end_turn",
-    parsed_output: { line: "When should I call back?" },
-    usage: { input_tokens: 20, output_tokens: 5 },
-  });
+  mockParse.mockReset().mockResolvedValue(reply);
+  mockStream.mockReset().mockImplementation(() => ({
+    async *[Symbol.asyncIterator]() {},
+    finalMessage: async () => reply,
+  }));
 });
 
 test.each([
@@ -24,7 +32,8 @@ test.each([
       kind,
       transcript: [{ speaker: "Caller", content: "I need a callback." }],
     });
-    const [request] = mockParse.mock.calls[0];
+    const [request] = (kind === "summary" ? mockParse : mockStream).mock
+      .calls[0];
     expect(request).not.toHaveProperty("thinking");
     expect(request.max_tokens).toBe(maxTokens);
     expect(request.output_config.effort).toBe(effort);
@@ -39,7 +48,7 @@ test("uses Haiku without thinking for a short live suggestion", async () => {
     kind: "suggestion",
     transcript: [{ speaker: "Caller", content: "What time is pickup?" }],
   });
-  expect(mockParse).toHaveBeenCalledWith(
+  expect(mockStream).toHaveBeenCalledWith(
     expect.objectContaining({
       thinking: { type: "disabled" },
       max_tokens: 350,
@@ -47,4 +56,35 @@ test("uses Haiku without thinking for a short live suggestion", async () => {
     }),
     expect.anything(),
   );
+});
+
+test("delivers the first complete cue before the rest of the structured response", async () => {
+  const cue = jest.fn();
+  const fragment = (text) => ({
+    type: "content_block_delta",
+    delta: { type: "text_delta", text },
+  });
+  mockStream.mockReturnValueOnce({
+    async *[Symbol.asyncIterator]() {
+      yield fragment('{"line":"Can you confirm the \\"');
+      expect(cue).not.toHaveBeenCalled();
+      yield fragment('pickup window\\"?"');
+      expect(cue).toHaveBeenCalledWith('Can you confirm the "pickup window"?');
+      yield fragment(',"hint":"Check the schedule"}');
+    },
+    finalMessage: async () => ({
+      ...reply,
+      parsed_output: {
+        line: 'Can you confirm the "pickup window"?',
+        hint: "Check the schedule",
+      },
+    }),
+  });
+  const result = await analyze({
+    kind: "suggestion",
+    model: "claude-haiku-5-5",
+    onCue: cue,
+  });
+  expect(cue).toHaveBeenCalledTimes(1);
+  expect(result.output.hint).toBe("Check the schedule");
 });

@@ -2101,6 +2101,28 @@ html {
   background: #edf5ea;
 }
 
+.live-captions {
+  display: grid;
+  gap: 0.375rem;
+  max-height: 8rem;
+  overflow: auto;
+  border-top: 1px solid #d6e3d1;
+  padding: 0.625rem 0;
+}
+
+.live-prompter .live-captions p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.live-captions [data-caption-final="false"] {
+  font-style: italic;
+}
+
+.live-captions strong {
+  font-style: normal;
+}
+
 .live-prompter .prompt-line {
   font-size: 19px;
   line-height: 1.35;

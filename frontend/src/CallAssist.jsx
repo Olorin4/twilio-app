@@ -76,7 +76,7 @@ export function useCallSession(workspace, id, revision) {
     const path = `/call-assist/sessions/${id}`;
     let retry;
     const receive = (data) => {
-      if (!controller.signal.aborted) setSnapshot(data);
+      if (!controller.signal.aborted) setSnapshot({ workspace, data });
       return (
         terminal.includes(data.status) &&
         (!data.assist ||
@@ -110,7 +110,9 @@ export function useCallSession(workspace, id, revision) {
       clearTimeout(retry);
     };
   }, [workspace, id, revision]);
-  return snapshot?.id === id ? snapshot : null;
+  return snapshot?.workspace === workspace && snapshot?.data.id === id
+    ? snapshot.data
+    : null;
 }
 
 export function LivePrompter({ session, workspace }) {
@@ -147,6 +149,19 @@ export function LivePrompter({ session, workspace }) {
       <p role="status">{session.stopping ? "Stopping…" : label}</p>
       {suggestion?.line && <p className="prompt-line">{suggestion.line}</p>}
       {suggestion?.hint && <p>{suggestion.hint}</p>}
+      {session.captions?.length > 0 && (
+        <div className="live-captions" aria-label="Live captions">
+          {session.captions.map((caption) => (
+            <p
+              key={caption.speaker}
+              data-caption-sequence={caption.sequence}
+              data-caption-final={caption.final}
+            >
+              <strong>{caption.speaker}</strong> {caption.text}
+            </p>
+          ))}
+        </div>
+      )}
       {session.suggestionFailed && (
         <p>Suggestion unavailable. The callback script is still available.</p>
       )}
