@@ -25,7 +25,8 @@
     "receptionist:sim": "node scripts/receptionist-sim.js",
     "migrate:call-assist": "node scripts/migrate-call-assist.js",
     "migrate:assistant-settings": "node scripts/migrate-assistant-settings.js",
-    "migrate:workspace-archive": "node scripts/migrate-workspace-archive.js"
+    "migrate:workspace-archive": "node scripts/migrate-workspace-archive.js",
+    "migrate:agent-profiles": "node scripts/migrate-agent-profiles.js"
   },
   "repository": {
     "type": "git",
