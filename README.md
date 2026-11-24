@@ -372,6 +372,57 @@ on port 55433:
 
     AGENT_PROFILES_PG_TEST=1 TEST_DB_URL=postgresql://postgres:test@localhost:55433/twilio_app_test npx jest tests/agentProfiles.pg.test.js
 
+### Users, login and recovery
+
+People sign in with a username and password. Settings and Users are
+owner-only. Members see only their workspaces, ring only on lines assigned to
+them, call and text only from their own lines, and see only the lines they may
+see: assigned lines and shared AI lines (including the Iron Wing customer line
+for Iron Wing members). A personal line is visible only to its assignees;
+owners also see a personal line while it has no reachable assignee, because it
+rings them.
+
+#### Cutover
+
+The `operator:APP_PASSWORD` login works only until the first enabled owner
+exists. In order:
+
+1. Deploy.
+2. Log in as `operator`.
+3. Create your owner in Settings -> Users.
+4. Sign in again (the browser must sign in again with the owner account).
+5. Create the dispatcher as a member of Iron Wing.
+6. Assign Dispatcher 2 to him and mark your Manager and Lead dev lines personal.
+
+#### Recovery commands
+
+`npm run migrate:users` applies migration 014. The user scripts read the
+password only from the `USER_PASSWORD` environment variable, never from argv:
+
+    read -rs USER_PASSWORD; export USER_PASSWORD
+    DB_URL=<target> npm run users -- create-owner <username>
+    DB_URL=<target> npm run users -- reset-password <username>
+
+The scripts load `.env` through dotenv, so a missing shell `DB_URL` silently
+falls back to the `.env` database. Always pass `DB_URL` explicitly for the
+database you mean. A CLI reset or disable takes effect on the running server
+immediately, because the server re-checks the user's row on every cached login.
+
+#### Deploy order (after 2a and 2b)
+
+Migration 013, the 013 seed (with production's `RECEPTIONIST_DAILY_LIMIT`),
+migration 014, then deploy the code, then the cutover steps above. Production
+runs happen only after Phase 2c also lands, and only with the owner's go-ahead.
+
+#### Testing against Postgres
+
+The Postgres suites need a scratch database whose name ends in `_test` and run
+with `--runInBand` (they share the public schema and can flake in parallel):
+
+    DB_SSL=false TEST_DB_URL=postgresql://postgres:test@localhost:55433/twilio_app_test \
+      AGENT_PROFILES_PG_TEST=1 USERS_PG_TEST=1 RINGING_PG_TEST=1 CALL_ASSIST_PG_TEST=1 OUTREACH_INTAKE_PG_TEST=1 \
+      npx jest --runInBand
+
 ### Simulated callers
 
 `npm run receptionist:sim` explains what a run costs and stops. Adding `--yes`
