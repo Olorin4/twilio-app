@@ -327,9 +327,31 @@ describe("profile-driven prompt", () => {
     expect(text).toContain("Help KelevoTMS customers with the software.");
     expect(text).not.toMatch(/Iron Wing|Jack/);
     expect(text).not.toMatch(/dispatcher/i);
+    // Nor any trucking wording: the fraud rules, which name freight, are not
+    // sent to support.
+    expect(text).not.toMatch(/truck|freight|\bMC\b|USDOT/i);
     expect(blocks[1].text).toBe(
       "KelevoTMS is a transportation management system.",
     );
+  });
+
+  test("a profile whose instructions do not name it is told its name", () => {
+    const text = buildSystem({
+      ...kelevo("support"),
+      personaName: "Maya",
+      instructions: "Answer support questions.",
+    })[0].text;
+    expect(text.startsWith("Your name is Maya. ")).toBe(true);
+    expect(text.match(/Your name is/g)).toHaveLength(1);
+  });
+
+  test("a profile whose instructions name it gets no extra name sentence", () => {
+    expect(buildSystem(JACK)[0].text).not.toContain("Your name is");
+    const text = buildSystem({
+      ...kelevo("support"),
+      instructions: "You are Maya, KelevoTMS's support assistant.",
+    })[0].text;
+    expect(text).not.toContain("Your name is");
   });
 
   test("fixed lines name the profile's company", () => {
