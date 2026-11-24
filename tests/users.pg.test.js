@@ -539,5 +539,211 @@ suite("Users schema and store against PostgreSQL", () => {
       expect(ids(await run(getCallLogs, other))).not.toContain("14");
       expect(ids(await run(getCallLogs, member))).not.toContain("14");
     });
+
+    /* The contact timeline on real rows (Review Focus 2 and 5). Last, so
+    the other tests' rows and counts are untouched; the callers here are
+    numbers no other test uses. */
+    describe("contact timeline", () => {
+      const TL = "+12025550444";
+      const TIE = "+12025550555";
+      const S = (n) =>
+        `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`;
+      let handle;
+
+      beforeAll(async () => {
+        const contacts = require("../src/contacts");
+        const layer = contacts.stack.find(
+          (l) => l.route && l.route.path === "/:phone/timeline",
+        );
+        handle = layer.route.stack[layer.route.stack.length - 1].handle;
+        await db.query(`
+          ALTER TABLE phone_call_sessions
+            ADD COLUMN IF NOT EXISTS destination text,
+            ADD COLUMN IF NOT EXISTS summary jsonb;
+          ALTER TABLE phone_contacts ADD COLUMN IF NOT EXISTS company text;
+          ALTER TABLE receptionist_calls
+            ADD COLUMN IF NOT EXISTS workspace_id uuid,
+            ADD COLUMN IF NOT EXISTS from_number text,
+            ADD COLUMN IF NOT EXISTS started_at timestamptz,
+            ADD COLUMN IF NOT EXISTS outcome text,
+            ADD COLUMN IF NOT EXISTS callback_number text,
+            ADD COLUMN IF NOT EXISTS summary text;
+        `);
+      });
+
+      const fetch = async (user, phone, query = {}) => {
+        const res = {
+          json: jest.fn(),
+          status: jest.fn().mockReturnThis(),
+        };
+        spy.mockClear();
+        await handle(
+          { user, workspace: { id: W }, params: { phone }, query },
+          res,
+        );
+        expect(res.status).not.toHaveBeenCalled();
+        const [sql, params] = spy.mock.calls.find(([text]) =>
+          text.includes("UNION ALL"),
+        );
+        await expect(db.query(`EXPLAIN ${sql}`, params)).resolves.toBeTruthy();
+        return res.json.mock.calls[0][0];
+      };
+      const keys = (body) => body.entries.map((e) => `${e.kind}:${e.id}`);
+
+      test("a member sees nothing of the owner's personal line", async () => {
+        await db.query(`
+          INSERT INTO phone_contacts (workspace_id, phone, name, company)
+            VALUES ('${W}', '${TL}', 'Tara Lane', 'Lane Freight');
+          INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id) VALUES
+            (20, 'CT20', now() - interval '1 hour', '${TL}', '${SHARED}', 'completed', 95, 'inbound', '${W}'),
+            (21, 'CT21', now() - interval '2 hours', '${TL}', '${PERSONAL}', 'completed', 600, 'inbound', '${W}'),
+            (22, 'CT22', now() - interval '3 hours', '${PERSONAL}', '${TL}', 'completed', 300, 'outbound-api', '${W}');
+          INSERT INTO twilio_call_legs VALUES
+            ('CT20c', 'CT20', '${W}', NULL, 'completed', true, 95, now());
+          INSERT INTO message_logs (id, message_sid, from_number, to_number, body, timestamp, workspace_id) VALUES
+            (20, 'SMT20', '${TL}', '${SHARED}', 'shared hello', now() - interval '4 hours', '${W}'),
+            (21, 'SMT21', '${TL}', '${PERSONAL}', 'secret one', now() - interval '5 hours', '${W}'),
+            (22, 'SMT22', '${PERSONAL}', '${TL}', 'secret two', now() - interval '6 hours', '${W}');
+          INSERT INTO receptionist_calls (call_sid, workspace_id, from_number, callback_number, started_at, ended_at, outcome, summary) VALUES
+            ('CT20', '${W}', '${TL}', NULL, now() - interval '1 hour', now(), 'lead', 'Needs a reefer'),
+            ('CT21', '${W}', '${TL}', NULL, now() - interval '2 hours', now(), 'urgent', 'secret three'),
+            ('CT29', '${W}', 'anonymous', '${TL}', now() - interval '7 hours', now(), 'message', 'secret four');
+          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, summary, created_at) VALUES
+            ('${S(1)}', NULL, '${W}', '${SHARED}', '${TL}', 'shared note', NULL, now() - interval '8 hours'),
+            ('${S(2)}', NULL, '${W}', '${PERSONAL}', '${TL}', 'secret five', NULL, now() - interval '9 hours'),
+            ('${S(3)}', 'CT21', '${W}', '${SHARED}', '${TL}', '', '{"reason": "secret six"}', now() - interval '10 hours');
+        `);
+        const forMember = await fetch(member, TL);
+        expect(keys(forMember)).toEqual([
+          "agent_call:CT20",
+          "call:20",
+          "text:20",
+          `assist:${S(1)}`,
+        ]);
+        expect(forMember.contact).toEqual({
+          name: "Tara Lane",
+          company: "Lane Freight",
+        });
+        expect(forMember.next).toBeNull();
+        expect(forMember.entries.map((e) => e.summary)).toEqual([
+          "New lead: Needs a reefer",
+          "Answered · 2 min",
+          "shared hello",
+          "shared note",
+        ]);
+        expect(forMember.entries.every((e) => e.line === SHARED)).toBe(true);
+        // Nothing of the personal line, in any field.
+        const sent = JSON.stringify(forMember);
+        expect(sent).not.toContain(PERSONAL);
+        expect(sent).not.toContain("secret");
+        expect(sent).not.toContain("CT21");
+        expect(sent).not.toContain("CT22");
+        // Paging by one never reaches a hidden row either.
+        const seen = [];
+        let cursor;
+        do {
+          const page = await fetch(
+            member,
+            TL,
+            cursor ? { limit: "1", cursor } : { limit: "1" },
+          );
+          seen.push(...keys(page));
+          cursor = page.next;
+        } while (cursor);
+        expect(seen).toEqual(keys(forMember));
+        // The owner, whose personal line it is, sees everything.
+        const forOwner = await fetch(owner, TL);
+        expect(keys(forOwner).sort()).toEqual(
+          [
+            "agent_call:CT20",
+            "agent_call:CT21",
+            "agent_call:CT29",
+            "call:20",
+            "call:21",
+            "call:22",
+            "text:20",
+            "text:21",
+            "text:22",
+            `assist:${S(1)}`,
+            `assist:${S(2)}`,
+            `assist:${S(3)}`,
+          ].sort(),
+        );
+        const byKey = Object.fromEntries(
+          forOwner.entries.map((e) => [`${e.kind}:${e.id}`, e]),
+        );
+        expect(byKey["call:22"]).toMatchObject({
+          direction: "outbound",
+          line: PERSONAL,
+          summary: "Outgoing call · 5 min",
+        });
+        expect(byKey["text:22"]).toMatchObject({
+          direction: "outbound",
+          line: PERSONAL,
+        });
+        expect(byKey[`assist:${S(3)}`]).toMatchObject({
+          summary: "secret six",
+          link: { view: "call", callSid: "CT21" },
+        });
+        expect(byKey["agent_call:CT29"]).toMatchObject({
+          summary: "Message: secret four",
+          link: { view: "leads", callSid: "CT29" },
+          line: null,
+        });
+      });
+
+      test("entries at the same instant page without gaps or repeats", async () => {
+        await db.query(`
+          INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id) VALUES
+            (30, 'CT30', '2026-01-01 12:00:00.123456', '${TIE}', '${SHARED}', 'completed', 0, 'inbound', '${W}');
+          INSERT INTO message_logs (id, message_sid, from_number, to_number, body, timestamp, workspace_id) VALUES
+            (30, 'SMT30', '${TIE}', '${SHARED}', 'one', '2026-01-01 12:00:00.123456', '${W}'),
+            (31, 'SMT31', '${SHARED}', '${TIE}', 'two', '2026-01-01 12:00:00.123456', '${W}');
+          INSERT INTO receptionist_calls (call_sid, workspace_id, from_number, started_at, ended_at, outcome, summary) VALUES
+            ('CT30', '${W}', '${TIE}', '2026-01-01 12:00:00.123456+00', now(), 'spam', NULL);
+          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, created_at) VALUES
+            ('${S(30)}', NULL, '${W}', '${SHARED}', '${TIE}', '', '2026-01-01 12:00:00.123456+00');
+        `);
+        const all = await fetch(member, TIE);
+        expect(keys(all)).toEqual([
+          "agent_call:CT30",
+          `assist:${S(30)}`,
+          "call:30",
+          "text:31",
+          "text:30",
+        ]);
+        expect(new Set(all.entries.map((e) => e.at)).size).toBe(1);
+        const seen = [];
+        let cursor;
+        let pages = 0;
+        do {
+          const page = await fetch(
+            member,
+            TIE,
+            cursor ? { limit: "1", cursor } : { limit: "1" },
+          );
+          expect(page.entries).toHaveLength(1);
+          seen.push(...keys(page));
+          cursor = page.next;
+          pages += 1;
+        } while (cursor && pages < 10);
+        expect(pages).toBe(5);
+        expect(seen).toEqual(keys(all));
+        // Two at a time, the last page is short and ends the list.
+        const first = await fetch(member, TIE, { limit: "2" });
+        const second = await fetch(member, TIE, {
+          limit: "2",
+          cursor: first.next,
+        });
+        const third = await fetch(member, TIE, {
+          limit: "2",
+          cursor: second.next,
+        });
+        expect([...keys(first), ...keys(second), ...keys(third)]).toEqual(
+          keys(all),
+        );
+        expect(third.next).toBeNull();
+      });
+    });
   });
 });

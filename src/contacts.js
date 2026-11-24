@@ -2,6 +2,12 @@ const { Router } = require("express");
 const { randomUUID } = require("crypto");
 const pool = require("./db");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const { lineScope } = require("./visibility");
+const {
+  contactTimeline,
+  parseInput: parseTimelineInput,
+  TimelineInputError,
+} = require("./timeline");
 const workspaceId = (req) => req.workspace?.id || IRON_WING_WORKSPACE_ID;
 
 const router = Router();
@@ -57,6 +63,34 @@ router.get("/", async (req, res) => {
     return res.json(result.rows);
   } catch (error) {
     return sendError(res, error);
+  }
+});
+
+/* One caller's history in this workspace, as the viewer may see it. Every
+input is checked before anything is read, so a caller that is not a phone
+number (anonymous, client:, spaces) is a 400 with no query. */
+router.get("/:phone/timeline", async (req, res) => {
+  const input = {
+    phone: req.params.phone,
+    cursor: req.query?.cursor,
+    limit: req.query?.limit,
+  };
+  try {
+    parseTimelineInput(input);
+  } catch (error) {
+    if (error instanceof TimelineInputError)
+      return res.status(400).json({ error: error.message });
+    throw error;
+  }
+  try {
+    const id = workspaceId(req);
+    const scope = await lineScope(req.user, id);
+    return res.json(
+      await contactTimeline({ scope, workspaceId: id, ...input }),
+    );
+  } catch (error) {
+    console.error("Contact timeline failed:", error.code || error.message);
+    return res.status(500).json({ error: "Could not load the timeline." });
   }
 });
 

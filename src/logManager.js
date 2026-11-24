@@ -8,6 +8,18 @@ const pool = require("./db");
 const { publish } = require("./messageEvents");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
 const { lineScope, lineCondition } = require("./visibility");
+const {
+  CLIENT_LINE,
+  CALL_LINE,
+  CALL_STATUS,
+  CALL_MISSED,
+  CALL_ANSWERED,
+  CALL_ANNOUNCEMENT,
+  CALL_DURATION,
+  CALL_OUTGOING,
+  CALL_LOCAL_NUMBER,
+  CALL_ROOT,
+} = require("./callSql");
 
 const client = twilio(accountSid, authToken);
 
@@ -131,19 +143,6 @@ function historyParams(req) {
   return { offset: (page - 1) * pageSize, pageSize, search };
 }
 
-/* The line a softphone call (from client:<identity>) used: its newest child
-leg's E.164 from_number, or NULL. Every E.164 child leg of a softphone root
-carries the connection's single callerId today (the outgoing Dial in
-src/callResponse.js), so the newest leg is representative; call_sid breaks
-ties so the pick is deterministic. Shown as local_number and used by the
-visibility filter, so both judge the same line. */
-const CLIENT_LINE = `(SELECT child.from_number FROM twilio_call_legs leg JOIN call_logs child ON child.call_sid = leg.call_sid
-                AND child.workspace_id = cl.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
-                WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id
-                  AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
-                  AND child.from_number ~ '^[+][1-9][0-9]{1,14}$'
-                ORDER BY leg.updated_at DESC, leg.call_sid DESC LIMIT 1)`;
-
 // Fetch Call Logs
 exports.getCallLogs = async (req, res) => {
   const params = historyParams(req);
@@ -155,7 +154,7 @@ exports.getCallLogs = async (req, res) => {
     // The call's line: its from_number when outbound, else its to_number.
     const visible = lineCondition(
       await lineScope(req.user, workspaceId),
-      "CASE WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number ELSE cl.to_number END",
+      CALL_LINE,
       "cl.from_number",
       6,
       CLIENT_LINE,
@@ -173,18 +172,15 @@ exports.getCallLogs = async (req, res) => {
              cl.to_number, 
              cl.direction,
              ${callResult} AS call_result,
-             COALESCE((SELECT leg.status FROM twilio_call_legs leg WHERE (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id ORDER BY leg.updated_at DESC LIMIT 1), cl.status) AS status,
-             (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.status IN ('busy', 'failed', 'no-answer', 'canceled') AND NOT leg.answered) AND NOT EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered)) AS missed,
-             EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered) AS answered,
-             (SELECT json_build_object('kind', a.kind, 'initiated', a.initiated_at IS NOT NULL, 'completed', a.completed_at IS NOT NULL) FROM call_announcements a WHERE a.call_sid = cl.call_sid AND a.workspace_id = cl.workspace_id AND a.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id) AS announcement,
+             ${CALL_STATUS} AS status,
+             ${CALL_MISSED} AS missed,
+             ${CALL_ANSWERED} AS answered,
+             ${CALL_ANNOUNCEMENT} AS announcement,
              (cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND cl.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
               AND NOT EXISTS (SELECT 1 FROM activity_views v WHERE v.kind = 'call' AND v.item_id = cl.id)) AS unviewed,
-             COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND (leg.answered OR cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration) AS duration,
-             (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AS outgoing,
-             CASE WHEN cl.from_number LIKE 'client:%' THEN
-               ${CLIENT_LINE}
-             WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number
-             ELSE cl.to_number END AS local_number,
+             ${CALL_DURATION} AS duration,
+             ${CALL_OUTGOING} AS outgoing,
+             ${CALL_LOCAL_NUMBER} AS local_number,
              cl.timestamp,
              (SELECT CASE
                 WHEN cl.price IS NULL OR legs.unpriced > 0
@@ -205,15 +201,7 @@ exports.getCallLogs = async (req, res) => {
       LEFT JOIN driver d ON cl.driver_id = d.id
       LEFT JOIN company c ON d.company_id = c.id
       WHERE cl.workspace_id = $5
-        AND NOT EXISTS (
-          SELECT 1 FROM twilio_call_legs leg
-          JOIN call_logs parent ON parent.call_sid = leg.parent_call_sid
-            AND parent.workspace_id = cl.workspace_id
-            AND parent.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
-          WHERE leg.call_sid = cl.call_sid
-            AND leg.workspace_id = cl.workspace_id
-            AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
-        )
+        AND ${CALL_ROOT}
         AND ($2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0))
         AND ${visible.sql}
