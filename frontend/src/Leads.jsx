@@ -12,6 +12,7 @@ import { isTimelinePhone } from "./timeline.mjs";
 import {
   badge,
   callbackTarget,
+  historyTarget,
   callerIdNote,
   carrierLine,
   leadTitle,
@@ -77,6 +78,7 @@ export function Script({ lead, fallback = false }) {
 function LeadCard({ lead, timeZone, canCall, onCall, onStatus, onHistory }) {
   const [open, setOpen] = useState(false);
   const target = callbackTarget(lead);
+  const historyPhone = historyTarget(lead);
   const title = leadTitle(lead);
   // Only old Iron Wing rows (no kind recorded) were all answered by Jack.
   const speaker = lead.agentPersonaName || (lead.agentKind ? "Agent" : "Jack");
@@ -155,10 +157,10 @@ function LeadCard({ lead, timeZone, canCall, onCall, onStatus, onHistory }) {
           <PhoneOutgoing size={14} />
           {target ? `Call back ${target}` : "No callback number"}
         </button>
-        {onHistory && isTimelinePhone(target) && (
+        {onHistory && isTimelinePhone(historyPhone) && (
           <button
             className="button button-light"
-            onClick={() => onHistory(target)}
+            onClick={() => onHistory(historyPhone)}
           >
             <History size={14} /> History
           </button>

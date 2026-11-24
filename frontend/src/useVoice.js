@@ -37,6 +37,8 @@ export function useVoice(workspace) {
   const deviceRef = useRef(null);
   const phoneNumberRef = useRef("");
   const callRef = useRef(null);
+  // The screen pop request for the call it belongs to: { instance, controller }.
+  const popRef = useRef(null);
   const startingRef = useRef(false);
   const resumeRef = useRef(false);
   const deviceGenerationRef = useRef(0);
@@ -175,6 +177,10 @@ export function useVoice(workspace) {
 
   const clearCall = useCallback((instance) => {
     if (callRef.current !== instance) return;
+    if (popRef.current?.instance === instance) {
+      popRef.current.controller.abort();
+      popRef.current = null;
+    }
     callRef.current = null;
     setCall(null);
     setMuted(false);
@@ -182,6 +188,10 @@ export function useVoice(workspace) {
   }, []);
   const watchCall = useCallback(
     (instance, direction, number, target) => {
+      if (popRef.current) {
+        popRef.current.controller.abort();
+        popRef.current = null;
+      }
       callRef.current = instance;
       setCall({
         direction,
@@ -194,29 +204,6 @@ export function useVoice(workspace) {
         phase: direction === "incoming" ? "ringing" : "connecting",
         callerContext: null,
       });
-      // Screen pop: fetched after the call is shown, never awaited, silent on failure.
-      if (direction === "incoming" && shouldFetch(number)) {
-        const ringAt = Date.now();
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 3000);
-        apiFetch(`/contacts/${encodeURIComponent(number)}/timeline?limit=3`, {
-          cache: "no-store",
-          signal: controller.signal,
-          headers: { "X-Workspace-Id": target?.workspace_id },
-        })
-          .then((response) => (response.ok ? response.json() : null))
-          .then((data) => {
-            const line = data && popLine(data, ringAt);
-            if (!line || !isCurrent(instance, callRef.current)) return;
-            setCall((current) =>
-              current && callRef.current === instance
-                ? { ...current, callerContext: line }
-                : current,
-            );
-          })
-          .catch(() => {})
-          .finally(() => clearTimeout(timer));
-      }
       instance.on("accept", () =>
         setCall((current) =>
           current && callRef.current === instance
@@ -232,6 +219,44 @@ export function useVoice(workspace) {
         clearCall(instance);
       });
       instance.on("volume", (input, output) => setLevels({ input, output }));
+      // Screen pop: started only after the call is shown and its handlers are
+      // registered, never awaited, silent on failure, and aborted when the
+      // call ends or another replaces it.
+      if (
+        direction === "incoming" &&
+        target?.workspace_id &&
+        shouldFetch(number)
+      ) {
+        try {
+          const ringAt = Date.now();
+          const controller = new AbortController();
+          popRef.current = { instance, controller };
+          const timer = setTimeout(() => controller.abort(), 3000);
+          apiFetch(`/contacts/${encodeURIComponent(number)}/timeline?limit=3`, {
+            cache: "no-store",
+            signal: controller.signal,
+            headers: { "X-Workspace-Id": target.workspace_id },
+          })
+            .then((response) => (response.ok ? response.json() : null))
+            .then((data) => {
+              const line = data && popLine(data, ringAt);
+              if (!line || !isCurrent(instance, callRef.current)) return;
+              setCall((current) =>
+                current && callRef.current === instance
+                  ? { ...current, callerContext: line }
+                  : current,
+              );
+            })
+            .catch(() => {})
+            .finally(() => {
+              clearTimeout(timer);
+              if (popRef.current?.controller === controller)
+                popRef.current = null;
+            });
+        } catch {
+          // The screen pop is optional; the call goes on without it.
+        }
+      }
     },
     [clearCall],
   );

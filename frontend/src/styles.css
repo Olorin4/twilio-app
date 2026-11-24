@@ -688,6 +688,12 @@ h1 {
   font: 700 14px Manrope;
   margin: 8px 0;
 }
+.call-panel .caller-context {
+  display: block;
+  margin: -4px 0 8px;
+  color: #617467;
+  font-size: 11px;
+}
 .call-panel > button {
   background: #315c3e;
   color: white;

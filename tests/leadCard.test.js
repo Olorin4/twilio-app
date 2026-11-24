@@ -9,12 +9,13 @@ const {
   carrierLine,
   badge,
   callbackTarget,
+  historyTarget,
   callerIdNote,
   promiseLine,
   unread,
   OWED,
 } = vm.runInNewContext(
-  `${source}\n({ leadTitle, carrierLine, badge, callbackTarget, callerIdNote, promiseLine, unread, OWED })`,
+  `${source}\n({ leadTitle, carrierLine, badge, callbackTarget, historyTarget, callerIdNote, promiseLine, unread, OWED })`,
 );
 
 test.each([
@@ -127,4 +128,17 @@ test("urgent is owed a callback", () => {
     expect.arrayContaining(["message", "urgent", "support_request"]),
   );
   expect(unread({ status: "new", outcome: "urgent" })).toBe(true);
+});
+
+test("History looks up the caller, or the callback number only for an anonymous caller", () => {
+  expect(
+    historyTarget({ from: "+15551230001", callbackNumber: "+15551230009" }),
+  ).toBe("+15551230001");
+  expect(
+    historyTarget({ from: "anonymous", callbackNumber: "+15551230009" }),
+  ).toBe("+15551230009");
+  expect(
+    historyTarget({ from: "+266696687", callbackNumber: "+15551230009" }),
+  ).toBe("+15551230009");
+  expect(historyTarget({ from: "anonymous" })).toBeNull();
 });

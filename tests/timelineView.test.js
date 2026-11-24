@@ -32,4 +32,10 @@ describe("relativeTime", () => {
     expect(relativeTime(ago(86400 * 14), now)).toBe("2 weeks ago");
     expect(relativeTime("nope", now)).toBe("");
   });
+  test("a little clock skew into the future is just now; far future is not", () => {
+    expect(relativeTime(ago(-30), now)).toBe("just now");
+    expect(relativeTime(ago(-300), now)).toBe("just now");
+    expect(relativeTime(ago(-301), now)).toBe("in the future");
+    expect(relativeTime(ago(-86400), now)).toBe("in the future");
+  });
 });
