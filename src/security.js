@@ -56,21 +56,39 @@ async function loginFor({ username, password }) {
   return null;
 }
 
-/* Failed logins are limited per client address and per username: 10 in a
-rolling minute and that key is refused with 429 before any password hashing,
-so bad logins can't tie up the thread pool live calls share. Successful
-logins don't count. The 429 carries no WWW-Authenticate, so the browser does
-not re-prompt in a loop. A login that is a live cache hit (no hashing) still
-passes, so signed-in people keep working while an address is limited.
-req.ip is the socket address: the app does not set "trust proxy", so behind
-the edge nginx every client shares the proxy's address and the per-username
-key is what tells them apart. */
-const loginLimiter = createLoginLimiter();
+/* Failed logins are limited per client address (30 in a rolling minute) and
+per address and username together (10), and a limited key is refused with 429
+before any password hashing, so bad logins can't tie up the thread pool live
+calls share. There is no bare per-username key: a stranger failing as `nick`
+from their own address never locks `nick` out elsewhere. Successful logins
+don't count. The 429 carries no WWW-Authenticate, so the browser does not
+re-prompt in a loop. A login that is a live cache hit (no hashing) still
+passes, so signed-in people keep working while their address is limited.
+
+req.ip is only the client's address when Express trusts the edge nginx's
+X-Forwarded-For (TRUST_PROXY, applied in index.js). Without it every client
+is the proxy's address, so a limit would lock everyone out together: the
+limiter is off and the server warns at startup. */
+const loginLimiter = createLoginLimiter({
+  limits: { ip: 30, ipuser: 10 },
+  windowMs: 60000,
+  maxKeys: 10000,
+});
 const LIMITED = "Too many sign-in attempts. Try again in a minute.";
-const limitKeys = (req, username) => [
-  `ip:${req.ip || req.socket?.remoteAddress || "unknown"}`,
-  `user:${String(username).trim().toLowerCase()}`,
-];
+function limitKeys(req, username) {
+  if (!req.app?.get?.("trust proxy")) return [];
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  return [`ip:${ip}`, `ipuser:${ip}|${String(username).trim().toLowerCase()}`];
+}
+
+// TRUST_PROXY as Express's "trust proxy" value: unset or empty is off, a
+// whole number is how many proxies to trust, anything else (for example
+// "loopback, 172.16.0.0/12") is passed through.
+function trustProxySetting(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return false;
+  return /^\d+$/.test(text) ? Number(text) : text;
+}
 
 // Sets req.user to a signed-in User or the bootstrap operator. Fails closed:
 // if the account store cannot be read, nobody gets in.
@@ -139,6 +157,7 @@ function isTwilioWebhook(req) {
 module.exports = {
   requireLogin,
   resetLoginLimits: () => loginLimiter.clear(),
+  trustProxySetting,
   requireOwner,
   validateWebhook,
   isTwilioWebhook,

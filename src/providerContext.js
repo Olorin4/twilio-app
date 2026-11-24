@@ -146,7 +146,17 @@ async function checkUsersSchema() {
     return null;
   }
 }
+// `trustProxy` is the app's "trust proxy" setting (from TRUST_PROXY). Without
+// it the sign-in limiter is off (see src/security.js), so say so at startup.
+function checkSignInLimits(trustProxy) {
+  if (trustProxy) return true;
+  console.warn(
+    "Sign-in rate limiting is off: set TRUST_PROXY to the number of proxies in front of the app.",
+  );
+  return false;
+}
 module.exports = {
+  checkSignInLimits,
   checkUsersSchema,
   getProvider,
   getProviderForWebhook,

@@ -310,6 +310,7 @@ All settings are environment variables; `.env.example` lists them with comments.
 | `RECEPTIONIST_ALERT_EMAIL`                                          | none                            | Where emails go, for profiles with no alert email of their own.                                  |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | port `587`                      | The mail account that sends them.                                                                |
 | `ANTHROPIC_API_KEY`                                                 | none                            | Read by the Anthropic SDK.                                                                       |
+| `TRUST_PROXY`                                                       | off                             | Proxies in front of the app (production `1`). Unset: no sign-in limits.                          |
 
 ### Agent profiles
 
@@ -430,11 +431,23 @@ Before deploying, check:
   warns at startup when it is unset.
 - At startup the server logs `DATABASE NOT MIGRATED: run npm run migrate:users`
   when migration 014 is missing. It never crashes on it, so check the log.
-- Failed sign-ins are limited to 10 a minute per client address and per
-  username (then `429 Too many sign-in attempts`). The app does not set Express
-  `trust proxy`, so behind the edge nginx every client shares the proxy's
-  address: 10 failures a minute from anyone briefly limits every sign-in that
-  is not already cached, though people already signed in keep working.
+- Production sets `TRUST_PROXY=1`, but only after confirming that the edge
+  nginx sets `X-Forwarded-For` on the requests it proxies to the app, with
+  either `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` or
+  `proxy_set_header X-Forwarded-For $remote_addr;`. Express then takes the
+  client's address from the last hop the edge added. Trust exactly as many
+  proxies as really sit in front of the app: with too many trusted, a client
+  can send its own `X-Forwarded-For` and forge its address, which lets it
+  dodge the sign-in limits or lock out another address.
+- Failed sign-ins are limited to 30 a minute per client address and 10 a
+  minute per client address and username together, then answered with
+  `429 Too many sign-in attempts`. A stranger's failures never lock a username
+  out from another address, and people already signed in keep working. A
+  cached login lasts 5 minutes from its last passing check, so an active
+  session never falls back to a full password check. Without `TRUST_PROXY` every client
+  looks like the edge nginx, so the limits are off and the server logs this at
+  startup:
+  `Sign-in rate limiting is off: set TRUST_PROXY to the number of proxies in front of the app.`
 
 ### Simulated callers
 

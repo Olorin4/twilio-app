@@ -105,7 +105,8 @@ const USER_SELECT = `
   FROM app_users u
   LEFT JOIN workspace_members m ON m.user_id = u.id`;
 
-// Auth cache: sha256(username:password) -> { user, hash, expires }. The plain
+// Auth cache: sha256(username:password) -> { user, hash, expires }. `expires`
+// is 5 minutes after the last success or passing re-check. The plain
 // password is never stored. Every hit is re-checked against the user's row, so
 // a password reset, disable or role change made in another process (the admin
 // script) is honoured at once. `generation` stops a login that started before
@@ -206,6 +207,9 @@ async function authenticate(username, password) {
       current.role === hit.user.role
     ) {
       hit.user.workspaceIds = toUser(current).workspaceIds;
+      // Only a hit that passed its re-check slides on, so someone working
+      // steadily stays signed in without scrypt (or the sign-in limiter).
+      hit.expires = Date.now() + CACHE_MS;
       return copyUser(hit.user);
     }
   }
@@ -240,10 +244,10 @@ async function authenticate(username, password) {
 }
 
 // True when this login is a live cache hit, which needs no scrypt. Lets
-// signed-in people through while the failed-login limiter is refusing others
-// (behind one proxy address they all share an IP). Never true for a login
-// that has not succeeded within the last 5 minutes; authenticate still
-// re-checks the row.
+// signed-in people through while the failed-login limiter is refusing their
+// address (an office shares one). Never true for a login that has not
+// succeeded or passed a re-check within the last 5 minutes; authenticate
+// still re-checks the row.
 function isCachedLogin(username, password) {
   let name;
   try {

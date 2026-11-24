@@ -11,6 +11,7 @@ const {
   validateWebhook,
   isTwilioWebhook,
   resetLoginLimits,
+  trustProxySetting,
 } = require("../src/security");
 
 function response() {
@@ -24,7 +25,12 @@ function response() {
 }
 const basic = (credentials) =>
   `Basic ${Buffer.from(credentials).toString("base64")}`;
-const request = (auth, ip = "203.0.113.1") => ({ get: () => auth, ip });
+// `trust` is the app's "trust proxy" setting; production sets TRUST_PROXY=1.
+const request = (auth, ip = "203.0.113.1", trust = 1) => ({
+  get: () => auth,
+  ip,
+  app: { get: (name) => (name === "trust proxy" ? trust : undefined) },
+});
 const REALM = 'Basic realm="Iron Wing Dispatching", charset="UTF-8"';
 const member = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -226,29 +232,61 @@ test("webhooks accept valid Twilio signatures and reject altered requests", () =
   expect(res.sendStatus).toHaveBeenCalledWith(403);
 });
 
+describe("TRUST_PROXY", () => {
+  test("unset or empty is off, a whole number is a hop count, anything else passes through", () => {
+    expect(trustProxySetting(undefined)).toBe(false);
+    expect(trustProxySetting("")).toBe(false);
+    expect(trustProxySetting("  ")).toBe(false);
+    expect(trustProxySetting("1")).toBe(1);
+    expect(trustProxySetting("2")).toBe(2);
+    expect(trustProxySetting("loopback, 172.16.0.0/12")).toBe(
+      "loopback, 172.16.0.0/12",
+    );
+  });
+});
+
 describe("failed-login limits", () => {
   const LIMITED = "Too many sign-in attempts. Try again in a minute.";
-  const attempt = async (credentials, ip) => {
-    const req = request(basic(credentials), ip);
+  const attempt = async (credentials, ip, trust) => {
+    const req = request(basic(credentials), ip, trust);
     const res = response();
     const next = jest.fn();
     await requireLogin(req, res, next);
     return { req, res, next };
   };
-  const fail = async (count, credentials, ip) => {
+  const fail = async (count, credentials, ip, trust) => {
     for (let i = 0; i < count; i += 1) {
-      const { res } = await attempt(credentials, ip);
+      const { res } = await attempt(credentials, ip, trust);
       expect(res.status).toHaveBeenCalledWith(401);
     }
   };
+  const usernames = (count) =>
+    Array.from({ length: count }, (_, i) => `user${i}:wrong-password-1`);
 
-  test("ten failures from one address answer 429 without hashing or a challenge", async () => {
-    await fail(10, "dana:wrong-password-1", "198.51.100.7");
+  // Without trust proxy every client is the edge nginx's address, so any
+  // limit would lock everyone out together.
+  test("the limiter is off without TRUST_PROXY", async () => {
+    for (const trust of [false, 0])
+      for (let i = 0; i < 50; i += 1) {
+        const { res } = await attempt(
+          "dana:wrong-password-1",
+          "10.0.0.2",
+          trust,
+        );
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.status).not.toHaveBeenCalledWith(429);
+      }
+  });
+
+  test("with TRUST_PROXY, one address is limited after 30 bad logins and others are not", async () => {
+    for (const credentials of usernames(30))
+      await fail(1, credentials, "198.51.100.7");
     users.authenticate.mockClear();
     // Another username from the same address is refused too.
     const { res, next } = await attempt("erin:any-password-1", "198.51.100.7");
     expect(res.status).toHaveBeenCalledWith(429);
     expect(res.send).toHaveBeenCalledWith(LIMITED);
+    expect(res.set).toHaveBeenCalledWith("Retry-After", "60");
     expect(res.set).not.toHaveBeenCalledWith("WWW-Authenticate", REALM);
     expect(users.authenticate).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
@@ -257,13 +295,40 @@ describe("failed-login limits", () => {
     expect(other.res.status).toHaveBeenCalledWith(401);
   });
 
-  test("ten failures on one username answer 429 from any address", async () => {
-    for (let i = 0; i < 10; i += 1)
-      await fail(1, "Dana:wrong-password-1", `198.51.100.${i + 10}`);
+  test("29 bad logins from one address with different usernames are not limited", async () => {
+    for (const credentials of usernames(29))
+      await fail(1, credentials, "198.51.100.7");
+    await fail(1, "erin:any-password-1", "198.51.100.7");
+  });
+
+  test("a stranger cannot lock out a username", async () => {
+    await fail(10, "nick:wrong-password-1", "198.51.100.7");
+    expect(
+      (await attempt("nick:wrong-password-1", "198.51.100.7")).res.status,
+    ).toHaveBeenCalledWith(429);
+    users.authenticate.mockResolvedValueOnce({
+      ...member,
+      username: "nick",
+      role: "owner",
+    });
+    const { req, next } = await attempt(
+      "nick:the-right-password",
+      "198.51.100.200",
+    );
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(req.user.username).toBe("nick");
+  });
+
+  test("the same address and username is limited after 10", async () => {
+    await fail(9, "Dana:wrong-password-1", "198.51.100.7");
+    await fail(1, " dana :wrong-password-2", "198.51.100.7");
     users.authenticate.mockClear();
-    const { res } = await attempt("dana:wrong-password-1", "198.51.100.99");
+    const { res } = await attempt("DANA:wrong-password-3", "198.51.100.7");
     expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.send).toHaveBeenCalledWith(LIMITED);
     expect(users.authenticate).not.toHaveBeenCalled();
+    // The same address can still try another username.
+    await fail(1, "erin:any-password-1", "198.51.100.7");
   });
 
   test("the limit rolls off after a minute", async () => {
@@ -284,14 +349,15 @@ describe("failed-login limits", () => {
 
   test("successful logins do not count", async () => {
     users.authenticate.mockResolvedValue({ ...member });
-    for (let i = 0; i < 20; i += 1) {
+    for (let i = 0; i < 40; i += 1) {
       const { next } = await attempt("dana:a-long-password-1", "198.51.100.7");
       expect(next).toHaveBeenCalledTimes(1);
     }
   });
 
   test("a signed-in person's cached login still passes while their address is limited", async () => {
-    await fail(10, "mallory:wrong-password-1", "198.51.100.7");
+    for (const credentials of usernames(30))
+      await fail(1, credentials, "198.51.100.7");
     users.isCachedLogin.mockImplementation(
       (username, password) =>
         username === "dana" && password === "a-long-password-1",
@@ -319,12 +385,24 @@ describe("failed-login limits", () => {
     console.error.mockRestore();
   });
 
+  test("each key's limit comes from its prefix", () => {
+    const { createLoginLimiter } = require("../src/loginLimiter");
+    const limiter = createLoginLimiter({ limits: { ip: 3, ipuser: 2 } });
+    limiter.fail(["ip:a", "ipuser:a|x"]);
+    limiter.fail(["ip:a", "ipuser:a|x"]);
+    expect(limiter.blocked(["ipuser:a|x"])).toBe(true);
+    expect(limiter.blocked(["ip:a"])).toBe(false);
+    limiter.fail(["ip:a", "ipuser:a|y"]);
+    expect(limiter.blocked(["ip:a"])).toBe(true);
+    expect(limiter.blocked(["ipuser:a|y"])).toBe(false);
+  });
+
   test("memory stays bounded: the oldest address is dropped past the cap", () => {
     const { createLoginLimiter } = require("../src/loginLimiter");
-    const limiter = createLoginLimiter({ max: 1, maxKeys: 3 });
-    for (const key of ["a", "b", "c", "d"]) limiter.fail([key]);
+    const limiter = createLoginLimiter({ limits: { ip: 1 }, maxKeys: 3 });
+    for (const key of ["ip:a", "ip:b", "ip:c", "ip:d"]) limiter.fail([key]);
     expect(limiter.size()).toBe(3);
-    expect(limiter.blocked(["a"])).toBe(false);
-    expect(limiter.blocked(["d"])).toBe(true);
+    expect(limiter.blocked(["ip:a"])).toBe(false);
+    expect(limiter.blocked(["ip:d"])).toBe(true);
   });
 });
