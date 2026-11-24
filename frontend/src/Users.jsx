@@ -12,10 +12,12 @@ const json = (body, method = "POST") => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
+const MISMATCH = "The passwords do not match.";
 const blank = {
   username: "",
   displayName: "",
   password: "",
+  confirm: "",
   role: "member",
   workspaceIds: [],
 };
@@ -46,6 +48,8 @@ function WorkspacePicker({ workspaces, value, onChange, disabled }) {
 
 function UserRow({ user, workspaces, busy, onPatch, onPassword }) {
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [mismatch, setMismatch] = useState(false);
   const [editing, setEditing] = useState(false);
   const [ids, setIds] = useState(user.workspaceIds);
   useEffect(() => setIds(user.workspaceIds), [user.workspaceIds]);
@@ -119,7 +123,12 @@ function UserRow({ user, workspaces, busy, onPatch, onPassword }) {
         className="settings-numbers"
         onSubmit={async (event) => {
           event.preventDefault();
-          if (await onPassword(user, password)) setPassword("");
+          if (password !== confirm) return setMismatch(true);
+          setMismatch(false);
+          if (await onPassword(user, password)) {
+            setPassword("");
+            setConfirm("");
+          }
         }}
       >
         <label>
@@ -132,6 +141,21 @@ function UserRow({ user, workspaces, busy, onPatch, onPassword }) {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
+        <label>
+          Confirm password
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            disabled={busy}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </label>
+        {mismatch && (
+          <p className="settings-error" role="alert">
+            {MISMATCH}
+          </p>
+        )}
         <button
           className="button button-light"
           disabled={busy || password.length < 12}
@@ -164,9 +188,10 @@ export default function Users({ workspaces, me }) {
     setError("");
     setNotice("");
     try {
-      await action();
+      // An action returns false when the list must not be reloaded.
+      const reload = (await action()) !== false;
       if (done) setNotice(done);
-      await load();
+      if (reload) await load();
       return true;
     } catch (err) {
       setError(err.message);
@@ -175,18 +200,27 @@ export default function Users({ workspaces, me }) {
       setBusy(false);
     }
   };
+  const [createMismatch, setCreateMismatch] = useState(false);
   const create = (event) => {
     event.preventDefault();
+    if (form.password !== form.confirm) return setCreateMismatch(true);
+    setCreateMismatch(false);
     return run(async () => {
-      const created = await request("/settings/users", json(form));
+      const body = { ...form };
+      delete body.confirm;
+      const created = await request("/settings/users", json(body));
       setForm({ ...blank });
       if (me?.bootstrap && created.role === "owner") {
         setNotice(
           `Sign in again as ${created.username}. The operator password stops working now.`,
         );
-        // The browser then asks for the new login.
+        // The operator login no longer works, so nothing is refetched with
+        // it (that would pop the login dialog before this is read); the
+        // reload then asks for the new login.
         setTimeout(() => window.location.reload(), 4000);
-      } else setNotice("User created.");
+        return false;
+      }
+      setNotice("User created.");
     });
   };
   const patch = (user, changes) =>
@@ -243,6 +277,21 @@ export default function Users({ workspaces, me }) {
             onChange={(e) => set({ password: e.target.value })}
           />
         </label>
+        <label>
+          Confirm password
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={form.confirm}
+            disabled={busy}
+            onChange={(e) => set({ confirm: e.target.value })}
+          />
+        </label>
+        {createMismatch && (
+          <p className="settings-error" role="alert">
+            {MISMATCH}
+          </p>
+        )}
         <label>
           Role
           <select

@@ -83,12 +83,23 @@ function NumberSettings({
         <select
           value={draft.handler}
           disabled={disabled}
-          onChange={(e) =>
+          onChange={(e) => {
+            const handler = e.target.value;
+            // Clearing Personal opens the line's history to members, so the
+            // owner confirms it; cancelling keeps the previous handler.
+            if (
+              handler === "ai_agent" &&
+              draft.personal &&
+              !window.confirm(
+                "This line stops being personal; its history becomes visible to members of this workspace.",
+              )
+            )
+              return;
             set({
-              handler: e.target.value,
-              ...(e.target.value === "ai_agent" ? { personal: false } : {}),
-            })
-          }
+              handler,
+              ...(handler === "ai_agent" ? { personal: false } : {}),
+            });
+          }}
         >
           <option value="softphone">Softphone</option>
           <option value="ai_agent">AI agent</option>
