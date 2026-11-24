@@ -132,6 +132,20 @@ test("restore saves a new revision and keeps the old ones", async () => {
   });
   const profile = await restoreRevision(ws, id, 7, "operator");
   expect(profile.greeting).toBe("Old");
+  const lookup = query.mock.calls.find(([sql]) =>
+    sql.includes("FROM agent_profile_revisions"),
+  );
+  expect(lookup[0]).toContain("JOIN agent_profiles");
+  expect(lookup[0]).toContain("p.workspace_id = $1");
+  expect(lookup[0]).toContain("p.id = $2");
+  expect(lookup[0]).toContain("r.id = $3");
+  expect(lookup[1]).toEqual([ws, id, 7]);
+  const update = query.mock.calls.find(([sql]) =>
+    sql.includes("UPDATE agent_profiles"),
+  );
+  expect(update[0]).toContain("workspace_id = $1");
+  expect(update[1].slice(0, 2)).toEqual([ws, id]);
+  expect(update[1]).toContain("Old");
   const s = sqls(query);
   expect(s.some((q) => q.includes("INSERT INTO agent_profile_revisions"))).toBe(
     true,
@@ -147,6 +161,13 @@ test("profiles from another workspace are not found", async () => {
   ).rejects.toThrow("Agent does not exist.");
   expect(sqls(query)).toContain("ROLLBACK");
   expect(sqls(query).some((q) => q.includes("INSERT"))).toBe(false);
+  const update = query.mock.calls.find(([sql]) =>
+    sql.includes("UPDATE agent_profiles"),
+  );
+  expect(update[0]).toContain("workspace_id = $1");
+  expect(update[0]).toContain("id = $2");
+  expect(update[1][0]).toBe(other);
+  expect(update[1][1]).toBe(id);
 });
 
 test("setDefault clears the old default first", async () => {

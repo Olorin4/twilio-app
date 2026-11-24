@@ -167,6 +167,39 @@ suite("Agent profiles schema against PostgreSQL", () => {
     expect(revisions.rows).toEqual([{ saved_by: "import" }]);
   });
 
+  test("restoring an earlier revision keeps history; other workspaces change nothing", async () => {
+    const {
+      updateProfile,
+      listRevisions,
+      restoreRevision,
+      getProfile,
+    } = require("../src/agentProfiles");
+    const [{ id }] = (
+      await pool.query(
+        "SELECT id FROM agent_profiles WHERE workspace_id = $1 AND is_default",
+        [workspace],
+      )
+    ).rows;
+    const original = (await getProfile(id)).greeting;
+    await updateProfile(workspace, id, { greeting: "Edited" }, "operator");
+    const before = await listRevisions(workspace, id);
+    expect(before).toHaveLength(2);
+    const first = before[before.length - 1];
+    const restored = await restoreRevision(workspace, id, first.id, "operator");
+    expect(restored.greeting).toBe(original);
+    expect((await getProfile(id)).greeting).toBe(original);
+    expect(await listRevisions(workspace, id)).toHaveLength(3);
+
+    await expect(
+      updateProfile(otherWorkspace, id, { greeting: "Hijack" }, "operator"),
+    ).rejects.toThrow("Agent does not exist.");
+    await expect(
+      restoreRevision(otherWorkspace, id, first.id, "operator"),
+    ).rejects.toThrow("Revision does not exist.");
+    expect((await getProfile(id)).greeting).toBe(original);
+    expect(await listRevisions(workspace, id)).toHaveLength(3);
+  });
+
   test("profile fields are capped", async () => {
     expect(
       await code(
