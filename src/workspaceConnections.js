@@ -585,6 +585,7 @@ async function createConnection(workspaceId, name, credentials, options = {}) {
 }
 
 module.exports = {
+  inTransaction,
   listWorkspaces,
   listVoiceTargets,
   createWorkspace,

@@ -1,4 +1,10 @@
 // Use a throwaway database with a name ending in _test.
+// seedJack uses src/db; point it at the scratch database, never at DB_URL.
+jest.mock("../src/db", () => {
+  const { Pool } = require("pg");
+  return new Pool({ connectionString: process.env.TEST_DB_URL });
+});
+jest.mock("../src/twilioConnectionValidation", () => ({}));
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
@@ -75,6 +81,7 @@ suite("Agent profiles schema against PostgreSQL", () => {
 
   afterAll(async () => {
     if (pool) await pool.end();
+    if (enabled) await require("../src/db").end();
   });
 
   test("connection numbers default to the softphone with hours observed", async () => {
@@ -109,9 +116,13 @@ suite("Agent profiles schema against PostgreSQL", () => {
         }),
       ),
     ).toBe("23505");
-    await insertProfile("00000000-0000-4000-8000-000000000007", otherWorkspace, {
-      is_default: true,
-    });
+    await insertProfile(
+      "00000000-0000-4000-8000-000000000007",
+      otherWorkspace,
+      {
+        is_default: true,
+      },
+    );
   });
 
   test("new outcomes are accepted and unknown ones are not", async () => {
@@ -131,6 +142,29 @@ suite("Agent profiles schema against PostgreSQL", () => {
       await insert("CA" + outcome, outcome);
     }
     expect(await code(insert("CAbogus", "bogus"))).toBe("23514");
+  });
+
+  test("seedJack creates one default profile and is rerunnable", async () => {
+    const { seedJack } = require("../src/agentProfiles");
+    await pool.query("DELETE FROM agent_profiles WHERE workspace_id = $1", [
+      workspace,
+    ]);
+    expect(await seedJack()).toEqual({ created: true });
+    expect(await seedJack()).toEqual({ created: false });
+    const profiles = await pool.query(
+      "SELECT id, kind, is_default FROM agent_profiles WHERE workspace_id = $1",
+      [workspace],
+    );
+    expect(profiles.rows).toHaveLength(1);
+    expect(profiles.rows[0]).toMatchObject({
+      kind: "receptionist",
+      is_default: true,
+    });
+    const revisions = await pool.query(
+      "SELECT saved_by FROM agent_profile_revisions WHERE profile_id = $1",
+      [profiles.rows[0].id],
+    );
+    expect(revisions.rows).toEqual([{ saved_by: "import" }]);
   });
 
   test("profile fields are capped", async () => {
