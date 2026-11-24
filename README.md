@@ -378,6 +378,22 @@ scratch Postgres on port 55433:
       AGENT_PROFILES_PG_TEST=1 USERS_PG_TEST=1 RINGING_PG_TEST=1 \
       CALL_ASSIST_PG_TEST=1 OUTREACH_INTAKE_PG_TEST=1 npx jest --runInBand
 
+### Contact timeline and screen pop
+
+`GET /contacts/:phone/timeline` (E.164 numbers only, 20 items a page, at most
+50) returns one list for a number, newest first, merging calls, texts, AI agent
+calls and Live Assist sessions. A call session appears only when it used Live
+Assist or has notes or an outcome. It follows the same visibility rules as
+history, so a user sees only what they could already see there.
+
+**History** opens the timeline from contact rows, call rows, the conversation
+header and lead cards. **Open** on an AI agent call opens the Leads view; on a
+Live Assist session it opens that call's details.
+
+When a call rings, the softphone shows `<name> · Last: <summary> · <relative
+time>` under the number. It reads the call's own workspace, skips the ringing
+call itself, never delays ringing and fails silently.
+
 ### Users, login and recovery
 
 People sign in with a username and password. Settings and Users are
@@ -416,11 +432,18 @@ database you mean. A CLI password reset, and any disable or role change made in 
 take effect on the running server immediately, because the server re-checks the
 user's row on every cached login.
 
-#### Deploy order (after 2a and 2b)
+#### Deploy order (Phase 2: 2a, 2b and 2c)
 
-Migration 013, the 013 seed (with production's `RECEPTIONIST_DAILY_LIMIT`),
-migration 014, then deploy the code, then the cutover steps above. Production
-runs happen only after Phase 2c also lands, and only with the owner's go-ahead.
+1. Migration 013.
+2. The 013 seed, with production's `RECEPTIONIST_DAILY_LIMIT`.
+3. Migration 014.
+4. Set `TRUST_PROXY` and confirm `TWILIO_IDENTITY` (see the checks below).
+5. Deploy the code.
+6. The owner cutover (Settings -> Users, steps above).
+7. A test call.
+
+Every production step needs the owner's go-ahead; deployment is on hold until
+Phase 2c has landed.
 
 Before deploying, check:
 
