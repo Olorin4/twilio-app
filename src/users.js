@@ -105,20 +105,29 @@ const USER_SELECT = `
   FROM app_users u
   LEFT JOIN workspace_members m ON m.user_id = u.id`;
 
-// Auth cache: sha256(username:password) -> { user, expires }. The plain
-// password is never stored.
+// Auth cache: sha256(username:password) -> { user, hash, expires }. The plain
+// password is never stored. Every hit is re-checked against the user's row, so
+// a password reset, disable or role change made in another process (the admin
+// script) is honoured at once. `generation` stops a login that started before
+// clearAuthCache from caching its stale snapshot.
 const cache = new Map();
+let generation = 0;
 const cacheKey = (username, password) =>
   crypto.createHash("sha256").update(`${username}:${password}`).digest("hex");
 function clearAuthCache() {
+  generation += 1;
   cache.clear();
 }
+const copyUser = (user) => ({ ...user, workspaceIds: [...user.workspaceIds] });
 
 let dummyHash;
 async function burnTime(password) {
   dummyHash ||= await hashPassword("not a real password");
   await verifyPassword(password, dummyHash);
 }
+
+const lowerId = (id) =>
+  uuidPattern.test(String(id)) ? String(id).toLowerCase() : null;
 
 async function authenticate(username, password) {
   let name;
@@ -131,9 +140,31 @@ async function authenticate(username, password) {
     return null;
   const key = cacheKey(name, password);
   const hit = cache.get(key);
-  if (hit && hit.expires > Date.now()) return { ...hit.user };
+  if (hit && hit.expires > Date.now()) {
+    let current;
+    try {
+      const { rows } = await pool.query(
+        `${USER_SELECT.replace("SELECT u.id,", "SELECT u.password_hash, u.id,")}
+         WHERE u.id = $1 GROUP BY u.id`,
+        [hit.user.id],
+      );
+      current = rows[0];
+    } catch {
+      return null; // fail closed
+    }
+    if (
+      current &&
+      current.enabled &&
+      current.password_hash === hit.hash &&
+      current.role === hit.user.role
+    ) {
+      hit.user.workspaceIds = toUser(current).workspaceIds;
+      return copyUser(hit.user);
+    }
+  }
   cache.delete(key);
 
+  const started = generation;
   const { rows } = await pool.query(
     `${USER_SELECT.replace("SELECT u.id,", "SELECT u.password_hash, u.id,")}
      WHERE u.username = $1 GROUP BY u.id`,
@@ -150,8 +181,13 @@ async function authenticate(username, password) {
     row.id,
   ]);
   const user = toUser(row);
-  cache.set(key, { user, expires: Date.now() + CACHE_MS });
-  return { ...user };
+  if (started === generation)
+    cache.set(key, {
+      user,
+      hash: row.password_hash,
+      expires: Date.now() + CACHE_MS,
+    });
+  return copyUser(user);
 }
 
 async function hasEnabledOwner() {
@@ -228,7 +264,8 @@ async function createUser({
 }
 
 async function updateUser(id, changes = {}) {
-  if (!uuidPattern.test(String(id))) throw new Error("User does not exist.");
+  id = lowerId(id);
+  if (!id) throw new Error("User does not exist.");
   if (changes.role !== undefined) checkRole(changes.role);
   if (changes.enabled !== undefined && typeof changes.enabled !== "boolean")
     throw new Error("Enabled must be true or false.");
@@ -281,6 +318,8 @@ async function updateUser(id, changes = {}) {
 }
 
 async function setPassword(id, password) {
+  id = lowerId(id);
+  if (!id) throw new Error("User does not exist.");
   checkPassword(password);
   const hash = await hashPassword(password);
   const result = await pool.query(

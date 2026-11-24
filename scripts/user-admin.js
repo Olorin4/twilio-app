@@ -1,13 +1,17 @@
-/* Command-line recovery that needs no login:
-     USER_PASSWORD=... npm run users -- create-owner <username>
-     USER_PASSWORD=... npm run users -- reset-password <username>
-The password comes only from the environment; nothing secret is printed. */
+/* Command-line recovery that needs no login. Set the password without
+leaving it in shell history:
+     read -rs USER_PASSWORD; export USER_PASSWORD
+     npm run users -- create-owner <username>
+     npm run users -- reset-password <username>
+The password comes only from the environment; nothing secret is printed. A
+running server re-checks the password hash on every login, so a reset takes
+effect there immediately. */
 require("dotenv").config({ quiet: true });
 const pool = require("../src/db");
 const users = require("../src/users");
 
 const USAGE =
-  "Usage: USER_PASSWORD=... npm run users -- create-owner|reset-password <username>";
+  "Usage: read -rs USER_PASSWORD; export USER_PASSWORD; npm run users -- create-owner|reset-password <username>";
 
 async function main() {
   if (!process.env.DB_URL) throw new Error("DB_URL is required.");
@@ -29,7 +33,6 @@ async function main() {
   );
   if (!rows[0]) throw new Error("User does not exist.");
   await users.setPassword(rows[0].id, password);
-  users.clearAuthCache();
   console.log(`Password for ${username} reset.`);
 }
 main()

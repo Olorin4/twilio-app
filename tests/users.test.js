@@ -75,14 +75,22 @@ describe("authenticate", () => {
   });
   const rowWithHash = (over) => ({ ...dbRow(over), password_hash: hash });
 
-  test("caches success for 5 minutes and clearAuthCache drops it", async () => {
+  // Answers the login lookup (by username) and the hit re-check (by id).
+  const serve = (getRow) =>
+    pool.query.mockImplementation(async (sql) =>
+      /FROM app_users/.test(sql) && /SELECT/.test(sql)
+        ? { rows: [getRow()] }
+        : { rows: [] },
+    );
+  const scrypts = () => {
+    const spy = jest.spyOn(require("crypto"), "scrypt");
+    return spy;
+  };
+
+  test("caches success for 5 minutes, re-checking the row on a hit", async () => {
     jest.useFakeTimers();
     try {
-      pool.query.mockImplementation(async (sql) =>
-        /FROM app_users/.test(sql) && /SELECT/.test(sql)
-          ? { rows: [rowWithHash()] }
-          : { rows: [] },
-      );
+      serve(() => rowWithHash());
       const first = await users.authenticate("Nick", password);
       expect(first).toEqual({
         id: UID,
@@ -93,32 +101,96 @@ describe("authenticate", () => {
         workspaceIds: [],
       });
       expect(first.passwordHash).toBeUndefined();
-      const callsAfterFirst = pool.query.mock.calls.length;
-      expect(callsAfterFirst).toBeGreaterThan(0);
-      expect(
+      const updates = () =>
         pool.query.mock.calls.filter(
           ([s]) => /last_login_at/.test(s) && /UPDATE/.test(s),
-        ),
-      ).toHaveLength(1);
+        ).length;
+      expect(updates()).toBe(1);
 
+      pool.query.mockClear();
+      const spy = scrypts();
+      const second = await users.authenticate("nick", password);
+      expect(second).toEqual(first);
+      expect(second.workspaceIds).not.toBe(first.workspaceIds);
+      expect(spy).not.toHaveBeenCalled(); // no scrypt on a hit
+      spy.mockRestore();
+      expect(pool.query).toHaveBeenCalledTimes(1);
+      expect(pool.query.mock.calls[0][1]).toEqual([UID]);
+      expect(updates()).toBe(0);
+
+      jest.advanceTimersByTime(6 * 60 * 1000);
+      pool.query.mockClear();
       await users.authenticate("nick", password);
-      expect(pool.query.mock.calls.length).toBe(callsAfterFirst);
+      expect(updates()).toBe(1);
 
-      jest.advanceTimersByTime(4 * 60 * 1000);
-      await users.authenticate("nick", password);
-      expect(pool.query.mock.calls.length).toBe(callsAfterFirst);
-
-      jest.advanceTimersByTime(2 * 60 * 1000);
-      await users.authenticate("nick", password);
-      expect(pool.query.mock.calls.length).toBeGreaterThan(callsAfterFirst);
-
-      const before = pool.query.mock.calls.length;
+      pool.query.mockClear();
       users.clearAuthCache();
       await users.authenticate("nick", password);
-      expect(pool.query.mock.calls.length).toBeGreaterThan(before);
+      expect(updates()).toBe(1);
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  test("a hit refreshes workspace ids from the row", async () => {
+    let row = rowWithHash();
+    serve(() => row);
+    await users.authenticate("nick", password);
+    row = rowWithHash({ workspace_ids: ["w9"] });
+    expect((await users.authenticate("nick", password)).workspaceIds).toEqual([
+      "w9",
+    ]);
+  });
+
+  test("a password reset in another process is honoured", async () => {
+    let row = rowWithHash();
+    serve(() => row);
+    await users.authenticate("nick", password);
+    row = {
+      ...rowWithHash(),
+      password_hash: await users.hashPassword("brand new password"),
+    };
+    expect(await users.authenticate("nick", password)).toBeNull();
+    expect(
+      await users.authenticate("nick", "brand new password"),
+    ).not.toBeNull();
+  });
+
+  test("a disable in another process is honoured", async () => {
+    let row = rowWithHash();
+    serve(() => row);
+    await users.authenticate("nick", password);
+    row = rowWithHash({ enabled: false });
+    expect(await users.authenticate("nick", password)).toBeNull();
+  });
+
+  test("a role change in another process is honoured", async () => {
+    let row = rowWithHash();
+    serve(() => row);
+    await users.authenticate("nick", password);
+    row = rowWithHash({ role: "member" });
+    expect((await users.authenticate("nick", password)).role).toBe("member");
+  });
+
+  test("a database error on the hit check returns null", async () => {
+    serve(() => rowWithHash());
+    await users.authenticate("nick", password);
+    pool.query.mockRejectedValue(new Error("db down"));
+    expect(await users.authenticate("nick", password)).toBeNull();
+  });
+
+  test("a login that started before clearAuthCache is not cached", async () => {
+    let first = true;
+    serve(() => {
+      if (first) users.clearAuthCache(); // a commit lands mid-login
+      first = false;
+      return rowWithHash();
+    });
+    await users.authenticate("nick", password);
+    pool.query.mockClear();
+    await users.authenticate("nick", password);
+    // Not a hit: a full lookup by username ran again.
+    expect(pool.query.mock.calls[0][1]).toEqual(["nick"]);
   });
 
   test("wrong password, unknown user and bad username return null", async () => {
@@ -226,4 +298,24 @@ test("setPassword rejects a short password and an unknown user", async () => {
   await expect(users.setPassword(UID, "correct horse battery")).rejects.toThrow(
     "User does not exist.",
   );
+});
+
+test("an uppercase id cannot bypass the last-owner guard", async () => {
+  const { calls } = mockClient((sql) => {
+    if (/FOR UPDATE/.test(sql) && /role = 'owner'/.test(sql))
+      return { rows: [{ id: UID }] };
+    if (/FROM app_users/.test(sql)) return { rows: [dbRow()] };
+  });
+  await expect(
+    users.updateUser(UID.toUpperCase(), { enabled: false }),
+  ).rejects.toThrow("Keep at least one enabled owner.");
+  expect(calls).toContain("ROLLBACK");
+});
+
+test("setPassword and getUser reject malformed ids cleanly", async () => {
+  await expect(
+    users.setPassword("nope", "correct horse battery"),
+  ).rejects.toThrow("User does not exist.");
+  expect(await users.getUser("nope")).toBeNull();
+  expect(pool.query).not.toHaveBeenCalled();
 });
