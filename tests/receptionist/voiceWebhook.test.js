@@ -60,6 +60,11 @@ beforeAll(async () => {
   jest.spyOn(console, "log").mockImplementation(() => {});
   const app = express();
   app.use(bodyParser.urlencoded({ extended: false }));
+  // index.js signs non-webhook requests in; stand in for a signed-in owner.
+  app.use((req, res, next) => {
+    req.user = { id: null, role: "owner", bootstrap: true, workspaceIds: [] };
+    next();
+  });
   app.use(require("../../src/router"));
   server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

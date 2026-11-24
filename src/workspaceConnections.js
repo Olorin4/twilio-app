@@ -10,31 +10,50 @@ const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function listWorkspaces() {
+// The user must be signed in; members see only workspaces they belong to.
+function listScope(user) {
+  if (!user) throw new Error("A signed-in user is required.");
+  if (user.role === "owner") return null;
+  if (user.role !== "member" || !user.id)
+    throw new Error("A signed-in user is required.");
+  return user.id;
+}
+
+async function listWorkspaces(user) {
+  const memberId = listScope(user);
+  const params = [IRON_WING_WORKSPACE_ID, process.env.TWILIO_CALLER_ID || null];
+  if (memberId) params.push(memberId);
   const result = await pool.query(
     `SELECT w.id, w.name, w.created_at, n.id AS active_number_id,
       c.id AS active_connection_id, COALESCE(n.phone_number, CASE WHEN w.id = $1::uuid THEN $2::text ELSE NULL END) AS active_phone,
       n.voice_enabled AS active_voice_enabled, n.sms_enabled AS active_sms_enabled
-     FROM workspaces w LEFT JOIN workspace_active_numbers a ON a.workspace_id = w.id
+     FROM workspaces w
+     ${memberId ? "JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = $3" : ""}
+     LEFT JOIN workspace_active_numbers a ON a.workspace_id = w.id
      LEFT JOIN connection_numbers n ON n.id = a.connection_number_id
      LEFT JOIN provider_connections c ON c.id = n.connection_id AND c.workspace_id = w.id
      WHERE w.archived_at IS NULL
      ORDER BY lower(w.name), w.id`,
-    [IRON_WING_WORKSPACE_ID, process.env.TWILIO_CALLER_ID || null],
+    params,
   );
   return result.rows;
 }
-async function listVoiceTargets() {
-  const result =
-    await pool.query(`SELECT DISTINCT ON (c.id) c.id AS connection_id, w.id AS workspace_id, w.name AS workspace_name,
+async function listVoiceTargets(user) {
+  const memberId = listScope(user);
+  const result = await pool.query(
+    `SELECT DISTINCT ON (c.id) c.id AS connection_id, w.id AS workspace_id, w.name AS workspace_name,
       n.id AS number_id, n.phone_number
     FROM provider_connections c JOIN workspaces w ON w.id = c.workspace_id
+    ${memberId ? "JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = $1" : ""}
     JOIN connection_numbers n ON n.connection_id = c.id
     LEFT JOIN workspace_active_numbers a ON a.workspace_id = w.id
     WHERE n.voice_enabled = true AND w.archived_at IS NULL
-    ORDER BY c.id, (a.connection_number_id = n.id) DESC NULLS LAST, n.id`);
+    ORDER BY c.id, (a.connection_number_id = n.id) DESC NULLS LAST, n.id`,
+    memberId ? [memberId] : [],
+  );
   const targets = result.rows;
-  if (process.env.TWILIO_CALLER_ID) {
+  // The legacy number is owners only.
+  if (!memberId && process.env.TWILIO_CALLER_ID) {
     const iron = await pool.query("SELECT name FROM workspaces WHERE id = $1", [
       IRON_WING_WORKSPACE_ID,
     ]);

@@ -12,9 +12,15 @@ const { requireLogin, isTwilioWebhook } = require("./src/security");
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (isTwilioWebhook(req)) return next();
-  return requireLogin(req, res, next);
+  try {
+    return await requireLogin(req, res, next);
+  } catch (error) {
+    // Fail closed: a login that could not be checked never reaches next().
+    console.error("Login middleware failed:", error.message);
+    if (!res.headersSent) res.status(503).send("App login is unavailable.");
+  }
 });
 app.use(express.static(path.join(__dirname, "dist")));
 app.use(router);

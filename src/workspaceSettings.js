@@ -39,7 +39,22 @@ const {
   config: callAssistConfig,
   available: callAssistAvailable,
 } = require("./callAssist/config");
+const { requireOwner } = require("./security");
 const router = Router();
+
+// Everything under /settings is owner-only except these reads, which members
+// need to pick a workspace, register their phone and see assistant state.
+const MEMBER_READS = new Set([
+  "GET /workspaces",
+  "GET /voice-targets",
+  "GET /assist",
+]);
+router.use((req, res, next) =>
+  MEMBER_READS.has(`${req.method} ${req.path}`)
+    ? next()
+    : requireOwner(req, res, next),
+);
+
 router.get("/config", (req, res) =>
   res.json({
     webhookBaseUrl: (process.env.TWILIO_WEBHOOK_BASE_URL || "").replace(
@@ -180,14 +195,14 @@ router.patch(
 
 router.get("/workspaces", async (req, res) => {
   try {
-    return res.json(await listWorkspaces());
+    return res.json(await listWorkspaces(req.user));
   } catch (error) {
     return publicError(res, error);
   }
 });
 router.get("/voice-targets", async (req, res) => {
   try {
-    return res.json(await listVoiceTargets());
+    return res.json(await listVoiceTargets(req.user));
   } catch (error) {
     return publicError(res, error);
   }

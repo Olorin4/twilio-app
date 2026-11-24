@@ -191,6 +191,19 @@ router.use("/call-assist", require("./callAssist/routes"));
 
 router.get("/", (req, res) => res.send("Twilio VoIP API is running!"));
 
+// The signed-in user, for the browser to tailor what it shows.
+router.get("/me", (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: "Authentication required." });
+  return res.json({
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    role: user.role,
+    bootstrap: user.bootstrap === true,
+  });
+});
+
 // Webhook for generating an Access Token
 router.get("/token", async (req, res) => {
   try {

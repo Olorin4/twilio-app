@@ -1,5 +1,12 @@
+jest.mock("../src/db", () => ({ query: jest.fn() }));
 jest.mock("../src/workspaceConnections", () => ({
   updateNumberSettings: jest.fn(),
+  listWorkspaces: jest.fn(),
+  listVoiceTargets: jest.fn(),
+}));
+jest.mock("../src/assistantSettings", () => ({
+  getAssistantSettings: jest.fn(),
+  updateAssistantSettings: jest.fn(),
 }));
 jest.mock("../src/agentProfiles", () => ({
   listProfiles: jest.fn(),
@@ -14,6 +21,9 @@ const router = require("../src/workspaceSettings");
 const { requireSettingsWrite } = router;
 const profiles = require("../src/agentProfiles");
 const connections = require("../src/workspaceConnections");
+const assistantSettings = require("../src/assistantSettings");
+const pool = require("../src/db");
+const express = require("express");
 const originalBase = process.env.TWILIO_WEBHOOK_BASE_URL;
 const originalOrigin = process.env.APP_ORIGIN;
 const response = () => ({
@@ -61,6 +71,7 @@ function handlerFor(method, path) {
   return layer.route.stack[layer.route.stack.length - 1].handle;
 }
 const WS = "00000000-0000-0000-0000-000000000001";
+const OWNER = { id: "o1", username: "olive", role: "owner", workspaceIds: [] };
 const ROUTES = [
   ["get", "/workspaces/:workspaceId/agents", profiles.listProfiles, {}],
   ["post", "/workspaces/:workspaceId/agents", profiles.createProfile, {}],
@@ -110,14 +121,20 @@ test.each(ROUTES)(
     for (const message of known) {
       store.mockRejectedValueOnce(new Error(message));
       const res = response();
-      await handler({ params: { workspaceId: WS, ...extra }, body: {} }, res);
+      await handler(
+        { user: OWNER, params: { workspaceId: WS, ...extra }, body: {} },
+        res,
+      );
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: message });
     }
     jest.spyOn(console, "error").mockImplementation(() => {});
     store.mockRejectedValueOnce(new Error("connection refused 10.0.0.1"));
     const res = response();
-    await handler({ params: { workspaceId: WS, ...extra }, body: {} }, res);
+    await handler(
+      { user: OWNER, params: { workspaceId: WS, ...extra }, body: {} },
+      res,
+    );
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith({
       error: "Could not update workspace settings.",
@@ -129,7 +146,11 @@ test("agent writes pass savedBy operator and number settings pass the body", asy
   profiles.createProfile.mockResolvedValueOnce({ id: "a" });
   let res = response();
   await handlerFor("post", "/workspaces/:workspaceId/agents")(
-    { params: { workspaceId: WS }, body: { name: "x", kind: "support" } },
+    {
+      user: OWNER,
+      params: { workspaceId: WS },
+      body: { name: "x", kind: "support" },
+    },
     res,
   );
   expect(profiles.createProfile).toHaveBeenCalledWith(
@@ -142,6 +163,7 @@ test("agent writes pass savedBy operator and number settings pass the body", asy
   res = response();
   await handlerFor("patch", "/workspaces/:workspaceId/numbers/:numberId")(
     {
+      user: OWNER,
       params: { workspaceId: WS, numberId: "n" },
       body: { handler: "ai_agent", agentProfileId: "a", label: "Sales" },
     },
@@ -152,5 +174,120 @@ test("agent writes pass savedBy operator and number settings pass the body", asy
     agentProfileId: "a",
     label: "Sales",
     observeHours: undefined,
+  });
+});
+
+// Every /settings route is owner-only except three reads members need.
+const MEMBER_READS = ["GET /workspaces", "GET /voice-targets", "GET /assist"];
+const MEMBER_WS = "00000000-0000-4000-8000-000000000002";
+const MEMBER = {
+  id: "11111111-1111-4111-8111-111111111111",
+  username: "dana",
+  role: "member",
+  workspaceIds: [MEMBER_WS],
+};
+describe("over HTTP", () => {
+  let server, base;
+  beforeAll(async () => {
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => {
+      req.user = req.get("X-Test-Role") === "owner" ? OWNER : MEMBER;
+      next();
+    });
+    app.use("/settings", router);
+    await new Promise((resolve) => {
+      server = app.listen(0, "127.0.0.1", resolve);
+    });
+    base = `http://127.0.0.1:${server.address().port}/settings`;
+  });
+  afterAll(() => new Promise((resolve) => server.close(resolve)));
+  const routes = router.stack
+    .filter((layer) => layer.route)
+    .flatMap((layer) =>
+      Object.keys(layer.route.methods).map((method) => [
+        method.toUpperCase(),
+        layer.route.path,
+      ]),
+    );
+  const call = (method, path, role) =>
+    fetch(base + path.replace(/:\w+/g, MEMBER_WS), {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://example.com",
+        "X-Workspace-Id": MEMBER_WS,
+        "X-Test-Role": role,
+      },
+      body: method === "GET" ? undefined : "{}",
+    });
+
+  test("the route table covers settings reads and writes", () => {
+    expect(routes.length).toBeGreaterThan(20);
+    for (const read of MEMBER_READS)
+      expect(routes.map(([m, p]) => `${m} ${p}`)).toContain(read);
+  });
+
+  const isMemberRead = ([method, path]) =>
+    MEMBER_READS.includes(`${method} ${path}`);
+  const mockReads = () => {
+    pool.query.mockResolvedValue({ rows: [{ id: MEMBER_WS, name: "Other" }] });
+    connections.listWorkspaces.mockResolvedValue([]);
+    connections.listVoiceTargets.mockResolvedValue([]);
+    assistantSettings.getAssistantSettings.mockResolvedValue({});
+  };
+  const OWNER_ONLY = { error: "Only an owner can change settings." };
+
+  test.each(routes.filter((r) => !isMemberRead(r)))(
+    "members get 403 on settings except the three reads: %s %s",
+    async (method, path) => {
+      const res = await call(method, path, "member");
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual(OWNER_ONLY);
+    },
+  );
+
+  test.each(routes.filter(isMemberRead))(
+    "members may use the read %s %s",
+    async (method, path) => {
+      mockReads();
+      const res = await call(method, path, "member");
+      expect(res.status).toBe(200);
+    },
+  );
+
+  test.each(routes)(
+    "owners pass the owner check: %s %s",
+    async (method, path) => {
+      jest.spyOn(console, "error").mockImplementation(() => {});
+      mockReads();
+      const res = await call(method, path, "owner");
+      const body = await res.json().catch(() => null);
+      expect(body).not.toEqual(OWNER_ONLY);
+      console.error.mockRestore();
+    },
+  );
+
+  test("member reads are scoped to the signed-in user", async () => {
+    connections.listWorkspaces.mockResolvedValue([{ id: MEMBER_WS }]);
+    connections.listVoiceTargets.mockResolvedValue([]);
+    await call("GET", "/workspaces", "member");
+    await call("GET", "/voice-targets", "member");
+    expect(connections.listWorkspaces).toHaveBeenLastCalledWith(MEMBER);
+    expect(connections.listVoiceTargets).toHaveBeenLastCalledWith(MEMBER);
+  });
+
+  test("owner-only applies to method variants and unknown paths too", async () => {
+    for (const [method, path] of [
+      ["HEAD", "/connections"],
+      ["GET", "/nope"],
+      ["POST", "/assist"],
+    ]) {
+      const res = await fetch(base + path, {
+        method,
+        headers: { "X-Test-Role": "member" },
+      });
+      expect(res.status).toBe(403);
+    }
   });
 });

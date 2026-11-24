@@ -221,12 +221,69 @@ test("archiving rejects bad ids and missing or already archived workspaces", asy
     "Workspace does not exist.",
   );
 });
+const listOwner = { id: "o1", role: "owner", workspaceIds: [] };
+const listMember = {
+  id: "11111111-1111-4111-8111-111111111111",
+  role: "member",
+  workspaceIds: [otherId],
+};
 test("archived workspaces are left out of lists and voice targets", async () => {
   pool.query.mockResolvedValue({ rows: [] });
-  await listWorkspaces();
-  await listVoiceTargets();
+  await listWorkspaces(listOwner);
+  await listVoiceTargets(listOwner);
   expect(pool.query.mock.calls[0][0]).toContain("w.archived_at IS NULL");
   expect(pool.query.mock.calls[1][0]).toContain("w.archived_at IS NULL");
+});
+
+test("workspace lists are filtered for members", async () => {
+  process.env.TWILIO_CALLER_ID = "+15550009999";
+  pool.query.mockResolvedValue({ rows: [{ name: "Iron Wing" }] });
+  await listWorkspaces(listMember);
+  let [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(
+    /JOIN workspace_members \w+ ON \w+\.workspace_id = w\.id AND \w+\.user_id = \$3/,
+  );
+  expect(params[2]).toBe(listMember.id);
+
+  pool.query.mockClear();
+  pool.query.mockResolvedValue({ rows: [] });
+  const targets = await listVoiceTargets(listMember);
+  [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(
+    /JOIN workspace_members \w+ ON \w+\.workspace_id = w\.id AND \w+\.user_id = \$1/,
+  );
+  expect(params).toEqual([listMember.id]);
+  // The legacy number is owners only.
+  expect(targets.some((t) => t.connection_id === "legacy")).toBe(false);
+  if (originalCaller === undefined) delete process.env.TWILIO_CALLER_ID;
+  else process.env.TWILIO_CALLER_ID = originalCaller;
+});
+
+test("owners list every workspace without a membership join", async () => {
+  process.env.TWILIO_CALLER_ID = "+15550009999";
+  pool.query.mockResolvedValue({ rows: [{ name: "Iron Wing" }] });
+  for (const user of [
+    listOwner,
+    { id: null, role: "owner", bootstrap: true, workspaceIds: [] },
+  ]) {
+    pool.query.mockClear();
+    await listWorkspaces(user);
+    expect(pool.query.mock.calls[0][0]).not.toContain("workspace_members");
+    pool.query.mockClear();
+    const targets = await listVoiceTargets(user);
+    expect(pool.query.mock.calls[0][0]).not.toContain("workspace_members");
+    expect(targets.some((t) => t.connection_id === "legacy")).toBe(true);
+  }
+  if (originalCaller === undefined) delete process.env.TWILIO_CALLER_ID;
+  else process.env.TWILIO_CALLER_ID = originalCaller;
+});
+
+test("workspace lists fail closed without a user", async () => {
+  pool.query.mockResolvedValue({ rows: [] });
+  await expect(listWorkspaces()).rejects.toThrow();
+  await expect(listVoiceTargets()).rejects.toThrow();
+  await expect(listWorkspaces({ role: "member" })).rejects.toThrow();
+  expect(pool.query).not.toHaveBeenCalled();
 });
 
 test("archiving also frees the workspace's numbers in the same statement", async () => {
@@ -382,7 +439,12 @@ const settingsHandlers = (profileRows = [{ id: profileId }]) => [
     "FROM connection_numbers n",
     {
       rows: [
-        { id: numberId, handler: "softphone", label: "Old", observe_hours: true },
+        {
+          id: numberId,
+          handler: "softphone",
+          label: "Old",
+          observe_hours: true,
+        },
       ],
     },
   ],
@@ -501,6 +563,11 @@ test("listConnections numbers carry handler, agent, label and hours", async () =
     .mockResolvedValueOnce({ rows: [] });
   await listConnections(workspaceId);
   const sql = pool.query.mock.calls[1][0];
-  for (const column of ["handler", "agent_profile_id", "label", "observe_hours"])
+  for (const column of [
+    "handler",
+    "agent_profile_id",
+    "label",
+    "observe_hours",
+  ])
     expect(sql).toContain(`n.${column}`);
 });
