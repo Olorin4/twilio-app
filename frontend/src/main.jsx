@@ -9,6 +9,7 @@ import {
   Delete,
   Grid3x3,
   Headphones,
+  History,
   MessageSquare,
   Mic,
   MicOff,
@@ -41,6 +42,8 @@ import {
 } from "./CallAssist";
 import { leadTitle } from "./leadCard.mjs";
 import Conversations from "./Conversations";
+import Timeline from "./Timeline";
+import { isTimelinePhone } from "./timeline.mjs";
 import Pagination from "./Pagination";
 import ActivityTable from "./ActivityTable";
 import { formatCallDate } from "./callDate.mjs";
@@ -278,6 +281,7 @@ function App() {
     workspaces.find((workspace) => workspace.id === workspaceId),
   );
   const [view, setView] = useState("calls");
+  const [timelinePhone, setTimelinePhone] = useState(null);
   const [number, setNumber] = useState("");
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [callKeypadOpen, setCallKeypadOpen] = useState(false);
@@ -620,6 +624,7 @@ function App() {
   const switchWorkspace = (id) => {
     if (!id || id === workspaceId || !voice.canSwitch()) return;
     activityRequest.current++;
+    setTimelinePhone(null);
     setApiWorkspace(id);
     setWorkspaceId(id);
     setCalls([]);
@@ -715,6 +720,13 @@ function App() {
       setPhoneContext(context);
     }
     setPhoneOpen(true);
+  };
+  // A lead can't be opened on its own, so a leads link opens the Leads view.
+  const openTimelineLink = (link) => {
+    setTimelinePhone(null);
+    if (link.view === "leads") setView("leads");
+    else if (link.view === "call" && link.callSid)
+      openCallDetails(link.callSid);
   };
   const openCallDetails = (sid) => {
     if (!running && !preparingRef.current) setPhoneContext({ history: sid });
@@ -1234,6 +1246,7 @@ function App() {
                 <Contacts
                   key={workspaceId}
                   onDial={(phone) => openPhone(phone)}
+                  onHistory={setTimelinePhone}
                 />
               ) : view === "leads" ? (
                 <Leads
@@ -1244,6 +1257,7 @@ function App() {
                   canCall={!running && !preparing}
                   onCall={(phone, lead) => openPhone(phone, { lead })}
                   onStatus={setLeadStatus}
+                  onHistory={setTimelinePhone}
                 />
               ) : (
                 <ActivityTable
@@ -1325,6 +1339,7 @@ function App() {
                       onListChange={setConversationList}
                       refreshRevision={refreshRevision}
                       onErrorChange={setConversationError}
+                      onHistory={setTimelinePhone}
                     />
                   ) : (
                     <>
@@ -1462,6 +1477,17 @@ function App() {
                                         }}
                                       >
                                         <MessageSquare size={15} />
+                                      </button>
+                                    )}
+                                    {isTimelinePhone(phone) && (
+                                      <button
+                                        type="button"
+                                        className="quick-call"
+                                        aria-label={`History with ${phone}`}
+                                        title="History"
+                                        onClick={() => setTimelinePhone(phone)}
+                                      >
+                                        <History size={15} />
                                       </button>
                                     )}
                                     {phone && (
@@ -1903,6 +1929,15 @@ function App() {
           />
         )}
       </PhoneDrawer>
+      {timelinePhone && (
+        <Timeline
+          key={`${workspaceId}:${timelinePhone}`}
+          phone={timelinePhone}
+          workspaceId={workspaceId}
+          onClose={() => setTimelinePhone(null)}
+          onOpenLink={openTimelineLink}
+        />
+      )}
     </div>
   );
 }

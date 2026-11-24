@@ -1,6 +1,14 @@
 import React, { useState } from "react";
-import { Check, ChevronDown, PhoneOutgoing, UserPlus, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  History,
+  PhoneOutgoing,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { formatCallDate } from "./callDate.mjs";
+import { isTimelinePhone } from "./timeline.mjs";
 import {
   badge,
   callbackTarget,
@@ -66,7 +74,7 @@ export function Script({ lead, fallback = false }) {
   );
 }
 
-function LeadCard({ lead, timeZone, canCall, onCall, onStatus }) {
+function LeadCard({ lead, timeZone, canCall, onCall, onStatus, onHistory }) {
   const [open, setOpen] = useState(false);
   const target = callbackTarget(lead);
   const title = leadTitle(lead);
@@ -147,6 +155,14 @@ function LeadCard({ lead, timeZone, canCall, onCall, onStatus }) {
           <PhoneOutgoing size={14} />
           {target ? `Call back ${target}` : "No callback number"}
         </button>
+        {onHistory && isTimelinePhone(target) && (
+          <button
+            className="button button-light"
+            onClick={() => onHistory(target)}
+          >
+            <History size={14} /> History
+          </button>
+        )}
         {lead.status === "new" ? (
           <>
             <button
@@ -183,6 +199,7 @@ export default function Leads({
   canCall,
   onCall,
   onStatus,
+  onHistory,
 }) {
   const waiting = leads.filter(unread).length;
   return (
@@ -228,6 +245,7 @@ export default function Leads({
               canCall={canCall}
               onCall={onCall}
               onStatus={onStatus}
+              onHistory={onHistory}
             />
           ))}
         </div>

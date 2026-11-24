@@ -1,8 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { BookUser, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
+import {
+  BookUser,
+  History,
+  Mail,
+  Pencil,
+  Phone,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import Pagination from "./Pagination";
 import ActivityTable from "./ActivityTable";
 import { apiFetch } from "./api";
+import { isTimelinePhone } from "./timeline.mjs";
 
 const emptyContact = { name: "", phone: "", company: "", email: "", notes: "" };
 const initialLetters = (name) =>
@@ -25,7 +35,7 @@ async function request(url, options) {
   return data;
 }
 
-export default function Contacts({ onDial }) {
+export default function Contacts({ onDial, onHistory }) {
   const [contacts, setContacts] = useState([]);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -205,6 +215,16 @@ export default function Contacts({ onDial }) {
                   >
                     <Phone size={15} />
                   </button>
+                  {onHistory && isTimelinePhone(contact.phone) && (
+                    <button
+                      className="quick-call"
+                      aria-label={`History with ${contact.name}`}
+                      title="History"
+                      onClick={() => onHistory(contact.phone)}
+                    >
+                      <History size={15} />
+                    </button>
+                  )}
                   <button
                     className="quick-call"
                     aria-label={`Edit ${contact.name}`}
