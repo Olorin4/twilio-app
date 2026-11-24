@@ -172,11 +172,15 @@ describe("authenticate", () => {
     expect((await users.authenticate("nick", password)).role).toBe("member");
   });
 
-  test("a database error on the hit check returns null", async () => {
+  // A DB blip must answer 503, not 401: a 401 pops the browser's login
+  // dialog for every signed-in user. Still fails closed (no user).
+  test("a database error on the hit check throws, so the login answers 503", async () => {
     serve(() => rowWithHash());
     await users.authenticate("nick", password);
     pool.query.mockRejectedValue(new Error("db down"));
-    expect(await users.authenticate("nick", password)).toBeNull();
+    await expect(users.authenticate("nick", password)).rejects.toThrow(
+      "db down",
+    );
   });
 
   test("a login that started before clearAuthCache is not cached", async () => {

@@ -138,6 +138,10 @@ test("the connection voice webhook passes its provider and connection", async ()
 });
 
 test("outgoing softphone calls never consult the receptionist", async () => {
+  // Before cutover: no owner account yet, so the bootstrap identity calls.
+  require("../../src/db").query.mockResolvedValue({
+    rows: [{ exists: false }],
+  });
   const { getProvider } = require("../../src/providerContext");
   getProvider.mockResolvedValue({ legacy: true });
   const res = await post("/voice", {
@@ -160,15 +164,17 @@ test("both session-ended routes reach the handler", async () => {
 
 test("the leads API is mounted on the router with a workspace", async () => {
   const pool = require("../../src/db");
-  pool.query.mockImplementation(async (sql) =>
-    /FROM workspaces/.test(sql)
-      ? {
-          rows: [
-            { id: "00000000-0000-4000-8000-000000000001", name: "Iron Wing" },
-          ],
-        }
-      : { rows: [{ count: "2" }] },
-  );
+  pool.query.mockImplementation(async (sql) => {
+    if (/FROM workspaces/.test(sql))
+      return {
+        rows: [
+          { id: "00000000-0000-4000-8000-000000000001", name: "Iron Wing" },
+        ],
+      };
+    // The visibility scope: no connection lines.
+    if (/number_assignees/.test(sql)) return { rows: [] };
+    return { rows: [{ count: "2" }] };
+  });
   const res = await fetch(`${origin}/leads/count`);
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ leads: 2 });
@@ -324,8 +330,12 @@ describe("who may place an outgoing call", () => {
     );
     expect(res.status).toBe(200);
 
-    // The bootstrap identity is an owner too, with no account to look up.
+    // Before cutover the bootstrap identity is an owner too, with no account
+    // to look up: only whether an owner account exists yet.
     const pool = accounts(null);
+    pool.query.mockImplementation(async (sql) =>
+      /SELECT EXISTS/.test(sql) ? { rows: [{ exists: false }] } : { rows: [] },
+    );
     getProvider.mockResolvedValue(line(otherLine, "+15550000009"));
     res = await post(
       `/webhooks/${id}/voice`,
@@ -338,7 +348,26 @@ describe("who may place an outgoing call", () => {
       outgoing(`client:connection_${compact(id)}`, "+15550000008"),
     );
     expect(res.status).toBe(200);
-    expect(lookups(pool)).toHaveLength(0);
+    expect(
+      lookups(pool).filter(([sql]) => !/SELECT EXISTS/.test(sql)),
+    ).toHaveLength(0);
+
+    // After cutover its still-valid token places no owner calls.
+    pool.query.mockImplementation(async (sql) =>
+      /SELECT EXISTS/.test(sql) ? { rows: [{ exists: true }] } : { rows: [] },
+    );
+    res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(`client:connection_${compact(id)}`, "+15550000008"),
+    );
+    expect(res.status).toBe(403);
+    getProvider.mockResolvedValue({ legacy: true });
+    res = await post("/voice", {
+      CallSid: sid,
+      From: "client:operator",
+      To: "+15557654321",
+    });
+    expect(res.status).toBe(403);
   });
 
   test("a disabled or unknown user's softphone can't call out", async () => {

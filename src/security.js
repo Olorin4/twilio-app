@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const twilio = require("twilio");
-const { authenticate, hasEnabledOwner } = require("./users");
+const { authenticate, hasEnabledOwner, isCachedLogin } = require("./users");
+const { createLoginLimiter } = require("./loginLimiter");
 
 function equalSecret(a, b) {
   const hash = (value) => crypto.createHash("sha256").update(value).digest();
@@ -55,20 +56,49 @@ async function loginFor({ username, password }) {
   return null;
 }
 
+/* Failed logins are limited per client address and per username: 10 in a
+rolling minute and that key is refused with 429 before any password hashing,
+so bad logins can't tie up the thread pool live calls share. Successful
+logins don't count. The 429 carries no WWW-Authenticate, so the browser does
+not re-prompt in a loop. A login that is a live cache hit (no hashing) still
+passes, so signed-in people keep working while an address is limited.
+req.ip is the socket address: the app does not set "trust proxy", so behind
+the edge nginx every client shares the proxy's address and the per-username
+key is what tells them apart. */
+const loginLimiter = createLoginLimiter();
+const LIMITED = "Too many sign-in attempts. Try again in a minute.";
+const limitKeys = (req, username) => [
+  `ip:${req.ip || req.socket?.remoteAddress || "unknown"}`,
+  `user:${String(username).trim().toLowerCase()}`,
+];
+
 // Sets req.user to a signed-in User or the bootstrap operator. Fails closed:
 // if the account store cannot be read, nobody gets in.
 async function requireLogin(req, res, next) {
   const credentials = credentialsFrom(req);
   if (!credentials) return challenge(res);
+  const keys = limitKeys(req, credentials.username);
+  if (
+    loginLimiter.blocked(keys) &&
+    !isCachedLogin(credentials.username, credentials.password)
+  ) {
+    res.set("Retry-After", "60");
+    return res.status(429).send(LIMITED);
+  }
   let user;
   try {
     user = await loginFor(credentials);
   } catch (error) {
+    if (error.code === "LOGIN_BUSY")
+      return res.status(503).send("App login is busy. Try again.");
     console.error("Login check failed:", error.message);
     return res.status(503).send("App login is unavailable.");
   }
   if (typeof user === "string") return res.status(503).send(user);
-  if (!user) return challenge(res);
+  if (!user) {
+    loginLimiter.fail(keys);
+    return challenge(res);
+  }
   req.user = user;
   res.set("Cache-Control", "no-store");
   return next();
@@ -108,6 +138,7 @@ function isTwilioWebhook(req) {
 
 module.exports = {
   requireLogin,
+  resetLoginLimits: () => loginLimiter.clear(),
   requireOwner,
   validateWebhook,
   isTwilioWebhook,

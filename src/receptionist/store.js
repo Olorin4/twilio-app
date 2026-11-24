@@ -4,6 +4,26 @@ once, by the after-call step. */
 
 const pool = require("../db");
 const outbox = require("../outreachIntake/outbox");
+const { lineCondition } = require("../visibility");
+
+/* Whether the person may see a lead (alias c), with params numbered from
+firstParam. A lead follows its call's dialed line (the call_logs row's
+to_number, in the same workspace) under the visibility scope; a lead whose
+call row is missing is visible to owners only. No scope sees nothing. */
+function leadCondition(scope, firstParam) {
+  const line = lineCondition(
+    scope,
+    "vc.to_number",
+    "vc.from_number",
+    firstParam,
+  );
+  const logged = `SELECT 1 FROM call_logs vc WHERE vc.call_sid = c.call_sid AND vc.workspace_id = c.workspace_id`;
+  return {
+    sql: `(CASE WHEN EXISTS (${logged}) THEN EXISTS (${logged} AND ${line.sql})
+      ELSE $${firstParam + 2}::boolean END)`,
+    params: [...line.params, scope?.all === true],
+  };
+}
 
 // Every kind's outcomes (kinds.js), plus the two the app records itself.
 const OUTCOMES = [
@@ -121,7 +141,8 @@ async function countAgentCalls(from, agentProfileId, hours = 24) {
 // process died, or the session never started) shows as failed after 15
 // minutes, so nothing is silently lost. Each row names the agent that took
 // the call; a call from before agent profiles has nulls there.
-async function listCalls(workspaceId, limit = 50) {
+async function listCalls(workspaceId, scope, limit = 50) {
+  const visible = leadCondition(scope, 3);
   const result = await pool.query(
     `SELECT c.call_sid, c.from_number, c.started_at, c.ended_at,
        COALESCE(c.outcome, 'failed') AS outcome, c.status, c.caller_name,
@@ -134,20 +155,24 @@ async function listCalls(workspaceId, limit = 50) {
        ON p.id = c.agent_profile_id AND p.workspace_id = c.workspace_id
      WHERE c.workspace_id = $1
        AND (c.ended_at IS NOT NULL OR c.started_at < now() - interval '15 minutes')
+       AND ${visible.sql}
      ORDER BY c.started_at DESC
      LIMIT $2`,
-    [workspaceId, limit],
+    [workspaceId, limit, ...visible.params],
   );
   return result.rows;
 }
 
-async function setStatus(workspaceId, callSid, status) {
+// False when no lead in the workspace has the SID, or the person may not
+// see it: a hidden lead is answered like an unknown one.
+async function setStatus(workspaceId, callSid, status, scope) {
   if (!STATUSES.includes(status)) return false;
+  const visible = leadCondition(scope, 4);
   const result = await pool.query(
-    `UPDATE receptionist_calls
+    `UPDATE receptionist_calls c
      SET status = $3, handled_at = CASE WHEN $3 = 'new' THEN NULL ELSE now() END
-     WHERE workspace_id = $1 AND call_sid = $2`,
-    [workspaceId, callSid, status],
+     WHERE c.workspace_id = $1 AND c.call_sid = $2 AND ${visible.sql}`,
+    [workspaceId, callSid, status, ...visible.params],
   );
   return result.rowCount > 0;
 }
@@ -155,14 +180,16 @@ async function setStatus(workspaceId, callSid, status) {
 // Cards that still need the owner: the outcomes that are emailed (a lead or
 // a message of any kind), or a call the agent failed on - including one that
 // was never closed, which the list shows as failed.
-async function countNew(workspaceId) {
+async function countNew(workspaceId, scope) {
+  const visible = leadCondition(scope, 2);
   const result = await pool.query(
-    `SELECT count(*) FROM receptionist_calls
-     WHERE workspace_id = $1 AND status = 'new'
-       AND (outcome IN ('lead', 'not_a_lead', 'message', 'urgent',
-                        'support_request', 'failed')
-         OR (outcome IS NULL AND started_at < now() - interval '15 minutes'))`,
-    [workspaceId],
+    `SELECT count(*) FROM receptionist_calls c
+     WHERE c.workspace_id = $1 AND c.status = 'new'
+       AND (c.outcome IN ('lead', 'not_a_lead', 'message', 'urgent',
+                          'support_request', 'failed')
+         OR (c.outcome IS NULL AND c.started_at < now() - interval '15 minutes'))
+       AND ${visible.sql}`,
+    [workspaceId, ...visible.params],
   );
   return Number(result.rows[0].count);
 }

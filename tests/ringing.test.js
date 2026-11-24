@@ -74,12 +74,28 @@ describe("when the ring list can't be read", () => {
 describe("who may use a line, without a database", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test("the bootstrap user may use any line and is never looked up", async () => {
+  test("the bootstrap user may use any line only while no enabled owner exists", async () => {
     const bootstrap = { id: null, role: "owner", bootstrap: true };
+    pool.query.mockResolvedValue({ rows: [{ exists: false }] });
     expect(await mayUseLine(bootstrap, line)).toBe(true);
     expect(await mayUseLine(bootstrap, legacyLine)).toBe(true);
     expect(await lineRole(bootstrap, line)).toBe("owner");
-    expect(pool.query).not.toHaveBeenCalled();
+    expect(pool.query.mock.calls[0][0]).toMatch(/role = 'owner' AND enabled/);
+  });
+
+  test("after cutover a bootstrap identity's still-valid token places no calls", async () => {
+    const bootstrap = { id: null, bootstrap: true };
+    pool.query.mockResolvedValue({ rows: [{ exists: true }] });
+    expect(await lineRole(bootstrap, line)).toBeNull();
+    expect(await lineRole(bootstrap, legacyLine)).toBeNull();
+    expect(await mayUseLine(bootstrap, line)).toBe(false);
+  });
+
+  test("a bootstrap check that can't read the database throws (fails closed)", async () => {
+    pool.query.mockRejectedValue(new Error("connection refused"));
+    await expect(lineRole({ id: null, bootstrap: true }, line)).rejects.toThrow(
+      "connection refused",
+    );
   });
 
   test("nobody, or a user without a valid id, may use no line", async () => {

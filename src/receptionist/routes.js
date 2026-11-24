@@ -5,6 +5,7 @@ const { Router } = require("express");
 const store = require("./store");
 const { publish } = require("../messageEvents");
 const { IRON_WING_WORKSPACE_ID } = require("../workspaceContext");
+const { lineScope } = require("../visibility");
 
 const router = Router();
 const callSidPattern = /^CA[0-9a-f]{32}$/i;
@@ -39,7 +40,9 @@ const toLead = (row) => ({
 router.get("/", async (req, res) => {
   res.set("Cache-Control", "no-store");
   try {
-    return res.json((await store.listCalls(workspaceId(req))).map(toLead));
+    const workspace = workspaceId(req);
+    const scope = await lineScope(req.user, workspace);
+    return res.json((await store.listCalls(workspace, scope)).map(toLead));
   } catch (error) {
     if (tableMissing(error)) return res.json([]);
     console.error("Leads list failed:", error.message);
@@ -50,7 +53,9 @@ router.get("/", async (req, res) => {
 router.get("/count", async (req, res) => {
   res.set("Cache-Control", "no-store");
   try {
-    return res.json({ leads: await store.countNew(workspaceId(req)) });
+    const workspace = workspaceId(req);
+    const scope = await lineScope(req.user, workspace);
+    return res.json({ leads: await store.countNew(workspace, scope) });
   } catch (error) {
     if (!tableMissing(error))
       console.error("Leads count failed:", error.message);
@@ -66,10 +71,13 @@ router.post("/:callSid/status", async (req, res) => {
   )
     return res.sendStatus(400);
   try {
+    const workspace = workspaceId(req);
+    const scope = await lineScope(req.user, workspace);
     const changed = await store.setStatus(
-      workspaceId(req),
+      workspace,
       req.params.callSid,
       status,
+      scope,
     );
     if (!changed) return res.sendStatus(404);
     publish();

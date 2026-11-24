@@ -16,6 +16,7 @@ jest.mock("../src/providerContext", () => ({
   getProvider: jest.fn(),
 }));
 const { getProvider } = require("../src/providerContext");
+const pool = require("../src/db");
 const router = require("../src/router");
 
 const IRON_WING = "00000000-0000-4000-8000-000000000001";
@@ -54,6 +55,7 @@ const connectionProvider = {
   apiKeySid: "SK" + "1".repeat(32),
   apiKeySecret: "connection-secret",
   twimlAppSid: "AP" + "1".repeat(32),
+  numberId: "99999999-9999-4999-8999-999999999999",
   phoneNumber: "+15550000002",
   voiceEnabled: true,
 };
@@ -94,9 +96,22 @@ const jwtIdentity = (token) =>
 
 beforeAll(() => jest.spyOn(console, "log").mockImplementation(() => {}));
 afterAll(() => jest.restoreAllMocks());
+// The member's account as the line check reads it: assigned to every line.
+const assignedEverywhere = () =>
+  pool.query.mockImplementation(async (sql) =>
+    /FROM app_users u WHERE u.id/.test(sql)
+      ? {
+          rows: [
+            { role: "member", enabled: true, assigned: true, member: true },
+          ],
+        }
+      : { rows: [] },
+  );
 beforeEach(() => {
   getProvider.mockReset();
   getProvider.mockResolvedValue(connectionProvider);
+  pool.query.mockReset();
+  assignedEverywhere();
 });
 
 test("a token is only ever for the requesting user", async () => {
@@ -155,4 +170,99 @@ test("a member whose workspace falls back to the legacy line gets 403 and no tok
   const { status, body } = await call(memberA);
   expect(status).toBe(403);
   expect(body).toEqual({ error: "Only an owner can use this line." });
+});
+
+describe("a member's token uses only a line they may use", () => {
+  const OWN = "dddddddd-4444-4444-8444-444444444444";
+  const PERSONAL = "eeeeeeee-5555-4555-8555-555555555555";
+  const phones = { [OWN]: "+15550000004", [PERSONAL]: "+15550000005" };
+  beforeEach(() => {
+    getProvider.mockImplementation(async (workspaceId, numberId) => ({
+      ...connectionProvider,
+      numberId: numberId || PERSONAL, // the active number is someone's personal line
+      phoneNumber: phones[numberId || PERSONAL],
+    }));
+  });
+  // ownLines: the member's assigned voice lines, as usableLines reads them.
+  const serve = (ownLines) =>
+    pool.query.mockImplementation(async (sql, params) => {
+      if (/FROM app_users u WHERE u.id/.test(sql))
+        return {
+          rows: [
+            {
+              role: "member",
+              enabled: true,
+              assigned: ownLines.some((line) => line.number_id === params[1]),
+              member: true,
+            },
+          ],
+        };
+      if (/FROM number_assignees na/.test(sql)) return { rows: ownLines };
+      return { rows: [] };
+    });
+  const own = {
+    number_id: OWN,
+    phone_number: phones[OWN],
+    label: null,
+    connection_id: connectionId,
+  };
+
+  test("their own requested line is used as asked", async () => {
+    serve([own]);
+    const { status, body } = await call(memberA, {
+      "X-Connection-Number-Id": OWN,
+    });
+    expect(status).toBe(200);
+    expect(body.phoneNumber).toBe(phones[OWN]);
+  });
+
+  test("another line, or the workspace's active one, falls back to their own first line", async () => {
+    serve([own]);
+    for (const headers of [{ "X-Connection-Number-Id": PERSONAL }, {}]) {
+      const { status, body } = await call(memberA, headers);
+      expect(status).toBe(200);
+      expect(body.phoneNumber).toBe(phones[OWN]);
+      expect(JSON.stringify(body)).not.toContain(phones[PERSONAL]);
+    }
+    expect(getProvider).toHaveBeenLastCalledWith(IRON_WING, OWN);
+  });
+
+  test("a line on another connection is not a fallback", async () => {
+    serve([{ ...own, connection_id: "ffffffff-6666-4666-8666-666666666666" }]);
+    const { status, body } = await call(memberA, {
+      "X-Connection-Number-Id": PERSONAL,
+    });
+    expect(status).toBe(403);
+    expect(body).toEqual({
+      error: "No line is assigned to you in this workspace.",
+    });
+  });
+
+  test("with no line of their own they get 403 and no token", async () => {
+    serve([]);
+    const { status, body } = await call(memberA, {
+      "X-Connection-Number-Id": PERSONAL,
+    });
+    expect(status).toBe(403);
+    expect(body).toEqual({
+      error: "No line is assigned to you in this workspace.",
+    });
+  });
+
+  test("owners are not narrowed", async () => {
+    serve([]);
+    const { status, body } = await call(ownerB, {
+      "X-Connection-Number-Id": PERSONAL,
+    });
+    expect(status).toBe(200);
+    expect(body.phoneNumber).toBe(phones[PERSONAL]);
+  });
+
+  test("a line check that can't read the database answers 503", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    pool.query.mockRejectedValue(new Error("connection refused"));
+    const { status } = await call(memberA, { "X-Connection-Number-Id": OWN });
+    expect(status).toBe(503);
+    console.error.mockRestore();
+  });
 });

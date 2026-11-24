@@ -33,6 +33,9 @@ const port = process.env.PORT || 3001;
 server.listen(port, () => console.log("Express server running on *:" + port));
 // Logs loudly (never crashes) when migration 013 has not been run.
 require("./src/providerContext").checkNumberSchema();
+// Logs loudly (never crashes) when migration 014 has not been run, and warns
+// when TWILIO_IDENTITY is unset.
+require("./src/providerContext").checkUsersSchema();
 
 // Schedule Automatic Sync and Cleanup:
 if (!global.cleanupScheduled) {

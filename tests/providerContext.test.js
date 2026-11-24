@@ -129,3 +129,63 @@ describe("checkNumberSchema", () => {
     expect(error).toHaveBeenCalled();
   });
 });
+
+describe("checkUsersSchema", () => {
+  const { checkUsersSchema } = require("../src/providerContext");
+  const MESSAGE = "DATABASE NOT MIGRATED: run npm run migrate:users";
+  let error;
+  let warn;
+  let saved;
+  beforeEach(() => {
+    pool.query.mockReset();
+    error = jest.spyOn(console, "error").mockImplementation(() => {});
+    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    saved = process.env.TWILIO_IDENTITY;
+    process.env.TWILIO_IDENTITY = "iron_wing_desk";
+  });
+  afterEach(() => {
+    error.mockRestore();
+    warn.mockRestore();
+    if (saved === undefined) delete process.env.TWILIO_IDENTITY;
+    else process.env.TWILIO_IDENTITY = saved;
+  });
+  // Answers whether app_users and connection_numbers.personal exist.
+  const schema = ({ users, personal }) =>
+    pool.query.mockResolvedValueOnce({
+      rows: [{ users_table: users, personal_column: personal }],
+    });
+
+  test("logs loudly when app_users is missing (migration 014 not run)", async () => {
+    schema({ users: false, personal: true });
+    await expect(checkUsersSchema()).resolves.toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(MESSAGE));
+  });
+
+  test("logs loudly when connection_numbers.personal is missing", async () => {
+    schema({ users: true, personal: false });
+    await expect(checkUsersSchema()).resolves.toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(MESSAGE));
+  });
+
+  test("stays quiet when both exist", async () => {
+    schema({ users: true, personal: true });
+    await expect(checkUsersSchema()).resolves.toBe(true);
+    expect(error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  test("warns when TWILIO_IDENTITY is unset, which production needs after cutover", async () => {
+    delete process.env.TWILIO_IDENTITY;
+    schema({ users: true, personal: true });
+    await expect(checkUsersSchema()).resolves.toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/TWILIO_IDENTITY is not set/),
+    );
+  });
+
+  test("never throws when the database is unreachable", async () => {
+    pool.query.mockRejectedValueOnce(new Error("connection refused"));
+    await expect(checkUsersSchema()).resolves.toBeNull();
+    expect(error).toHaveBeenCalled();
+  });
+});

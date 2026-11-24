@@ -260,6 +260,30 @@ test("workspace lists are filtered for members", async () => {
   else process.env.TWILIO_CALLER_ID = originalCaller;
 });
 
+test("members never see a workspace's active phone number", async () => {
+  pool.query.mockImplementation(async () => ({
+    rows: [{ id: otherId, name: "Acme", active_phone: "+15550001111" }],
+  }));
+  expect((await listWorkspaces(listMember))[0].active_phone).toBeNull();
+  expect((await listWorkspaces(listOwner))[0].active_phone).toBe(
+    "+15550001111",
+  );
+});
+
+test("a member's voice targets are their own assigned voice lines", async () => {
+  pool.query.mockResolvedValue({ rows: [] });
+  await listVoiceTargets(listMember);
+  const [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(
+    /JOIN number_assignees na ON na\.number_id = n\.id AND na\.user_id = \$1/,
+  );
+  expect(sql).toMatch(/ORDER BY c\.id, na\.created_at, n\.id/);
+  expect(params).toEqual([listMember.id]);
+  pool.query.mockClear();
+  await listVoiceTargets(listOwner);
+  expect(pool.query.mock.calls[0][0]).not.toContain("number_assignees");
+});
+
 test("owners list every workspace without a membership join", async () => {
   process.env.TWILIO_CALLER_ID = "+15550009999";
   pool.query.mockResolvedValue({ rows: [{ name: "Iron Wing" }] });

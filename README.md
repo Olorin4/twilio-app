@@ -421,6 +421,21 @@ Migration 013, the 013 seed (with production's `RECEPTIONIST_DAILY_LIMIT`),
 migration 014, then deploy the code, then the cutover steps above. Production
 runs happen only after Phase 2c also lands, and only with the owner's go-ahead.
 
+Before deploying, check:
+
+- `TWILIO_IDENTITY` is set in production. After cutover the `operator` login
+  never mints a token again, so it is the only source of the legacy number's
+  bootstrap identity: without it, the fallback ring (when the ring list can't
+  be read) dials nobody and sync misses legacy softphone calls. The server
+  warns at startup when it is unset.
+- At startup the server logs `DATABASE NOT MIGRATED: run npm run migrate:users`
+  when migration 014 is missing. It never crashes on it, so check the log.
+- Failed sign-ins are limited to 10 a minute per client address and per
+  username (then `429 Too many sign-in attempts`). The app does not set Express
+  `trust proxy`, so behind the edge nginx every client shares the proxy's
+  address: 10 failures a minute from anyone briefly limits every sign-in that
+  is not already cached, though people already signed in keep working.
+
 ### Simulated callers
 
 `npm run receptionist:sim` explains what a run costs and stops. Adding `--yes`

@@ -6,7 +6,12 @@ the main index.js file to define the routes for the server. */
 const Router = require("express").Router;
 const { tokenGenerator, tokenFor } = require("./token");
 const { voiceResponse } = require("./callResponse");
-const { ringIdentities, lineRole, usableLines } = require("./ringing");
+const {
+  ringIdentities,
+  lineRole,
+  mayUseLine,
+  usableLines,
+} = require("./ringing");
 const { parseIdentity, isClientOf } = require("./identity");
 const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getMessageLogs } = require("./logManager");
@@ -253,10 +258,12 @@ router.get("/me/lines", async (req, res) => {
   }
 });
 
+const NO_LINE = "No line is assigned to you in this workspace.";
+
 // Webhook for generating an Access Token
 router.get("/token", async (req, res) => {
   try {
-    const provider =
+    let provider =
       req.get("X-Legacy-Connection") === "true"
         ? legacyProvider(req.workspace.id)
         : await getProvider(
@@ -268,6 +275,19 @@ router.get("/token", async (req, res) => {
       return res
         .status(403)
         .json({ error: "Only an owner can use this line." });
+    // A member's token, and the number it echoes, are only ever for a line
+    // they may use: the one asked for when it is theirs, else their first
+    // line on that connection. Never the workspace's active number by
+    // default, which may be someone's personal line.
+    if (!provider.legacy && req.user?.role !== "owner") {
+      if (!(await mayUseLine(req.user, provider))) {
+        const own = (await usableLines(req.user, req.workspace.id)).find(
+          (line) => line.connectionId === provider.id,
+        );
+        if (!own) return res.status(403).json({ error: NO_LINE });
+        provider = await getProvider(req.workspace.id, own.numberId);
+      }
+    }
     // The identity is always req.user's own; the client can't choose it.
     const token = tokenFor(req.user, provider);
     console.log("Token generated successfully");

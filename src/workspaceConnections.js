@@ -38,8 +38,15 @@ async function listWorkspaces(user) {
      ORDER BY lower(w.name), w.id`,
     params,
   );
+  // The active number may be someone's personal line; members get theirs
+  // from /me/lines instead.
+  if (memberId) for (const row of result.rows) row.active_phone = null;
   return result.rows;
 }
+/* One softphone target per connection. Owners get the workspace's active
+number when it is on that connection; a member gets their own first assigned
+voice line on it (by assignment time), and connections where they have none
+are left out, so no other line's number reaches them. */
 async function listVoiceTargets(user) {
   const memberId = listScope(user);
   const result = await pool.query(
@@ -48,9 +55,10 @@ async function listVoiceTargets(user) {
     FROM provider_connections c JOIN workspaces w ON w.id = c.workspace_id
     ${memberId ? "JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = $1" : ""}
     JOIN connection_numbers n ON n.connection_id = c.id
+    ${memberId ? "JOIN number_assignees na ON na.number_id = n.id AND na.user_id = $1" : ""}
     LEFT JOIN workspace_active_numbers a ON a.workspace_id = w.id
     WHERE n.voice_enabled = true AND w.archived_at IS NULL
-    ORDER BY c.id, (a.connection_number_id = n.id) DESC NULLS LAST, n.id`,
+    ORDER BY ${memberId ? "c.id, na.created_at, n.id" : "c.id, (a.connection_number_id = n.id) DESC NULLS LAST, n.id"}`,
     memberId ? [memberId] : [],
   );
   const targets = result.rows;

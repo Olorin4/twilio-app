@@ -71,10 +71,10 @@ async function ringIdentities(provider) {
   }
 }
 
-/* Who may place calls and send texts from a line. Owners and the bootstrap
-login may use any line, and the legacy number. Members may use only lines
-assigned to them in a workspace they belong to, and never the legacy number.
-The account is always read afresh, so a disabled user's still-valid Twilio
+/* Who may place calls and send texts from a line. Owners, and the bootstrap
+login until the first owner account exists, may use any line, and the legacy
+number. Members may use only lines assigned to them in a workspace they
+belong to, and never the legacy number. The account is always read afresh, so a disabled user's still-valid Twilio
 token can't place calls, and a role claimed by the caller counts for nothing. */
 
 const uuidPattern =
@@ -92,7 +92,13 @@ const ACCESS_SQL = `
 // the account can't be read.
 async function lineRole(user, provider) {
   if (!user || !provider) return null;
-  if (user.bootstrap === true) return "owner";
+  // A bootstrap identity (the operator login, or a still-valid Twilio token
+  // minted for it) counts as an owner only until the first owner account
+  // exists; after cutover it places no calls.
+  if (user.bootstrap === true) {
+    const { hasEnabledOwner } = require("./users");
+    return (await hasEnabledOwner()) ? null : "owner";
+  }
   if (typeof user.id !== "string" || !uuidPattern.test(user.id)) return null;
   const numberId = provider.legacy ? null : provider.numberId || null;
   const workspaceId = provider.workspaceId || null;

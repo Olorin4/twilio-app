@@ -126,6 +126,55 @@ async function burnTime(password) {
   await verifyPassword(password, dummyHash);
 }
 
+/* At most MAX_VERIFYING scrypt checks run at once, so failed logins can't
+fill libuv's 4-thread pool, which dns.lookup (Twilio and Anthropic calls), fs
+and zlib share. A few more wait briefly in line; past that, or after the wait,
+the login is refused as busy (503) instead of hanging. */
+const MAX_VERIFYING = 2;
+const MAX_WAITING = 8;
+const WAIT_MS = 2000;
+const BUSY_MESSAGE = "App login is busy. Try again.";
+let verifying = 0;
+const waiting = [];
+function busyError() {
+  const error = new Error(BUSY_MESSAGE);
+  error.code = "LOGIN_BUSY";
+  return error;
+}
+function takeSlot() {
+  if (verifying < MAX_VERIFYING) {
+    verifying += 1;
+    return Promise.resolve();
+  }
+  if (waiting.length >= MAX_WAITING) return Promise.reject(busyError());
+  return new Promise((resolve, reject) => {
+    const entry = {
+      resolve,
+      timer: setTimeout(() => {
+        const at = waiting.indexOf(entry);
+        if (at >= 0) waiting.splice(at, 1);
+        reject(busyError());
+      }, WAIT_MS),
+    };
+    waiting.push(entry);
+  });
+}
+function releaseSlot() {
+  const next = waiting.shift();
+  if (next) {
+    clearTimeout(next.timer);
+    next.resolve(); // the slot passes straight to the next in line
+  } else verifying -= 1;
+}
+async function withVerifySlot(work) {
+  await takeSlot();
+  try {
+    return await work();
+  } finally {
+    releaseSlot();
+  }
+}
+
 const lowerId = (id) =>
   uuidPattern.test(String(id)) ? String(id).toLowerCase() : null;
 
@@ -141,17 +190,15 @@ async function authenticate(username, password) {
   const key = cacheKey(name, password);
   const hit = cache.get(key);
   if (hit && hit.expires > Date.now()) {
-    let current;
-    try {
-      const { rows } = await pool.query(
-        `${USER_SELECT.replace("SELECT u.id,", "SELECT u.password_hash, u.id,")}
-         WHERE u.id = $1 GROUP BY u.id`,
-        [hit.user.id],
-      );
-      current = rows[0];
-    } catch {
-      return null; // fail closed
-    }
+    // A failed read throws, so the login answers 503 (still nobody gets in)
+    // rather than 401, which would pop the browser's login dialog for every
+    // signed-in user on a DB blip.
+    const { rows } = await pool.query(
+      `${USER_SELECT.replace("SELECT u.id,", "SELECT u.password_hash, u.id,")}
+       WHERE u.id = $1 GROUP BY u.id`,
+      [hit.user.id],
+    );
+    const current = rows[0];
     if (
       current &&
       current.enabled &&
@@ -172,10 +219,12 @@ async function authenticate(username, password) {
   );
   const row = rows[0];
   if (!row) {
-    await burnTime(password);
+    await withVerifySlot(() => burnTime(password));
     return null;
   }
-  const ok = await verifyPassword(password, row.password_hash);
+  const ok = await withVerifySlot(() =>
+    verifyPassword(password, row.password_hash),
+  );
   if (!ok || !row.enabled) return null;
   await pool.query("UPDATE app_users SET last_login_at = now() WHERE id = $1", [
     row.id,
@@ -188,6 +237,23 @@ async function authenticate(username, password) {
       expires: Date.now() + CACHE_MS,
     });
   return copyUser(user);
+}
+
+// True when this login is a live cache hit, which needs no scrypt. Lets
+// signed-in people through while the failed-login limiter is refusing others
+// (behind one proxy address they all share an IP). Never true for a login
+// that has not succeeded within the last 5 minutes; authenticate still
+// re-checks the row.
+function isCachedLogin(username, password) {
+  let name;
+  try {
+    name = normalizeUsername(username);
+  } catch {
+    return false;
+  }
+  if (typeof password !== "string" || !password) return false;
+  const hit = cache.get(cacheKey(name, password));
+  return Boolean(hit && hit.expires > Date.now());
 }
 
 async function hasEnabledOwner() {
@@ -335,7 +401,9 @@ module.exports = {
   verifyPassword,
   normalizeUsername,
   authenticate,
+  isCachedLogin,
   hasEnabledOwner,
+  MAX_VERIFYING,
   listUsers,
   getUser,
   createUser,

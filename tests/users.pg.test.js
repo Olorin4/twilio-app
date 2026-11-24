@@ -375,6 +375,60 @@ suite("Users schema and store against PostgreSQL", () => {
       expect(shown.json.mock.calls[0][0]).toMatchObject({ id: session });
     });
 
+    test("leads follow the dialed line's visibility; a lead with no call row is owners only", async () => {
+      const store = require("../src/receptionist/store");
+      const { lineScope } = require("../src/visibility");
+      // The fuller receptionist_calls the leads queries read.
+      await db.query(`
+        ALTER TABLE receptionist_calls
+          ADD COLUMN workspace_id uuid, ADD COLUMN from_number text,
+          ADD COLUMN started_at timestamptz, ADD COLUMN outcome text,
+          ADD COLUMN status text NOT NULL DEFAULT 'new',
+          ADD COLUMN handled_at timestamptz, ADD COLUMN caller_name text,
+          ADD COLUMN company text, ADD COLUMN mc_number text,
+          ADD COLUMN usdot text, ADD COLUMN mc_verified boolean,
+          ADD COLUMN callback_number text, ADD COLUMN callback_promise text,
+          ADD COLUMN carrier jsonb, ADD COLUMN details jsonb,
+          ADD COLUMN summary text, ADD COLUMN script jsonb,
+          ADD COLUMN transcript jsonb, ADD COLUMN agent_profile_id uuid;
+        CREATE TABLE agent_profiles (
+          id uuid, workspace_id uuid, kind text, persona_name text);
+        INSERT INTO receptionist_calls
+          (call_sid, workspace_id, from_number, started_at, ended_at, outcome)
+        VALUES
+          ('CA1', '${W}', '${EXTERNAL}', now(), now(), 'lead'),
+          ('CA2', '${W}', '${EXTERNAL}', now(), now(), 'lead'),
+          ('CA9', '${W}', '${EXTERNAL}', now(), now(), 'lead');
+      `);
+      const sids = (rows) => rows.map((row) => row.call_sid).sort();
+      const forMember = await lineScope(member, W);
+      const forOwner = await lineScope(owner, W);
+      // CA1 is on the member's line, CA2 on the owner's personal line, and
+      // CA9 has no call_logs row.
+      expect(sids(await store.listCalls(W, forMember))).toEqual(["CA1"]);
+      expect(sids(await store.listCalls(W, forOwner))).toEqual([
+        "CA1",
+        "CA2",
+        "CA9",
+      ]);
+      expect(await store.countNew(W, forMember)).toBe(1);
+      expect(await store.countNew(W, forOwner)).toBe(3);
+      // No scope at all sees nothing.
+      expect(await store.listCalls(W, undefined)).toEqual([]);
+      expect(await store.setStatus(W, "CA2", "called", forMember)).toBe(false);
+      expect(await store.setStatus(W, "CA9", "called", forMember)).toBe(false);
+      expect(await store.setStatus(W, "CA1", "called", forMember)).toBe(true);
+      expect(await store.setStatus(W, "CA9", "called", forOwner)).toBe(true);
+      const { rows } = await db.query(
+        "SELECT call_sid, status FROM receptionist_calls ORDER BY call_sid",
+      );
+      expect(rows).toEqual([
+        { call_sid: "CA1", status: "called" },
+        { call_sid: "CA2", status: "new" },
+        { call_sid: "CA9", status: "called" },
+      ]);
+    });
+
     test("unread counts count only the member's lines", async () => {
       const { counts } = require("../src/activityViews");
       expect((await run(counts, member)).rows).toEqual({

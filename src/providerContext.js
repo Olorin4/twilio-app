@@ -114,7 +114,40 @@ async function checkNumberSchema() {
     return null;
   }
 }
+// Run once at startup, beside checkNumberSchema. Logins, ringing and history
+// visibility read app_users and connection_numbers.personal (migration 014).
+// Logs loudly and never throws: true when both exist, false when either is
+// missing, null when the check itself could not run. Also warns when
+// TWILIO_IDENTITY is unset: after cutover nothing mints the bootstrap token
+// that used to set it, so the legacy ring fallback and sync of legacy calls
+// would have no identity.
+async function checkUsersSchema() {
+  if (!process.env.TWILIO_IDENTITY)
+    console.warn(
+      "TWILIO_IDENTITY is not set. Production needs it: after cutover the legacy number's fallback ring (when the ring list can't be read) and the sync of legacy softphone calls have no identity without it.",
+    );
+  try {
+    const result = await pool.query(
+      `SELECT
+        EXISTS (SELECT 1 FROM information_schema.tables
+          WHERE table_schema = current_schema() AND table_name = 'app_users') AS users_table,
+        EXISTS (SELECT 1 FROM information_schema.columns
+          WHERE table_schema = current_schema() AND table_name = 'connection_numbers'
+            AND column_name = 'personal') AS personal_column`,
+    );
+    const row = result.rows[0] || {};
+    if (row.users_table === true && row.personal_column === true) return true;
+    console.error(
+      "DATABASE NOT MIGRATED: run npm run migrate:users (migration 014). app_users or connection_numbers.personal is missing, so sign-in, ringing and history visibility fail.",
+    );
+    return false;
+  } catch (error) {
+    console.error("Startup users schema check failed:", error.message);
+    return null;
+  }
+}
 module.exports = {
+  checkUsersSchema,
   getProvider,
   getProviderForWebhook,
   legacyProvider,
