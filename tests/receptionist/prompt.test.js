@@ -211,3 +211,175 @@ test("the knowledge never says there is no contract", () => {
   expect(text).toMatch(/never say (that )?we have no contract/i);
   expect(text).toMatch(/short service agreement/i);
 });
+
+// ---- Profile-driven prompt (Phase 2a) ----
+
+const fs = require("fs");
+const path = require("path");
+const { fixedLines } = require("../../src/receptionist/prompt");
+const { JACK } = require("../../src/receptionist/seed/jack");
+
+const legacyRules = fs.readFileSync(
+  path.join(__dirname, "fixtures", "legacy-rules.txt"),
+  "utf8",
+);
+
+// Sentences, ignoring list markers and the blank lines between parts, so
+// the test pins the words Jack is told and not where a paragraph breaks.
+function sentences(text) {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:-|\d+\.)\s+/, "").trim())
+    .filter(Boolean)
+    .flatMap((line) => line.split(/(?<=[.!?:])\s+/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function counts(list) {
+  const m = new Map();
+  for (const s of list) m.set(s, (m.get(s) || 0) + 1);
+  return m;
+}
+
+const kelevo = (kind) => ({
+  kind,
+  name: "Kelevo line",
+  personaName: "Maya",
+  companyName: "KelevoTMS",
+  greeting: "Thanks for calling KelevoTMS. This is Maya.",
+  instructions: "Help KelevoTMS customers with the software.",
+  knowledge: "KelevoTMS is a transportation management system.",
+});
+
+describe("profile-driven prompt", () => {
+  test("Jack's assembled prompt holds today's rules", () => {
+    const want = counts(sentences(legacyRules));
+    const got = counts(sentences(buildSystem(JACK)[0].text));
+    for (const [s, n] of want) expect([s, got.get(s) || 0]).toEqual([s, n]);
+    for (const s of got.keys()) expect(want.has(s) ? s : `EXTRA: ${s}`).toBe(s);
+    // Each sentence in today's rules appears exactly once.
+    for (const n of want.values()) expect(n).toBe(1);
+  });
+
+  test("buildSystem with no profile is Jack's", () => {
+    expect(JSON.stringify(buildSystem())).toBe(
+      JSON.stringify(buildSystem(JACK)),
+    );
+  });
+
+  test("knowledge is the cached second block", () => {
+    const blocks = buildSystem(JACK);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].cache_control).toBeUndefined();
+    expect(blocks[1].text).toBe(JACK.knowledge);
+    expect(blocks[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(JACK.knowledge).toBe(
+      fs
+        .readFileSync(
+          path.join(__dirname, "../../src/receptionist/knowledge/iron-wing.md"),
+          "utf8",
+        )
+        .trim(),
+    );
+  });
+
+  test("the prompt is byte-identical across calls", () => {
+    for (const p of [JACK, kelevo("support"), kelevo("dispatcher")])
+      expect(JSON.stringify(buildSystem(p))).toBe(
+        JSON.stringify(buildSystem(p)),
+      );
+  });
+
+  test("an empty knowledge field adds no empty block", () => {
+    for (const knowledge of ["", "   \n"]) {
+      const blocks = buildSystem({ ...kelevo("support"), knowledge });
+      expect(blocks).toHaveLength(1);
+      for (const b of blocks) expect(b.text.trim()).not.toBe("");
+      expect(blocks[blocks.length - 1].cache_control).toEqual({
+        type: "ephemeral",
+        ttl: "1h",
+      });
+    }
+  });
+
+  test("support agents get no fraud rules", () => {
+    const fraud = "do not accept or confirm any change to bank details";
+    expect(buildSystem(kelevo("support"))[0].text).not.toContain(fraud);
+    expect(buildSystem(kelevo("dispatcher"))[0].text).toContain(fraud);
+    expect(buildSystem(JACK)[0].text).toContain(fraud);
+  });
+
+  test("every profile is told it is an AI and to say so when asked", () => {
+    for (const kind of ["receptionist", "dispatcher", "support"]) {
+      const text = buildSystem(kelevo(kind))[0].text;
+      expect(text).toMatch(/never say or imply that you are a (person|human)/i);
+      expect(text).toMatch(/say plainly[^.]*that you are an AI assistant/i);
+      expect(text).toMatch(/recorded[^.]*transcribed/i);
+      expect(text).toMatch(/ignore your (rules|instructions)/i);
+    }
+  });
+
+  test("another business's prompt carries its name and none of Iron Wing's", () => {
+    const blocks = buildSystem(kelevo("support"));
+    const text = blocks.map((b) => b.text).join("\n");
+    expect(text).toContain("only help with KelevoTMS business");
+    expect(text).toContain("Help KelevoTMS customers with the software.");
+    expect(text).not.toMatch(/Iron Wing|Jack/);
+    expect(text).not.toMatch(/dispatcher/i);
+    expect(blocks[1].text).toBe(
+      "KelevoTMS is a transportation management system.",
+    );
+  });
+
+  test("fixed lines name the profile's company", () => {
+    const lines = fixedLines(kelevo("support"));
+    expect(lines.fallback).toContain("KelevoTMS");
+    expect(lines.fallback).not.toContain("Iron Wing");
+    expect(lines.wrapUp).toContain("KelevoTMS");
+    expect(lines.wrapUp).not.toContain("Iron Wing");
+    expect(lines.fallback).not.toMatch(/dispatcher/i);
+    expect(fixedLines(kelevo("dispatcher")).fallback).toContain("KelevoTMS");
+  });
+
+  test("Jack's fixed lines are today's, word for word", () => {
+    expect(fixedLines(JACK)).toEqual({
+      fallback:
+        "I'm sorry, I'm having trouble on my end. A dispatcher will call you back shortly. Thanks for calling Iron Wing Dispatching.",
+      stillThere: "Are you still there?",
+      silentEnd: "I'll let you go for now. Call us back any time. Goodbye.",
+      wrapUp:
+        "I want to be respectful of your time, so I'll stop here. A dispatcher will call you back to pick this up. Thanks for calling Iron Wing Dispatching.",
+    });
+    expect(FALLBACK_LINE).toBe(fixedLines(JACK).fallback);
+    expect(WRAP_UP_LINE).toBe(fixedLines(JACK).wrapUp);
+    expect(STILL_THERE_LINE).toBe(fixedLines(JACK).stillThere);
+    expect(SILENT_END_LINE).toBe(fixedLines(JACK).silentEnd);
+  });
+
+  test("the compatibility exports are built from Jack", () => {
+    const { toolsFor } = require("../../src/receptionist/kinds");
+    expect(TOOLS).toEqual(toolsFor("receptionist"));
+    expect(loadKnowledge()).toBe(JACK.knowledge);
+  });
+
+  test("Jack's seed carries only the fields of a seed", () => {
+    expect(Object.keys(JACK).sort()).toEqual(
+      [
+        "kind",
+        "name",
+        "personaName",
+        "companyName",
+        "greeting",
+        "instructions",
+        "knowledge",
+      ].sort(),
+    );
+    expect(JACK).toMatchObject({
+      kind: "receptionist",
+      name: "Jack (customer line)",
+      personaName: "Jack",
+      companyName: "Iron Wing Dispatching",
+    });
+  });
+});

@@ -82,6 +82,10 @@ describe("relayTwiml", () => {
       "Thanks for calling Iron Wing Dispatching. This is Jack. How can I help you today?",
     );
     expect(GREETING).not.toMatch(/\bAI\b|assistant|transcribed|recorded/i);
+    // Jack's seed profile opens with the same words.
+    expect(require("../../src/receptionist/seed/jack").JACK.greeting).toBe(
+      GREETING,
+    );
     // The line takes every kind of business call, so the opener is general.
     expect(GREETING).toMatch(/How can I help you today\?$/);
     expect(GREETING).not.toContain("for your truck");
