@@ -188,7 +188,8 @@ async function moveNumber(workspaceId, numberId, targetConnectionId) {
       [numberId],
     );
     await client.query(
-      "UPDATE connection_numbers SET connection_id = $2 WHERE id = $1 RETURNING id",
+      `UPDATE connection_numbers SET connection_id = $2, handler = 'softphone', agent_profile_id = NULL
+       WHERE id = $1 RETURNING id`,
       [numberId, targetConnectionId],
     );
     return {
@@ -198,6 +199,63 @@ async function moveNumber(workspaceId, numberId, targetConnectionId) {
       workspace_id: target.rows[0].workspace_id,
       connection_id: targetConnectionId,
     };
+  });
+}
+
+// Per-number handling: softphone rings the browser, ai_agent answers with an
+// agent profile from the same workspace. Moving a number resets the handler
+// (see moveNumber) because the agent belongs to the old workspace.
+async function updateNumberSettings(workspaceId, numberId, settings = {}) {
+  if (!uuidPattern.test(workspaceId || "") || !uuidPattern.test(numberId || ""))
+    throw new Error("Invalid workspace or number.");
+  const { handler, agentProfileId, label, observeHours } = settings;
+  if (handler !== "softphone" && handler !== "ai_agent")
+    throw new Error("Enter valid number settings.");
+  if (observeHours !== undefined && typeof observeHours !== "boolean")
+    throw new Error("Enter valid number settings.");
+  let cleanLabel;
+  if (label !== undefined && label !== null) {
+    if (typeof label !== "string" || label.trim().length > 60)
+      throw new Error("Enter a line label of up to 60 characters.");
+    cleanLabel = label.trim() || null;
+  } else if (label === null) cleanLabel = null;
+  return inTransaction(async (client) => {
+    const current = await client.query(
+      `SELECT n.id, n.label, n.observe_hours
+       FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
+       WHERE n.id = $1 AND c.workspace_id = $2 FOR UPDATE OF n`,
+      [numberId, workspaceId],
+    );
+    if (!current.rows.length)
+      throw new Error("Number does not belong to this workspace.");
+    let profileId = null;
+    if (handler === "ai_agent") {
+      if (!uuidPattern.test(agentProfileId || ""))
+        throw new Error("Choose an agent from this workspace.");
+      const profile = await client.query(
+        `SELECT p.id FROM agent_profiles p
+         WHERE p.id = $1 AND p.workspace_id = $2`,
+        [agentProfileId, workspaceId],
+      );
+      if (!profile.rows.length)
+        throw new Error("Choose an agent from this workspace.");
+      profileId = profile.rows[0].id;
+    }
+    const row = current.rows[0];
+    const updated = await client.query(
+      `UPDATE connection_numbers
+       SET handler = $2, agent_profile_id = $3, label = $4, observe_hours = $5
+       WHERE id = $1
+       RETURNING id, handler, agent_profile_id, label, observe_hours`,
+      [
+        numberId,
+        handler,
+        profileId,
+        cleanLabel === undefined ? row.label : cleanLabel,
+        observeHours === undefined ? row.observe_hours : observeHours,
+      ],
+    );
+    return updated.rows[0];
   });
 }
 
@@ -211,6 +269,7 @@ async function listConnections(workspaceId) {
   );
   const numbers = await pool.query(
     `SELECT n.id, n.connection_id, n.provider_number_sid, n.phone_number, n.voice_enabled, n.sms_enabled,
+      n.handler, n.agent_profile_id, n.label, n.observe_hours,
       (a.connection_number_id = n.id) AS active
     FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
     LEFT JOIN workspace_active_numbers a ON a.workspace_id = c.workspace_id
@@ -593,6 +652,7 @@ module.exports = {
   archiveWorkspace,
   releaseNumber,
   moveNumber,
+  updateNumberSettings,
   listAllConnections,
   listConnections,
   createConnection,

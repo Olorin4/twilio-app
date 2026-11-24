@@ -21,6 +21,10 @@ function legacyProvider(workspaceId) {
     client: legacy.client,
     voiceEnabled: true,
     smsEnabled: true,
+    handler: "legacy",
+    agentProfileId: null,
+    numberLabel: null,
+    observeHours: true,
   };
 }
 async function getProvider(workspaceId, requestedNumberId) {
@@ -31,13 +35,15 @@ async function getProvider(workspaceId, requestedNumberId) {
     throw new Error("Invalid workspace or number.");
   const result = await pool.query(
     `SELECT c.id, c.workspace_id, c.account_sid, c.encrypted_credentials,
-      n.id AS number_id, n.phone_number, n.voice_enabled, n.sms_enabled
+      n.id AS number_id, n.phone_number, n.voice_enabled, n.sms_enabled,
+      n.handler, n.agent_profile_id, n.label, n.observe_hours
     FROM workspace_active_numbers a JOIN connection_numbers n ON n.id = COALESCE($2::uuid, a.connection_number_id)
       JOIN provider_connections c ON c.id = n.connection_id
     WHERE a.workspace_id = $1 AND c.workspace_id = $1
     UNION ALL
     SELECT c.id, c.workspace_id, c.account_sid, c.encrypted_credentials,
-      n.id AS number_id, n.phone_number, n.voice_enabled, n.sms_enabled
+      n.id AS number_id, n.phone_number, n.voice_enabled, n.sms_enabled,
+      n.handler, n.agent_profile_id, n.label, n.observe_hours
     FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
     WHERE $2::uuid IS NOT NULL AND n.id = $2 AND c.workspace_id = $1
       AND NOT EXISTS (SELECT 1 FROM workspace_active_numbers a WHERE a.workspace_id = $1)
@@ -61,6 +67,10 @@ async function getProvider(workspaceId, requestedNumberId) {
     phoneNumber: row.phone_number,
     voiceEnabled: row.voice_enabled,
     smsEnabled: row.sms_enabled,
+    numberLabel: row.label ?? null,
+    handler: row.handler ?? "softphone",
+    agentProfileId: row.agent_profile_id ?? null,
+    observeHours: row.observe_hours ?? true,
     authToken: secrets.authToken,
     apiKeySid: secrets.apiKeySid,
     apiKeySecret: secrets.apiKeySecret,
