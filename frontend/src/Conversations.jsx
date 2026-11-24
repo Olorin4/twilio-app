@@ -1,7 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, MessageSquare, Send, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  History,
+  MessageSquare,
+  Send,
+  UserRound,
+} from "lucide-react";
 import Pagination from "./Pagination";
 import { apiFetch } from "./api";
+import { isTimelinePhone } from "./timeline.mjs";
 
 function nameFor(phone, contacts) {
   const matches = contacts.filter((contact) => contact.phone === phone);
@@ -29,6 +36,7 @@ export default function Conversations({
   onErrorChange,
   initialConversation = null,
   activeNumber = "",
+  onHistory,
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -317,6 +325,14 @@ export default function Conversations({
                 {phone} · {localNumber}
               </span>
             </div>
+            {onHistory && isTimelinePhone(phone) && (
+              <button
+                className="button button-light history-action"
+                onClick={() => onHistory(phone)}
+              >
+                <History size={14} /> History
+              </button>
+            )}
           </div>
           <div className="thread-messages">
             {hasMore && (

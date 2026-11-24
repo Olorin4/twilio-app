@@ -58,7 +58,7 @@ suite("Users schema and store against PostgreSQL", () => {
       [numberId, connection],
     );
     users = require("../src/users");
-  });
+  }, 30000);
 
   afterAll(async () => {
     if (pool) await pool.end();
@@ -257,7 +257,7 @@ suite("Users schema and store against PostgreSQL", () => {
       spy = jest
         .spyOn(dbPool, "query")
         .mockImplementation((...args) => db.query(...args));
-    });
+    }, 30000);
 
     afterAll(async () => {
       if (spy) spy.mockRestore();
@@ -438,6 +438,423 @@ suite("Users schema and store against PostgreSQL", () => {
       expect((await run(counts, owner)).rows).toEqual({
         calls: 3,
         messages: 2,
+      });
+    });
+
+    /* A softphone call (from client:<identity>) is judged by the line it
+    used: its child leg's from_number. Last, so the other tests' rows and
+    counts are untouched. */
+    test("softphone calls follow the line they used", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      const IW = "00000000-0000-4000-8000-000000000001";
+      const IWC = "00000000-0000-4000-8000-0000000000e7";
+      const LEGACY = "+12025550000";
+      const fromOwner = `client:u${hex(OWNER)}_c${hex(C)}`;
+      // Parent and child legs: the child's from_number is the line used.
+      const call = (id, sid, ws, from, line) => `
+        INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, direction, workspace_id) VALUES
+          (${id}, '${sid}', now(), '${from}', '${EXTERNAL}', 'inbound', '${ws}'),
+          (${id + 100}, '${sid}c', now(), '${line}', '${EXTERNAL}', 'outbound-dial', '${ws}');
+        INSERT INTO twilio_call_legs VALUES
+          ('${sid}c', '${sid}', '${ws}', NULL, 'completed', true, 5, now());`;
+      await db.query(`
+        ${call(10, "CS10", W, fromOwner, SHARED)}
+        ${call(11, "CS11", W, fromOwner, PERSONAL)}
+        ${call(12, "CS12", W, fromOwner, "anonymous")}
+        INSERT INTO workspaces VALUES ('${IW}', 'iron wing');
+        INSERT INTO provider_connections VALUES ('${IWC}', '${IW}');
+        ${call(13, "CS13", IW, `client:u${hex(OWNER)}_c${hex(IWC)}`, LEGACY)}
+      `);
+      const other = {
+        id: "00000000-0000-4000-8000-0000000000e5",
+        role: "owner",
+      };
+      const ids = (result) => result.rows.map((row) => row.id).sort();
+      const forOther = await run(getCallLogs, other);
+      await expect(
+        db.query(`EXPLAIN ${forOther.sql}`, forOther.params),
+      ).resolves.toBeTruthy();
+      // Owner B sees owner A's call from the shared line, though A's only
+      // line on the connection is personal; not the one from A's personal
+      // line. With no E.164 line (CS12) or no child leg (4) the caller's
+      // identity decides, as before.
+      expect(ids(forOther)).toEqual(["1", "10", "3", "5"]);
+      expect(forOther.rows.find((row) => row.id === "10").local_number).toBe(
+        SHARED,
+      );
+      // The member sees it on their shared line too, never the personal one.
+      const forMember = await run(getCallLogs, member);
+      expect(ids(forMember)).toEqual(["1", "10", "5"]);
+      // A's own calls, and the owner of every line, still see them all.
+      expect(ids(await run(getCallLogs, owner))).toEqual([
+        "1",
+        "10",
+        "11",
+        "12",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+      ]);
+      // An Iron Wing member sees the owner's call on the legacy line.
+      const res = { set: jest.fn(), json: jest.fn(), status: jest.fn() };
+      await getCallLogs(
+        { user: member, workspace: { id: IW }, query: {} },
+        res,
+      );
+      expect(res.status).not.toHaveBeenCalled();
+      expect(res.json.mock.calls[0][0].map((row) => row.id)).toEqual(["13"]);
+    });
+
+    test("an owner's own softphone call from a line hidden from them still shows to them", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      // Owner C's staffed personal line, hidden from owners A and B. A can
+      // still place a call on the connection that shows it as caller ID.
+      const OWNER_C = "00000000-0000-4000-8000-0000000000e8";
+      const PERSONAL_C = "+12025550198";
+      await db.query(`
+        INSERT INTO app_users (id, username, display_name, password_hash, role) VALUES
+          ('${OWNER_C}', 'owner.c', 'C', 'x', 'owner');
+        INSERT INTO connection_numbers (id, connection_id, phone_number, personal) VALUES
+          (gen_random_uuid(), '${C}', '${PERSONAL_C}', true);
+        INSERT INTO number_assignees (number_id, user_id)
+          SELECT id, '${OWNER_C}'::uuid FROM connection_numbers WHERE phone_number = '${PERSONAL_C}';
+        INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, direction, workspace_id) VALUES
+          (14, 'CS14', now(), 'client:u${hex(OWNER)}_c${hex(C)}', '${EXTERNAL}', 'inbound', '${W}'),
+          (114, 'CS14c', now(), '${PERSONAL_C}', '${EXTERNAL}', 'outbound-dial', '${W}');
+        INSERT INTO twilio_call_legs VALUES
+          ('CS14c', 'CS14', '${W}', NULL, 'completed', true, 5, now());
+      `);
+      const ids = (result) => result.rows.map((row) => row.id);
+      const forA = await run(getCallLogs, owner);
+      await expect(
+        db.query(`EXPLAIN ${forA.sql}`, forA.params),
+      ).resolves.toBeTruthy();
+      expect(ids(forA)).toContain("14");
+      const other = {
+        id: "00000000-0000-4000-8000-0000000000e5",
+        role: "owner",
+      };
+      expect(ids(await run(getCallLogs, other))).not.toContain("14");
+      expect(ids(await run(getCallLogs, member))).not.toContain("14");
+    });
+
+    /* The contact timeline on real rows (Review Focus 2 and 5). Last, so
+    the other tests' rows and counts are untouched; the callers here are
+    numbers no other test uses. */
+    describe("contact timeline", () => {
+      const TL = "+12025550444";
+      const TIE = "+12025550555";
+      const S = (n) =>
+        `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`;
+      let handle;
+
+      beforeAll(async () => {
+        const contacts = require("../src/contacts");
+        const layer = contacts.stack.find(
+          (l) => l.route && l.route.path === "/:phone/timeline",
+        );
+        handle = layer.route.stack[layer.route.stack.length - 1].handle;
+        await db.query(`
+          ALTER TABLE phone_call_sessions
+            ADD COLUMN IF NOT EXISTS destination text,
+            ADD COLUMN IF NOT EXISTS summary jsonb,
+            ADD COLUMN IF NOT EXISTS assist boolean NOT NULL DEFAULT false;
+          ALTER TABLE phone_contacts ADD COLUMN IF NOT EXISTS company text;
+          ALTER TABLE receptionist_calls
+            ADD COLUMN IF NOT EXISTS workspace_id uuid,
+            ADD COLUMN IF NOT EXISTS from_number text,
+            ADD COLUMN IF NOT EXISTS started_at timestamptz,
+            ADD COLUMN IF NOT EXISTS outcome text,
+            ADD COLUMN IF NOT EXISTS callback_number text,
+            ADD COLUMN IF NOT EXISTS summary text;
+        `);
+      }, 30000);
+
+      const fetch = async (user, phone, query = {}) => {
+        const res = {
+          json: jest.fn(),
+          status: jest.fn().mockReturnThis(),
+        };
+        spy.mockClear();
+        await handle(
+          { user, workspace: { id: W }, params: { phone }, query },
+          res,
+        );
+        expect(res.status).not.toHaveBeenCalled();
+        const [sql, params] = spy.mock.calls.find(([text]) =>
+          text.includes("UNION ALL"),
+        );
+        await expect(db.query(`EXPLAIN ${sql}`, params)).resolves.toBeTruthy();
+        return res.json.mock.calls[0][0];
+      };
+      const keys = (body) => body.entries.map((e) => `${e.kind}:${e.id}`);
+
+      test("a member sees nothing of the owner's personal line", async () => {
+        await db.query(`
+          INSERT INTO phone_contacts (workspace_id, phone, name, company)
+            VALUES ('${W}', '${TL}', 'Tara Lane', 'Lane Freight');
+          INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id) VALUES
+            (20, 'CT20', now() AT TIME ZONE 'UTC' - interval '1 hour', '${TL}', '${SHARED}', 'completed', 95, 'inbound', '${W}'),
+            (21, 'CT21', now() AT TIME ZONE 'UTC' - interval '2 hours', '${TL}', '${PERSONAL}', 'completed', 600, 'inbound', '${W}'),
+            (22, 'CT22', now() AT TIME ZONE 'UTC' - interval '3 hours', '${PERSONAL}', '${TL}', 'completed', 300, 'outbound-api', '${W}');
+          INSERT INTO twilio_call_legs VALUES
+            ('CT20c', 'CT20', '${W}', NULL, 'completed', true, 95, now());
+          INSERT INTO message_logs (id, message_sid, from_number, to_number, body, timestamp, workspace_id) VALUES
+            (20, 'SMT20', '${TL}', '${SHARED}', 'shared hello', now() AT TIME ZONE 'UTC' - interval '4 hours', '${W}'),
+            (21, 'SMT21', '${TL}', '${PERSONAL}', 'secret one', now() AT TIME ZONE 'UTC' - interval '5 hours', '${W}'),
+            (22, 'SMT22', '${PERSONAL}', '${TL}', 'secret two', now() AT TIME ZONE 'UTC' - interval '6 hours', '${W}');
+          INSERT INTO receptionist_calls (call_sid, workspace_id, from_number, callback_number, started_at, ended_at, outcome, summary) VALUES
+            ('CT20', '${W}', '${TL}', NULL, now() - interval '1 hour', now(), 'lead', 'Needs a reefer'),
+            ('CT21', '${W}', '${TL}', NULL, now() - interval '2 hours', now(), 'urgent', 'secret three'),
+            ('CT29', '${W}', 'anonymous', '${TL}', now() - interval '7 hours', now(), 'message', 'secret four');
+          -- S1, S2, S4 and S5 are plain app-dialed calls (assist off); S3 is
+          -- Live Assist. A plain one with no notes or outcome (S4) is just
+          -- its call and never an entry.
+          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, outcome, summary, assist, created_at) VALUES
+            ('${S(1)}', NULL, '${W}', '${SHARED}', '${TL}', 'shared note', NULL, NULL, false, now() - interval '8 hours'),
+            ('${S(2)}', NULL, '${W}', '${PERSONAL}', '${TL}', 'secret five', NULL, NULL, false, now() - interval '9 hours'),
+            ('${S(3)}', 'CT21', '${W}', '${SHARED}', '${TL}', '', NULL, '{"reason": "secret six"}', true, now() - interval '10 hours'),
+            ('${S(4)}', 'CT40', '${W}', '${SHARED}', '${TL}', '', NULL, NULL, false, now() - interval '11 hours'),
+            ('${S(5)}', NULL, '${W}', '${SHARED}', '${TL}', '', 'connected', NULL, false, now() - interval '12 hours');
+        `);
+        const forMember = await fetch(member, TL);
+        expect(keys(forMember)).toEqual([
+          "agent_call:CT20",
+          "call:20",
+          "text:20",
+          `assist:${S(1)}`,
+          `assist:${S(5)}`,
+        ]);
+        expect(forMember.contact).toEqual({
+          name: "Tara Lane",
+          company: "Lane Freight",
+        });
+        expect(forMember.next).toBeNull();
+        expect(forMember.entries.map((e) => e.summary)).toEqual([
+          "New lead: Needs a reefer",
+          "Answered · 2 min",
+          "shared hello",
+          "shared note",
+          "Call notes",
+        ]);
+        // A plain session links nowhere; only Live Assist opens the call.
+        expect(forMember.entries.slice(-2).map((e) => e.link)).toEqual([
+          null,
+          null,
+        ]);
+        expect(forMember.entries.every((e) => e.line === SHARED)).toBe(true);
+        // Nothing of the personal line, in any field.
+        const sent = JSON.stringify(forMember);
+        expect(sent).not.toContain(PERSONAL);
+        expect(sent).not.toContain("secret");
+        expect(sent).not.toContain("CT21");
+        expect(sent).not.toContain("CT22");
+        // Paging by one never reaches a hidden row either.
+        const seen = [];
+        let cursor;
+        do {
+          const page = await fetch(
+            member,
+            TL,
+            cursor ? { limit: "1", cursor } : { limit: "1" },
+          );
+          seen.push(...keys(page));
+          cursor = page.next;
+        } while (cursor);
+        expect(seen).toEqual(keys(forMember));
+        // The owner, whose personal line it is, sees everything.
+        const forOwner = await fetch(owner, TL);
+        expect(keys(forOwner).sort()).toEqual(
+          [
+            "agent_call:CT20",
+            "agent_call:CT21",
+            "agent_call:CT29",
+            "call:20",
+            "call:21",
+            "call:22",
+            "text:20",
+            "text:21",
+            "text:22",
+            `assist:${S(1)}`,
+            `assist:${S(2)}`,
+            `assist:${S(3)}`,
+            `assist:${S(5)}`,
+          ].sort(),
+        );
+        const byKey = Object.fromEntries(
+          forOwner.entries.map((e) => [`${e.kind}:${e.id}`, e]),
+        );
+        expect(byKey["call:22"]).toMatchObject({
+          direction: "outbound",
+          line: PERSONAL,
+          summary: "Outgoing call · 5 min",
+        });
+        // No leg ever answered it: not "Answered".
+        expect(byKey["call:21"].summary).toBe("Incoming call · 10 min");
+        expect(byKey["text:22"]).toMatchObject({
+          direction: "outbound",
+          line: PERSONAL,
+        });
+        expect(byKey[`assist:${S(3)}`]).toMatchObject({
+          summary: "secret six",
+          link: { view: "call", callSid: "CT21" },
+        });
+        expect(byKey["agent_call:CT29"]).toMatchObject({
+          summary: "Message: secret four",
+          link: { view: "leads", callSid: "CT29" },
+          line: null,
+        });
+      });
+
+      test("entries at the same instant page without gaps or repeats", async () => {
+        await db.query(`
+          INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id) VALUES
+            (30, 'CT30', '2026-01-01 12:00:00.123456', '${TIE}', '${SHARED}', 'completed', 0, 'inbound', '${W}');
+          INSERT INTO message_logs (id, message_sid, from_number, to_number, body, timestamp, workspace_id) VALUES
+            (30, 'SMT30', '${TIE}', '${SHARED}', 'one', '2026-01-01 12:00:00.123456', '${W}'),
+            (31, 'SMT31', '${SHARED}', '${TIE}', 'two', '2026-01-01 12:00:00.123456', '${W}');
+          INSERT INTO receptionist_calls (call_sid, workspace_id, from_number, started_at, ended_at, outcome, summary) VALUES
+            ('CT30', '${W}', '${TIE}', '2026-01-01 12:00:00.123456+00', now(), 'spam', NULL);
+          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, assist, created_at) VALUES
+            ('${S(30)}', NULL, '${W}', '${SHARED}', '${TIE}', '', true, '2026-01-01 12:00:00.123456+00');
+        `);
+        const all = await fetch(member, TIE);
+        expect(keys(all)).toEqual([
+          "agent_call:CT30",
+          `assist:${S(30)}`,
+          "call:30",
+          "text:31",
+          "text:30",
+        ]);
+        expect(new Set(all.entries.map((e) => e.at)).size).toBe(1);
+        const seen = [];
+        let cursor;
+        let pages = 0;
+        do {
+          const page = await fetch(
+            member,
+            TIE,
+            cursor ? { limit: "1", cursor } : { limit: "1" },
+          );
+          expect(page.entries).toHaveLength(1);
+          seen.push(...keys(page));
+          cursor = page.next;
+          pages += 1;
+        } while (cursor && pages < 10);
+        expect(pages).toBe(5);
+        expect(seen).toEqual(keys(all));
+        // Two at a time, the last page is short and ends the list.
+        const first = await fetch(member, TIE, { limit: "2" });
+        const second = await fetch(member, TIE, {
+          limit: "2",
+          cursor: first.next,
+        });
+        const third = await fetch(member, TIE, {
+          limit: "2",
+          cursor: second.next,
+        });
+        expect([...keys(first), ...keys(second), ...keys(third)]).toEqual(
+          keys(all),
+        );
+        expect(third.next).toBeNull();
+      });
+
+      /* bindIntent binds a session to the softphone root call (from
+      client:u…) and pins the session's from_number to the line it dialed
+      from, so the session, its details and its notes follow that line. */
+      test("a Live Assist session bound to a softphone root call follows the line it used", async () => {
+        const IW = "00000000-0000-4000-8000-000000000001";
+        const LEGACY = "+12025550000";
+        const OTHER = {
+          id: "00000000-0000-4000-8000-0000000000e5",
+          role: "owner",
+        };
+        const router = require("../src/callAssist/routes");
+        const route = (method) => {
+          const layer = router.stack.find(
+            (l) =>
+              l.route &&
+              l.route.path === "/history/:callSid" &&
+              l.route.methods[method],
+          );
+          return layer.route.stack[layer.route.stack.length - 1].handle;
+        };
+        const call = async (method, user, workspace, sid, body) => {
+          const res = {
+            sendStatus: jest.fn(),
+            json: jest.fn(),
+            status: jest.fn().mockReturnThis(),
+          };
+          await route(method)(
+            {
+              user,
+              workspace: { id: workspace },
+              params: { callSid: sid },
+              body,
+            },
+            res,
+          );
+          expect(res.status).not.toHaveBeenCalled();
+          return res;
+        };
+        await db.query(`
+          ALTER TABLE phone_call_sessions
+            ADD COLUMN IF NOT EXISTS account_sid text,
+            ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+          CREATE UNIQUE INDEX IF NOT EXISTS phone_call_sessions_call_sid
+            ON phone_call_sessions (call_sid);
+          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, summary, assist, created_at) VALUES
+            ('${S(50)}', 'CS13', '${IW}', '${LEGACY}', '${EXTERNAL}', 'legacy note', '{"reason": "legacy call"}', true, now()),
+            ('${S(51)}', 'CS11', '${W}', '${PERSONAL}', '${EXTERNAL}', 'secret note', '{"reason": "secret eight"}', true, now());
+          -- Owner A also staffs the shared line, so their softphone identity
+          -- is not hidden from owner B as a whole: only the line decides.
+          INSERT INTO number_assignees (number_id, user_id)
+            SELECT id, '${OWNER}'::uuid FROM connection_numbers WHERE phone_number = '${SHARED}';
+        `);
+        try {
+          // The dispatcher sees the owner's legacy-line softphone call's
+          // details and can save notes on it.
+          const shown = await call("get", member, IW, "CS13");
+          expect(shown.sendStatus).not.toHaveBeenCalled();
+          expect(shown.json.mock.calls[0][0]).toMatchObject({ id: S(50) });
+          const saved = await call("patch", member, IW, "CS13", {
+            notes: "called back",
+            outcome: "connected",
+          });
+          expect(saved.sendStatus).toHaveBeenCalledWith(204);
+          // Owner B never sees owner A's personal-line session.
+          const hidden = await call("get", OTHER, W, "CS11");
+          expect(hidden.sendStatus).toHaveBeenCalledWith(404);
+          expect(hidden.json).not.toHaveBeenCalled();
+          const refused = await call("patch", OTHER, W, "CS11", {
+            notes: "x",
+            outcome: null,
+          });
+          expect(refused.sendStatus).toHaveBeenCalledWith(404);
+          const timeline = await fetch(OTHER, EXTERNAL);
+          expect(JSON.stringify(timeline)).not.toContain("secret");
+          expect(keys(timeline)).not.toContain(`assist:${S(51)}`);
+          // Owner A, whose line it is, sees it.
+          expect(keys(await fetch(owner, EXTERNAL))).toContain(
+            `assist:${S(51)}`,
+          );
+          const own = await call("get", owner, W, "CS11");
+          expect(own.json.mock.calls[0][0]).toMatchObject({ id: S(51) });
+          const { rows } = await db.query(
+            "SELECT call_sid, notes FROM phone_call_sessions WHERE call_sid IN ('CS11', 'CS13') ORDER BY call_sid",
+          );
+          expect(rows).toEqual([
+            { call_sid: "CS11", notes: "secret note" },
+            { call_sid: "CS13", notes: "called back" },
+          ]);
+        } finally {
+          await db.query(`
+            DELETE FROM number_assignees WHERE user_id = '${OWNER}'
+              AND number_id IN (SELECT id FROM connection_numbers WHERE phone_number = '${SHARED}');
+          `);
+        }
       });
     });
   });

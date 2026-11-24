@@ -310,6 +310,7 @@ All settings are environment variables; `.env.example` lists them with comments.
 | `RECEPTIONIST_ALERT_EMAIL`                                          | none                            | Where emails go, for profiles with no alert email of their own.                                  |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | port `587`                      | The mail account that sends them.                                                                |
 | `ANTHROPIC_API_KEY`                                                 | none                            | Read by the Anthropic SDK.                                                                       |
+| `TRUST_PROXY`                                                       | off                             | Proxies in front of the app (production `1`). Unset: only the per-username sign-in cap.          |
 
 ### Agent profiles
 
@@ -377,6 +378,22 @@ scratch Postgres on port 55433:
       AGENT_PROFILES_PG_TEST=1 USERS_PG_TEST=1 RINGING_PG_TEST=1 \
       CALL_ASSIST_PG_TEST=1 OUTREACH_INTAKE_PG_TEST=1 npx jest --runInBand
 
+### Contact timeline and screen pop
+
+`GET /contacts/:phone/timeline` (E.164 numbers only, 20 items a page, at most
+50) returns one list for a number, newest first, merging calls, texts, AI agent
+calls and Live Assist sessions. A call session appears only when it used Live
+Assist or has notes or an outcome. It follows the same visibility rules as
+history, so a user sees only what they could already see there.
+
+**History** opens the timeline from contact rows, call rows, the conversation
+header and lead cards. **Open** on an AI agent call opens the Leads view; on a
+Live Assist session it opens that call's details.
+
+When a call rings, the softphone shows `<name> · Last: <summary> · <relative
+time>` under the number. It reads the call's own workspace, skips the ringing
+call itself, never delays ringing and fails silently.
+
 ### Users, login and recovery
 
 People sign in with a username and password. Settings and Users are
@@ -415,11 +432,29 @@ database you mean. A CLI password reset, and any disable or role change made in 
 take effect on the running server immediately, because the server re-checks the
 user's row on every cached login.
 
-#### Deploy order (after 2a and 2b)
+#### Deploy order (Phase 2: 2a, 2b and 2c)
 
-Migration 013, the 013 seed (with production's `RECEPTIONIST_DAILY_LIMIT`),
-migration 014, then deploy the code, then the cutover steps above. Production
-runs happen only after Phase 2c also lands, and only with the owner's go-ahead.
+1. Migration 013.
+2. The 013 seed, with production's `RECEPTIONIST_DAILY_LIMIT`.
+3. Migration 014.
+4. Set `TRUST_PROXY` and confirm `TWILIO_IDENTITY` (see the checks below).
+5. Deploy the code.
+6. The owner cutover (Settings -> Users, steps above).
+7. A test call.
+
+Every production step needs the owner's go-ahead; deployment is on hold until
+Phase 2c has landed.
+
+On deploy day:
+
+- Watch `docker logs` for the app right after the deploy. An invalid
+  `TRUST_PROXY` makes the server log the reason and exit, so the container
+  restarts in a loop instead of serving.
+- Confirm nothing (for example a CDN) sits in front of the edge nginx. With
+  another proxy in front, `TRUST_PROXY=1` takes that proxy's address as every
+  client's.
+- Expect everyone to sign in fresh after the restart: cached logins and the
+  sign-in limits are kept in memory only.
 
 Before deploying, check:
 
@@ -430,11 +465,38 @@ Before deploying, check:
   warns at startup when it is unset.
 - At startup the server logs `DATABASE NOT MIGRATED: run npm run migrate:users`
   when migration 014 is missing. It never crashes on it, so check the log.
-- Failed sign-ins are limited to 10 a minute per client address and per
-  username (then `429 Too many sign-in attempts`). The app does not set Express
-  `trust proxy`, so behind the edge nginx every client shares the proxy's
-  address: 10 failures a minute from anyone briefly limits every sign-in that
-  is not already cached, though people already signed in keep working.
+- Production sets `TRUST_PROXY=1`, but only after confirming that the edge
+  nginx sets `X-Forwarded-For` on the requests it proxies to the app, with
+  either `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` or
+  `proxy_set_header X-Forwarded-For $remote_addr;`. Express then takes the
+  client's address from the last hop the edge added. Trust exactly as many
+  proxies as really sit in front of the app: with too many trusted, a client
+  can send its own `X-Forwarded-For` and forge its address, which lets it
+  dodge the sign-in limits or lock out another address. The container
+  publishes no host port, but any container on the shared external `edge`
+  Docker network can reach `twilio-app:3001` directly, so `TRUST_PROXY=1`
+  trusts that whole network: a container there can send its own
+  `X-Forwarded-For` and pick its address. Keep only trusted containers on it.
+  `TRUST_PROXY=true` is refused at startup,
+  and so is any value Express can't read; `false`, `off`, `no` and `0` mean
+  off.
+- Failed sign-ins are limited to 30 a minute per client address, 10 a minute
+  per client address and username together, and 100 a minute per username
+  from anywhere, then answered with `429 Too many sign-in attempts`. Ten
+  failures from one address never lock a username out from another address.
+  But 100 failures a minute from anywhere block new sign-ins for that username
+  until they stop; sessions already open keep working. The server log shows
+  when this happens: a `Sign-in limit reached` line when a limit is first hit,
+  and an `App login is busy` line while password checks are at capacity, each
+  at most once a minute. Only plausible sign-ins count (a valid username and a
+  password of 1 to 200 characters). A cached login lasts 5
+  minutes from its last passing check, so an active session never falls back
+  to a full password check. With IPv6 at the edge one client can rotate
+  addresses within its /64, so the per-address limits slow it less; the
+  per-username cap still applies. Without `TRUST_PROXY` every client looks
+  like the edge nginx, so only the per-username cap applies and the server
+  logs this at startup:
+  `Per-client sign-in limits are off: set TRUST_PROXY to the number of proxies in front of the app. Only the per-username cap applies.`
 
 ### Simulated callers
 

@@ -248,6 +248,7 @@ async function discardCall(callSid) {
 }
 
 module.exports = {
+  leadCondition,
   OUTCOMES,
   STATUSES,
   startCall,

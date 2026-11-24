@@ -132,6 +132,58 @@ describe("authenticate", () => {
     }
   });
 
+  // A hit that passes its row re-check slides the expiry to now plus 5
+  // minutes, so someone working steadily is never pushed back to scrypt (and
+  // the sign-in limiter) mid-shift.
+  test("an active session survives a limit", async () => {
+    jest.useFakeTimers();
+    try {
+      serve(() => rowWithHash());
+      await users.authenticate("nick", password);
+      const spy = scrypts();
+      for (let i = 0; i < 2; i += 1) {
+        jest.advanceTimersByTime(4 * 60 * 1000);
+        expect(users.isCachedLogin("nick", password)).toBe(true);
+        pool.query.mockClear();
+        const user = await users.authenticate("nick", password);
+        expect(user.username).toBe("nick");
+        // One query: the re-check by id. No lookup, no last_login update.
+        expect(pool.query).toHaveBeenCalledTimes(1);
+        expect(pool.query.mock.calls[0][1]).toEqual([UID]);
+        expect(spy).not.toHaveBeenCalled();
+      }
+      spy.mockRestore();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("a hit whose re-check fails is not extended", async () => {
+    jest.useFakeTimers();
+    try {
+      let row = rowWithHash();
+      serve(() => row);
+      await users.authenticate("nick", password);
+      jest.advanceTimersByTime(4 * 60 * 1000);
+      // A database error on the re-check: 503, and the expiry stays put.
+      pool.query.mockRejectedValueOnce(new Error("db down"));
+      await expect(users.authenticate("nick", password)).rejects.toThrow(
+        "db down",
+      );
+      jest.advanceTimersByTime(90 * 1000);
+      expect(users.isCachedLogin("nick", password)).toBe(false);
+
+      // A mismatched re-check removes the entry at once.
+      await users.authenticate("nick", password);
+      expect(users.isCachedLogin("nick", password)).toBe(true);
+      row = rowWithHash({ enabled: false });
+      expect(await users.authenticate("nick", password)).toBeNull();
+      expect(users.isCachedLogin("nick", password)).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test("a hit refreshes workspace ids from the row", async () => {
     let row = rowWithHash();
     serve(() => row);

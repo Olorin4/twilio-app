@@ -1,6 +1,12 @@
 const crypto = require("crypto");
+const express = require("express");
 const twilio = require("twilio");
-const { authenticate, hasEnabledOwner, isCachedLogin } = require("./users");
+const {
+  authenticate,
+  hasEnabledOwner,
+  isCachedLogin,
+  plausibleLogin,
+} = require("./users");
 const { createLoginLimiter } = require("./loginLimiter");
 
 function equalSecret(a, b) {
@@ -56,21 +62,117 @@ async function loginFor({ username, password }) {
   return null;
 }
 
-/* Failed logins are limited per client address and per username: 10 in a
-rolling minute and that key is refused with 429 before any password hashing,
-so bad logins can't tie up the thread pool live calls share. Successful
-logins don't count. The 429 carries no WWW-Authenticate, so the browser does
-not re-prompt in a loop. A login that is a live cache hit (no hashing) still
-passes, so signed-in people keep working while an address is limited.
-req.ip is the socket address: the app does not set "trust proxy", so behind
-the edge nginx every client shares the proxy's address and the per-username
-key is what tells them apart. */
-const loginLimiter = createLoginLimiter();
+/* Failed logins are limited per client address (30 in a rolling minute), per
+address and username together (10), and per username from anywhere (100), and
+a limited key is refused with 429 before any password hashing, so bad logins
+can't tie up the thread pool live calls share. The per-username cap is loose
+on purpose: a stranger's 10 failures from their own address never lock `nick`
+out elsewhere, but guessing one account from many addresses is still bounded.
+Successful logins don't count. The 429 carries no WWW-Authenticate, so the
+browser does not re-prompt in a loop. A login that is a live cache hit (no
+hashing) still passes, so signed-in people keep working while a key is
+limited. Usernames go into keys as a sha256, so key size is bounded. Only
+plausible logins count (a valid username and a 1 to 200 character password):
+anything else is refused before any lookup or hashing, and counting it would
+let junk requests fill the limiter's memory for free.
+
+The operator sees attacks in the log: a line when a key first reaches its
+limit, and a line while logins are refused as busy, each at most once a
+minute per kind so a flood cannot flood the log.
+
+req.ip is only the client's address when Express trusts the edge nginx's
+X-Forwarded-For (TRUST_PROXY, applied in index.js). Without it every client
+is the proxy's address, so per-client limits would lock everyone out
+together: only the per-username cap applies, and the server warns at
+startup. */
+const loginLimiter = createLoginLimiter({
+  limits: { ip: 30, ipuser: 10, user: 100 },
+  windowMs: 60000,
+  maxKeys: 10000,
+});
 const LIMITED = "Too many sign-in attempts. Try again in a minute.";
-const limitKeys = (req, username) => [
-  `ip:${req.ip || req.socket?.remoteAddress || "unknown"}`,
-  `user:${String(username).trim().toLowerCase()}`,
-];
+
+// At most one console.warn a minute per topic.
+const WARN_EVERY_MS = 60000;
+const lastWarned = new Map();
+const suppressed = new Map();
+function warnOnce(topic, message) {
+  const now = Date.now();
+  const last = lastWarned.get(topic);
+  if (last !== undefined && now - last < WARN_EVERY_MS) {
+    suppressed.set(topic, (suppressed.get(topic) || 0) + 1);
+    return;
+  }
+  const skipped = suppressed.get(topic) || 0;
+  lastWarned.set(topic, now);
+  suppressed.delete(topic);
+  console.warn(
+    skipped ? `${message} (${skipped} more since the last line)` : message,
+  );
+}
+
+const LIMIT_NAMES = {
+  ip: "30 failures a minute from one address",
+  ipuser: "10 failures a minute from one address for one username",
+  user: "100 failures a minute for one username",
+};
+// Logs keys that just reached their limit. `name` is the normalised username
+// (plausible logins only reach the limiter), cut to 40 characters.
+function warnLimited(reached, req, name) {
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  for (const key of reached) {
+    const prefix = key.slice(0, key.indexOf(":"));
+    const who = {
+      ip: `address ${ip}`,
+      ipuser: `address ${ip}, username "${name}"`,
+      user: `username "${name}"`,
+    }[prefix];
+    warnOnce(
+      `limit:${prefix}`,
+      `Sign-in limit reached (${prefix}: ${LIMIT_NAMES[prefix] || "limit"}) for ${who}; new sign-ins are refused with 429 until it rolls off.`,
+    );
+  }
+}
+function limitKeys(req, username) {
+  const name = crypto
+    .createHash("sha256")
+    .update(String(username).trim().toLowerCase())
+    .digest("hex");
+  if (!req.app?.get?.("trust proxy")) return [`user:${name}`];
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  return [`ip:${ip}`, `ipuser:${ip}|${name}`, `user:${name}`];
+}
+
+const TRUST_EVERY_HOP =
+  "TRUST_PROXY=true would let clients forge their address; set it to the number of proxies in front of the app (usually 1).";
+
+// TRUST_PROXY as Express's "trust proxy" value: unset, empty, false, off, no
+// or 0 is off; a whole number is how many proxies to trust; true, yes and on
+// are refused (Express would trust every hop); anything else (for example
+// "loopback, 172.16.0.0/12") is passed through if Express accepts it.
+function trustProxySetting(value) {
+  const text = String(value ?? "").trim();
+  const word = text.toLowerCase();
+  if (!text || ["false", "off", "no"].includes(word)) return false;
+  if (["true", "yes", "on"].includes(word)) throw new Error(TRUST_EVERY_HOP);
+  if (/^\d+$/.test(text)) return Number(text) || false;
+  try {
+    express().set("trust proxy", text); // compiles it, throwing if invalid
+  } catch {
+    throw new Error(`TRUST_PROXY "${text}" is not valid`);
+  }
+  return text;
+}
+
+// Applies TRUST_PROXY at startup, or logs why it can't and exits non-zero.
+function applyTrustProxy(app, value) {
+  try {
+    app.set("trust proxy", trustProxySetting(value));
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+}
 
 // Sets req.user to a signed-in User or the bootstrap operator. Fails closed:
 // if the account store cannot be read, nobody gets in.
@@ -89,14 +191,25 @@ async function requireLogin(req, res, next) {
   try {
     user = await loginFor(credentials);
   } catch (error) {
-    if (error.code === "LOGIN_BUSY")
+    if (error.code === "LOGIN_BUSY") {
+      warnOnce(
+        "busy",
+        "App login is busy: password checks are at capacity, so sign-ins are refused with 503.",
+      );
       return res.status(503).send("App login is busy. Try again.");
+    }
     console.error("Login check failed:", error.message);
     return res.status(503).send("App login is unavailable.");
   }
   if (typeof user === "string") return res.status(503).send(user);
   if (!user) {
-    loginLimiter.fail(keys);
+    if (plausibleLogin(credentials.username, credentials.password)) {
+      const name = String(credentials.username)
+        .trim()
+        .toLowerCase()
+        .slice(0, 40);
+      warnLimited(loginLimiter.fail(keys), req, name);
+    }
     return challenge(res);
   }
   req.user = user;
@@ -138,7 +251,15 @@ function isTwilioWebhook(req) {
 
 module.exports = {
   requireLogin,
-  resetLoginLimits: () => loginLimiter.clear(),
+  resetLoginLimits: () => {
+    loginLimiter.clear();
+    lastWarned.clear();
+    suppressed.clear();
+  },
+  loginLimitSize: () => loginLimiter.size(),
+  trustProxySetting,
+  applyTrustProxy,
+  limitKeys,
   requireOwner,
   validateWebhook,
   isTwilioWebhook,

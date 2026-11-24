@@ -7,6 +7,7 @@ const { getAssistantSettings } = require("../assistantSettings");
 const { mayUseLine, usableLines } = require("../ringing");
 const { callableNumber } = require("../receptionist/phone");
 const { lineScope, lineCondition } = require("../visibility");
+const { callLine, clientLine, sessionCondition } = require("../callSql");
 const {
   config,
   eligible,
@@ -47,33 +48,6 @@ const sessionQuery = `SELECT s.*, l.status AS leg_status FROM phone_call_session
       AND provider_connection_id IS NOT DISTINCT FROM s.provider_connection_id
     ORDER BY updated_at DESC LIMIT 1
   ) l ON true WHERE s.workspace_id = $1`;
-
-// A call log's line: from_number when outbound, else to_number.
-const callLine = (alias) =>
-  `CASE WHEN ${alias}.direction LIKE 'outbound%' THEN ${alias}.from_number ELSE ${alias}.to_number END`;
-
-/* Whether the person may see a session (alias s), with params numbered from
-firstParam. A session on a logged call follows that call's visibility; one not
-yet bound to a call follows its line, which is its from_number. */
-function sessionCondition(scope, firstParam) {
-  const call = lineCondition(
-    scope,
-    callLine("vc"),
-    "vc.from_number",
-    firstParam,
-  );
-  const line = lineCondition(
-    scope,
-    "s.from_number",
-    "s.from_number",
-    firstParam,
-  );
-  const logged = `SELECT 1 FROM call_logs vc WHERE vc.call_sid = s.call_sid AND vc.workspace_id = s.workspace_id`;
-  return {
-    sql: `(CASE WHEN EXISTS (${logged}) THEN EXISTS (${logged} AND ${call.sql}) ELSE ${line.sql} END)`,
-    params: call.params,
-  };
-}
 
 // The visibility filter is read once per request; pass it to every snapshot.
 async function snapshot(
@@ -290,7 +264,13 @@ router.get(
     const scope = await lineScope(req.user, workspace);
     const data = await snapshot(workspace, sid, true, true, scope);
     if (data) return res.json(data);
-    const visible = lineCondition(scope, callLine("cl"), "cl.from_number", 3);
+    const visible = lineCondition(
+      scope,
+      callLine("cl"),
+      "cl.from_number",
+      3,
+      clientLine("cl"),
+    );
     const { rowCount } = await pool.query(
       `SELECT 1 FROM call_logs cl WHERE cl.workspace_id = $1 AND cl.call_sid = $2 AND ${visible.sql}`,
       [workspace, sid, ...visible.params],
@@ -322,6 +302,7 @@ router.patch(
       callLine("cl"),
       "cl.from_number",
       6,
+      clientLine("cl"),
     );
     const { rowCount } = await pool.query(
       `INSERT INTO phone_call_sessions

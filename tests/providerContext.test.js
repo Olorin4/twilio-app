@@ -189,3 +189,28 @@ describe("checkUsersSchema", () => {
     expect(error).toHaveBeenCalled();
   });
 });
+
+describe("checkSignInLimits", () => {
+  const { checkSignInLimits } = require("../src/providerContext");
+  const MESSAGE =
+    "Per-client sign-in limits are off: set TRUST_PROXY to the number of proxies in front of the app. Only the per-username cap applies.";
+  let warn;
+  beforeEach(() => {
+    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => warn.mockRestore());
+
+  test("warns when TRUST_PROXY is unset", () => {
+    expect(checkSignInLimits(false)).toBe(false);
+    expect(warn).toHaveBeenCalledWith(MESSAGE);
+    warn.mockClear();
+    expect(checkSignInLimits(0)).toBe(false);
+    expect(warn).toHaveBeenCalledWith(MESSAGE);
+  });
+
+  test("stays quiet when trust proxy is set", () => {
+    expect(checkSignInLimits(1)).toBe(true);
+    expect(checkSignInLimits("loopback, 172.16.0.0/12")).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+});

@@ -153,3 +153,99 @@ test("lineCondition builds a member filter on visible lines and their own calls"
   expect(params[0]).toBe(`client:u${hex(MEMBER)}_`);
   expect(params[1]).not.toContain(PERSONAL);
 });
+
+/* Softphone calls (from client:<identity>) are judged by the line they used
+when the caller passes that line's SQL (clientLineExpr): the member's own call
+always shows; otherwise a known line follows the normal rule, and an unknown
+one (NULL) the old client: rule. The semantics run in users.pg.test.js. */
+const CLIENT_LINE = "(SELECT child.from_number)";
+const known = `(${CLIENT_LINE}) IS NOT NULL`;
+
+test("owner B sees owner A's softphone call placed from a shared line", async () => {
+  // A's only line on the connection is personal, so A's identity is hidden...
+  const scope = await lineScope({ id: OWNER2, role: "owner" }, IRON_WING);
+  expect(scope.hiddenClients).toEqual([`client:u${hex(OWNER)}_c${hex(CONN)}`]);
+  const { sql, params } = lineCondition(scope, "LINE", "FROM", 6, CLIENT_LINE);
+  // ...but a call whose line is known is judged by that line, not the caller.
+  expect(sql).toContain(`WHEN ${known} THEN (`);
+  expect(sql).toContain(`OR NOT ((${CLIENT_LINE}) = ANY($7::text[])))`);
+  expect(params).toEqual([[`client:u${hex(OWNER)}_c${hex(CONN)}`], [PERSONAL]]);
+  expect(params[1]).not.toContain(SHARED);
+});
+
+test("owner B does not see owner A's softphone call placed from A's personal line", async () => {
+  const scope = await lineScope({ id: OWNER2, role: "owner" }, IRON_WING);
+  const { sql, params } = lineCondition(scope, "LINE", "FROM", 6, CLIENT_LINE);
+  expect(params[1]).toContain(PERSONAL);
+  // With no known line, the old rule on the caller's identity applies.
+  expect(sql).toContain("ELSE NOT (COALESCE(FROM, '') = ANY($6::text[])) END");
+});
+
+test("an Iron Wing member sees the owner's softphone call on the legacy line", async () => {
+  const scope = await lineScope(member, IRON_WING);
+  const { sql, params } = lineCondition(scope, "LINE", "FROM", 3, CLIENT_LINE);
+  expect(params[1]).toContain("+12025550000");
+  expect(sql).toContain(`OR (${known} AND (${CLIENT_LINE}) = ANY($4::text[]))`);
+  // Their own call still shows whatever line it used.
+  expect(sql).toContain(
+    "$3::text IS NOT NULL AND left(COALESCE(FROM, ''), length($3::text)) = $3::text",
+  );
+});
+
+test("a member does not see an owner's softphone call from a line hidden from them", async () => {
+  const scope = await lineScope(member, IRON_WING);
+  const { sql, params } = lineCondition(scope, "LINE", "FROM", 3, CLIENT_LINE);
+  expect(params).toHaveLength(2);
+  expect(params[1]).not.toContain(PERSONAL);
+  // Only membership of the visible lines lets another user's call through.
+  expect(sql.match(/\$4::text\[\]/g)).toHaveLength(2);
+});
+
+test("callers without clientLineExpr behave exactly as before", () => {
+  const ownerScope = { all: true, hidden: ["H"], hiddenClients: ["C"] };
+  const memberScope = { all: false, visible: ["V"], clientPrefix: "P" };
+  const ownerBefore = {
+    sql: "(CASE WHEN COALESCE(FROM, '') LIKE 'client:%' THEN NOT (COALESCE(FROM, '') = ANY($6::text[]))\n        ELSE NOT (COALESCE(LINE, '') = ANY($7::text[])) END)",
+    params: [["C"], ["H"]],
+  };
+  const memberBefore = {
+    sql: "(CASE WHEN COALESCE(FROM, '') LIKE 'client:%'\n        THEN $3::text IS NOT NULL AND left(COALESCE(FROM, ''), length($3::text)) = $3::text\n        ELSE COALESCE(LINE, '') = ANY($4::text[]) END)",
+    params: ["P", ["V"]],
+  };
+  expect(lineCondition(ownerScope, "LINE", "FROM", 6)).toEqual(ownerBefore);
+  expect(lineCondition(ownerScope, "LINE", "FROM", 6, null)).toEqual(
+    ownerBefore,
+  );
+  expect(lineCondition(memberScope, "LINE", "FROM", 3)).toEqual(memberBefore);
+  expect(lineCondition(memberScope, "LINE", "FROM", 3, null)).toEqual(
+    memberBefore,
+  );
+});
+
+test("an owner's own softphone call shows whatever line it used", async () => {
+  const scope = await lineScope({ id: OWNER2, role: "owner" }, IRON_WING);
+  expect(scope.clientPrefix).toBe(`client:u${hex(OWNER2)}_`);
+  const { sql, params } = lineCondition(scope, "LINE", "FROM", 6, CLIENT_LINE);
+  // Embedded as a validated literal: still exactly 2 params.
+  expect(params).toHaveLength(2);
+  expect(sql).toContain(
+    `WHEN ${known} THEN (left(COALESCE(FROM, ''), ${`client:u${hex(OWNER2)}_`.length}) = 'client:u${hex(OWNER2)}_'
+            OR NOT ((${CLIENT_LINE}) = ANY($7::text[])))`,
+  );
+});
+
+test.each([
+  ["the bootstrap login", null],
+  ["a prefix with a quote", "client:u'; DROP TABLE x; --_"],
+  ["an uppercase prefix", `client:u${hex(OWNER).toUpperCase()}_`],
+  ["a short prefix", "client:uabc_"],
+])("an owner prefix from %s is never embedded", (_name, clientPrefix) => {
+  const scope = { all: true, hidden: ["H"], hiddenClients: [], clientPrefix };
+  const { sql, params } = lineCondition(scope, "LINE", "FROM", 6, CLIENT_LINE);
+  expect(sql).not.toContain("left(");
+  expect(sql).not.toContain("DROP");
+  expect(sql).toContain(
+    `WHEN ${known} THEN NOT ((${CLIENT_LINE}) = ANY($7::text[]))`,
+  );
+  expect(params).toEqual([[], ["H"]]);
+});

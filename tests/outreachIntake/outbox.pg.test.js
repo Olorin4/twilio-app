@@ -52,7 +52,7 @@ describeDb("outreach_outbox on Postgres", () => {
     );
     await pool.query(migration("007_receptionist_calls.sql"));
     await pool.query(migration("009_outreach_outbox.sql"));
-  });
+  }, 30000);
   beforeEach(() => pool.query("TRUNCATE outreach_outbox RESTART IDENTITY"));
   afterAll(async () => {
     await pool.query(

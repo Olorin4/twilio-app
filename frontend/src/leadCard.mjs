@@ -44,6 +44,12 @@ export function callbackTarget(lead) {
   return callable(lead.callbackNumber) || callable(lead.from);
 }
 
+// The number whose history the card opens: the caller who rang, and the
+// callback number they gave only when the caller was anonymous.
+export function historyTarget(lead) {
+  return callable(lead.from) || callable(lead.callbackNumber);
+}
+
 // The number given on the call came through speech recognition and may be
 // wrong, so the number they actually called from is shown beside it.
 export function callerIdNote(lead) {

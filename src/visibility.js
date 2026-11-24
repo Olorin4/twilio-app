@@ -8,10 +8,13 @@ owners, so owners see it too.
 
 Owners are filtered by what they may not see (so history on a released number
 stays visible to them); members by what they may see (so it does not).
-Outbound softphone calls (from client:<identity>) carry no line number: a
-member sees only their own, an owner every one except another user's calls on
-a connection where all of that user's lines are personal lines hidden from the
-owner. The scope is read once per request, in one query, and follows the
+Outbound softphone calls (from client:<identity>) carry no line number on
+their root row. Where the caller passes the line the call used (its child
+leg's from_number, as call history does), the call follows that line's rule
+and everyone always sees their own. Otherwise, or while that line is unknown,
+a member sees only their own, an owner every one except another user's calls
+on a connection where all of that user's lines are personal lines hidden from
+the owner. The scope is read once per request, in one query, and follows the
 lines' current settings. */
 
 const pool = require("./db");
@@ -119,6 +122,9 @@ async function lineScope(user, workspaceId) {
   };
 }
 
+// A user's softphone identity prefix (see lineScope), safe to embed in SQL.
+const OWN_PREFIX = /^client:u[0-9a-f]{32}_$/;
+
 // True when the scope shows a line's history.
 function canSee(scope, number) {
   if (!scope || typeof number !== "string") return false;
@@ -129,21 +135,54 @@ function canSee(scope, number) {
 
 /* A SQL condition on one call or message row. lineExpr picks the row's line
 (to_number or from_number by direction), fromExpr is its raw from_number;
-params are numbered from firstParam. */
-function lineCondition(scope, lineExpr, fromExpr, firstParam) {
+params are numbered from firstParam. clientLineExpr, when given, is SQL for
+the line a softphone (client:) row actually used, or NULL when unknown. Such
+a row is then judged by that line (owners: not hidden; members: visible), a
+viewer's own call always shows, and an unknown line keeps the client: rule.
+It is embedded as SQL, and an owner's own prefix as a validated literal, so
+there are still exactly 2 params. */
+function lineCondition(
+  scope,
+  lineExpr,
+  fromExpr,
+  firstParam,
+  clientLineExpr = null,
+) {
   const a = `$${firstParam}`;
   const b = `$${firstParam + 1}`;
   const from = `COALESCE(${fromExpr}, '')`;
   const line = `COALESCE(${lineExpr}, '')`;
-  if (scope?.all)
+  const used = clientLineExpr ? `(${clientLineExpr})` : null;
+  if (scope?.all) {
+    const client = `NOT (${from} = ANY(${a}::text[]))`;
+    // The owner's own call shows on any line. Their prefix is embedded as a
+    // literal (params stay at 2), so only an exact identity prefix is used.
+    const prefix = OWN_PREFIX.test(scope.clientPrefix || "")
+      ? scope.clientPrefix
+      : null;
+    const known = `NOT (${used} = ANY(${b}::text[]))`;
+    const ownOrKnown = prefix
+      ? `(left(${from}, ${prefix.length}) = '${prefix}'
+            OR ${known})`
+      : known;
+    const clientRow = used
+      ? `(CASE WHEN ${used} IS NOT NULL THEN ${ownOrKnown}
+          ELSE ${client} END)`
+      : client;
     return {
-      sql: `(CASE WHEN ${from} LIKE 'client:%' THEN NOT (${from} = ANY(${a}::text[]))
+      sql: `(CASE WHEN ${from} LIKE 'client:%' THEN ${clientRow}
         ELSE NOT (${line} = ANY(${b}::text[])) END)`,
       params: [scope.hiddenClients, scope.hidden],
     };
+  }
+  const own = `${a}::text IS NOT NULL AND left(${from}, length(${a}::text)) = ${a}::text`;
+  const clientRow = used
+    ? `(${own})
+          OR (${used} IS NOT NULL AND ${used} = ANY(${b}::text[]))`
+    : own;
   return {
     sql: `(CASE WHEN ${from} LIKE 'client:%'
-        THEN ${a}::text IS NOT NULL AND left(${from}, length(${a}::text)) = ${a}::text
+        THEN ${clientRow}
         ELSE ${line} = ANY(${b}::text[]) END)`,
     params: [scope?.clientPrefix ?? null, scope?.visible ?? []],
   };
