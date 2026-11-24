@@ -59,6 +59,7 @@ function makeDeps(overrides = {}) {
       return session;
     }),
     finalize: jest.fn().mockResolvedValue(),
+    discardCall: jest.fn().mockResolvedValue(),
     setupTimeoutMs: 80,
     ...overrides,
   };
@@ -257,6 +258,32 @@ test("an error while starting the session refuses the socket instead of crashing
   expect(await closedWith(ws)).toBe(1011);
 });
 
+test("a session that fails to start discards the open call row", async () => {
+  await listen({
+    createSession: jest.fn(() => {
+      throw new Error("bad config");
+    }),
+  });
+  const ws = connect();
+  await opened(ws);
+  ws.send(JSON.stringify(setup));
+  expect(await closedWith(ws)).toBe(1011);
+  expect(deps.discardCall).toHaveBeenCalledTimes(1);
+  expect(deps.discardCall).toHaveBeenCalledWith(sid);
+});
+
+test("discard errors never block the close", async () => {
+  await listen({
+    getProfile: jest.fn().mockResolvedValue(null),
+    discardCall: jest.fn().mockRejectedValue(new Error("db down")),
+  });
+  const ws = connect();
+  await opened(ws);
+  ws.send(JSON.stringify(setup));
+  expect(await closedWith(ws)).toBe(1011);
+  expect(deps.discardCall).toHaveBeenCalledWith(sid);
+});
+
 test("a missing API key does not crash: the session gets a failing agent", async () => {
   await listen({
     createClient: jest.fn(() => {
@@ -333,6 +360,8 @@ describe("the call's agent profile", () => {
       expect(deps.createSession).not.toHaveBeenCalled();
       expect(deps.createAgent).not.toHaveBeenCalled();
       expect(deps.finalize).not.toHaveBeenCalled();
+      expect(deps.discardCall).toHaveBeenCalledTimes(1);
+      expect(deps.discardCall).toHaveBeenCalledWith(context.callSid);
     },
   );
 

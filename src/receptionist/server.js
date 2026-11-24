@@ -53,6 +53,7 @@ function attach(httpServer, deps = {}) {
     createAgent = require("./agent").createAgent,
     createClient = () => new (require("@anthropic-ai/sdk").default)(),
     finalize = (...args) => require("./finalize").finalize(...args),
+    discardCall = (callSid) => require("./store").discardCall(callSid),
     getProfile = (id) => require("../agentProfiles").getProfile(id),
     setupTimeoutMs = 5000,
     profileTimeoutMs = 3000,
@@ -143,6 +144,16 @@ function attach(httpServer, deps = {}) {
       });
     }
 
+    // Routing already opened a call row; with no session it would sit there
+    // and show as a phantom failed lead. Never blocks or breaks the close.
+    function discardOpenCall(context) {
+      Promise.resolve()
+        .then(() => discardCall(context.callSid))
+        .catch((error) =>
+          console.error("Receptionist discard failed:", error.message),
+        );
+    }
+
     function forward(message) {
       Promise.resolve(session.handle(message)).catch((error) =>
         console.error("Receptionist message failed:", error.message),
@@ -162,6 +173,7 @@ function attach(httpServer, deps = {}) {
           // No agent to answer: closing with an error makes Twilio's
           // <Connect action> call endedHandler, which rings the softphone.
           pending = null;
+          discardOpenCall(context);
           if (!socketClosed) ws.close(INTERNAL_ERROR, "profile unavailable");
           return;
         }
@@ -172,6 +184,7 @@ function attach(httpServer, deps = {}) {
           // A session that could not even start cannot serve the call;
           // closing lets Twilio fall back to the usual path.
           pending = null;
+          discardOpenCall(context);
           if (!socketClosed) ws.close(INTERNAL_ERROR, "session failed");
           return;
         }
