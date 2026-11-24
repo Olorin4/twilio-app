@@ -6,10 +6,7 @@ async function main() {
   if (!process.env.DB_URL) throw new Error("DB_URL is required.");
   await pool.query(
     fs.readFileSync(
-      path.join(
-        __dirname,
-        "../migrations/013_agent_profiles.sql",
-      ),
+      path.join(__dirname, "../migrations/013_agent_profiles.sql"),
       "utf8",
     ),
   );
@@ -17,10 +14,7 @@ async function main() {
 }
 main()
   .catch((error) => {
-    console.error(
-      "Agent profiles migration failed:",
-      error.message,
-    );
+    console.error("Agent profiles migration failed:", error.message);
     process.exitCode = 1;
   })
   .finally(() => pool.end());

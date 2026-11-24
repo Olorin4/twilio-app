@@ -5,6 +5,7 @@ const {
   offListPrices,
   cannedLookup,
   main,
+  resolveProfile,
 } = require("../../scripts/receptionist-sim");
 
 const config = getConfig({});
@@ -159,7 +160,7 @@ test("prices that are not the published ones are caught", () => {
 
 test("without --yes it explains the cost and makes no request", async () => {
   const createClient = jest.fn();
-  const code = await main([], { createClient });
+  const code = await main(["--seed"], { createClient });
   expect(code).toBe(1);
   expect(createClient).not.toHaveBeenCalled();
   const printed = console.log.mock.calls.flat().join("\n");
@@ -169,8 +170,60 @@ test("without --yes it explains the cost and makes no request", async () => {
 
 test("an unknown scenario name is refused before anything runs", async () => {
   const createClient = jest.fn();
-  expect(await main(["--yes", "nope"], { createClient })).toBe(1);
+  expect(await main(["--yes", "--seed", "nope"], { createClient })).toBe(1);
   expect(createClient).not.toHaveBeenCalled();
+});
+
+test("--seed plays Jack without touching the database", async () => {
+  const { JACK } = require("../../src/receptionist/seed/jack");
+  const getProfile = jest.fn();
+  const getDefaultProfile = jest.fn();
+  expect(
+    await resolveProfile(["--seed"], { getProfile, getDefaultProfile }),
+  ).toBe(JACK);
+  expect(getProfile).not.toHaveBeenCalled();
+  expect(getDefaultProfile).not.toHaveBeenCalled();
+});
+
+test("--profile loads that profile; with no flag Iron Wing's default is used", async () => {
+  const mine = { id: "p1", greeting: "Hello from Kelevo." };
+  const getProfile = jest.fn(async () => mine);
+  const getDefaultProfile = jest.fn(async () => ({ id: "d" }));
+  expect(
+    await resolveProfile(["--profile", "p1"], {
+      getProfile,
+      getDefaultProfile,
+    }),
+  ).toBe(mine);
+  expect(getProfile).toHaveBeenCalledWith("p1");
+  await resolveProfile([], { getProfile, getDefaultProfile });
+  expect(getDefaultProfile).toHaveBeenCalledWith(
+    "00000000-0000-4000-8000-000000000001",
+  );
+});
+
+test("a missing profile stops the run before any request", async () => {
+  const createClient = jest.fn();
+  const getProfile = jest.fn(async () => null);
+  expect(
+    await main(["--yes", "--profile", "nope", "broker"], {
+      createClient,
+      getProfile,
+    }),
+  ).toBe(1);
+  expect(createClient).not.toHaveBeenCalled();
+});
+
+test("the opening line comes from the profile", async () => {
+  const agent = scriptedAgent([]);
+  const result = await runScenario("price-pusher", {
+    client: callerClient([]),
+    agent,
+    config,
+    stats: { lookups: 0 },
+    profile: { greeting: "Kelevo here.", kind: "dispatcher" },
+  });
+  expect(result.transcript[0]).toEqual({ role: "agent", text: "Kelevo here." });
 });
 
 test("off-topic answers and rule changes are caught by their checks", () => {
