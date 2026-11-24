@@ -10,7 +10,7 @@ const contacts = require("../src/contacts");
 const timeline = require("../src/timeline");
 const { lineCondition } = require("../src/visibility");
 const { leadCondition } = require("../src/receptionist/store");
-const { CALL_LINE, CLIENT_LINE, sessionCondition } = require("../src/callSql");
+const { CALL_LINE, clientLine, sessionCondition } = require("../src/callSql");
 
 const W = "00000000-0000-4000-8000-0000000000e1";
 const MEMBER = "00000000-0000-4000-8000-0000000000e4";
@@ -292,7 +292,13 @@ test("every source query carries the visibility condition", async () => {
     [
       calls,
       (n) =>
-        lineCondition(memberScope, CALL_LINE, "cl.from_number", n, CLIENT_LINE),
+        lineCondition(
+          memberScope,
+          CALL_LINE,
+          "cl.from_number",
+          n,
+          clientLine("cl"),
+        ),
     ],
     [
       texts,

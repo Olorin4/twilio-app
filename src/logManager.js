@@ -9,7 +9,7 @@ const { publish } = require("./messageEvents");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
 const { lineScope, lineCondition } = require("./visibility");
 const {
-  CLIENT_LINE,
+  clientLine,
   CALL_LINE,
   CALL_STATUS,
   CALL_MISSED,
@@ -157,7 +157,7 @@ exports.getCallLogs = async (req, res) => {
       CALL_LINE,
       "cl.from_number",
       6,
-      CLIENT_LINE,
+      clientLine("cl"),
     );
 
     const callResult = `(SELECT CASE WHEN s.summary_state = 'ready' THEN 'summary'

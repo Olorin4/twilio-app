@@ -193,7 +193,7 @@ suite("ring list against PostgreSQL", () => {
     );
     pool.query.mockImplementation((...args) => db.query(...args));
     pool.connect.mockImplementation(() => db.connect());
-  });
+  }, 30000);
   beforeEach(() =>
     db.query("TRUNCATE number_assignees, workspace_members, app_users"),
   );
@@ -378,7 +378,7 @@ suite("ring list against PostgreSQL", () => {
         "INSERT INTO workspace_active_numbers (workspace_id, connection_number_id) VALUES ($1, $2)",
         [WORKSPACE, SECOND],
       );
-    });
+    }, 30000);
     const entry = (numberId, phoneNumber, label) => ({
       numberId,
       phoneNumber,

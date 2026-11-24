@@ -12,7 +12,7 @@ const pool = require("./db");
 const { lineCondition } = require("./visibility");
 const { leadCondition } = require("./receptionist/store");
 const {
-  CLIENT_LINE,
+  clientLine,
   CALL_LINE,
   CALL_STATUS,
   CALL_MISSED,
@@ -120,7 +120,8 @@ function parseInput({ phone, cursor, limit }) {
 calls, Live Assist), numbered one after another from FIXED_PARAMS + 1. */
 function branchConditions(scope) {
   const builders = [
-    (n) => lineCondition(scope, CALL_LINE, "cl.from_number", n, CLIENT_LINE),
+    (n) =>
+      lineCondition(scope, CALL_LINE, "cl.from_number", n, clientLine("cl")),
     (n) => lineCondition(scope, TEXT_LINE, "m.from_number", n),
     (n) => leadCondition(scope, n),
     (n) => sessionCondition(scope, n),

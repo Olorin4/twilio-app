@@ -4,16 +4,19 @@ legacy caller ID (TWILIO_CALLER_ID), whose calls count as outgoing. Kept apart
 from logManager.js so readers need not load the Twilio client. */
 const { lineCondition } = require("./visibility");
 
-/* The line a softphone call (from client:<identity>) used: its newest child
-leg's E.164 from_number, or NULL. Every E.164 child leg of a softphone root
-carries the connection's single callerId today (the outgoing Dial in
-src/callResponse.js), so the newest leg is representative; call_sid breaks
-ties so the pick is deterministic. Shown as local_number and used by the
-visibility filter, so both judge the same line. */
-const CLIENT_LINE = `(SELECT child.from_number FROM twilio_call_legs leg JOIN call_logs child ON child.call_sid = leg.call_sid
-                AND child.workspace_id = cl.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
-                WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id
-                  AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
+/* The line a softphone call (from client:<identity>) on call_logs row `alias`
+used: its newest child leg's E.164 from_number, or NULL. Every E.164 child leg
+of a softphone root carries the connection's single callerId today (the
+outgoing Dial in src/callResponse.js), so the newest leg is representative;
+call_sid breaks ties so the pick is deterministic. Shown as local_number and
+used by every visibility filter on a call (history, timeline, Live Assist
+details and notes), so all judge the same line. */
+const clientLine = (
+  alias,
+) => `(SELECT child.from_number FROM twilio_call_legs leg JOIN call_logs child ON child.call_sid = leg.call_sid
+                AND child.workspace_id = ${alias}.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM ${alias}.provider_connection_id
+                WHERE leg.parent_call_sid = ${alias}.call_sid AND leg.workspace_id = ${alias}.workspace_id
+                  AND leg.provider_connection_id IS NOT DISTINCT FROM ${alias}.provider_connection_id
                   AND child.from_number ~ '^[+][1-9][0-9]{1,14}$'
                 ORDER BY leg.updated_at DESC, leg.call_sid DESC LIMIT 1)`;
 
@@ -36,7 +39,7 @@ const CALL_OUTGOING = `(cl.from_number = $1 OR cl.from_number LIKE 'client:%')`;
 
 // The workspace number the call used, as call history shows it.
 const CALL_LOCAL_NUMBER = `CASE WHEN cl.from_number LIKE 'client:%' THEN
-               ${CLIENT_LINE}
+               ${clientLine("cl")}
              WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number
              ELSE cl.to_number END`;
 
@@ -59,13 +62,16 @@ const callLine = (alias) =>
 /* Whether the person may see a Live Assist session (alias s), with params
 numbered from firstParam. A session on a logged call follows that call's
 visibility; one not yet bound to a call follows its line, which is its
-from_number. */
+from_number. A softphone call (client: root) is judged by s.from_number:
+bindIntent binds a session to the root only when its from_number is the line
+the softphone dialed from. */
 function sessionCondition(scope, firstParam) {
   const call = lineCondition(
     scope,
     callLine("vc"),
     "vc.from_number",
     firstParam,
+    "s.from_number",
   );
   const line = lineCondition(
     scope,
@@ -81,7 +87,7 @@ function sessionCondition(scope, firstParam) {
 }
 
 module.exports = {
-  CLIENT_LINE,
+  clientLine,
   CALL_LINE,
   CALL_STATUS,
   CALL_MISSED,

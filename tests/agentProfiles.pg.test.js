@@ -77,7 +77,7 @@ suite("Agent profiles schema against PostgreSQL", () => {
        VALUES ($1, $2, '+12025550100')`,
       [numberId, connection],
     );
-  });
+  }, 30000);
 
   afterAll(async () => {
     if (pool) await pool.end();

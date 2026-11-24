@@ -7,7 +7,7 @@ const { getAssistantSettings } = require("../assistantSettings");
 const { mayUseLine, usableLines } = require("../ringing");
 const { callableNumber } = require("../receptionist/phone");
 const { lineScope, lineCondition } = require("../visibility");
-const { callLine, sessionCondition } = require("../callSql");
+const { callLine, clientLine, sessionCondition } = require("../callSql");
 const {
   config,
   eligible,
@@ -264,7 +264,13 @@ router.get(
     const scope = await lineScope(req.user, workspace);
     const data = await snapshot(workspace, sid, true, true, scope);
     if (data) return res.json(data);
-    const visible = lineCondition(scope, callLine("cl"), "cl.from_number", 3);
+    const visible = lineCondition(
+      scope,
+      callLine("cl"),
+      "cl.from_number",
+      3,
+      clientLine("cl"),
+    );
     const { rowCount } = await pool.query(
       `SELECT 1 FROM call_logs cl WHERE cl.workspace_id = $1 AND cl.call_sid = $2 AND ${visible.sql}`,
       [workspace, sid, ...visible.params],
@@ -296,6 +302,7 @@ router.patch(
       callLine("cl"),
       "cl.from_number",
       6,
+      clientLine("cl"),
     );
     const { rowCount } = await pool.query(
       `INSERT INTO phone_call_sessions

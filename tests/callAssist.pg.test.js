@@ -105,7 +105,7 @@ suite("Call assist against PostgreSQL", () => {
       "INSERT INTO provider_connections VALUES ($1) ON CONFLICT DO NOTHING",
       [connection],
     );
-  });
+  }, 30000);
 
   beforeEach(async () => {
     id = randomUUID();

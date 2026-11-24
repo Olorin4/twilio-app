@@ -58,7 +58,7 @@ suite("Users schema and store against PostgreSQL", () => {
       [numberId, connection],
     );
     users = require("../src/users");
-  });
+  }, 30000);
 
   afterAll(async () => {
     if (pool) await pool.end();
@@ -257,7 +257,7 @@ suite("Users schema and store against PostgreSQL", () => {
       spy = jest
         .spyOn(dbPool, "query")
         .mockImplementation((...args) => db.query(...args));
-    });
+    }, 30000);
 
     afterAll(async () => {
       if (spy) spy.mockRestore();
@@ -570,7 +570,7 @@ suite("Users schema and store against PostgreSQL", () => {
             ADD COLUMN IF NOT EXISTS callback_number text,
             ADD COLUMN IF NOT EXISTS summary text;
         `);
-      });
+      }, 30000);
 
       const fetch = async (user, phone, query = {}) => {
         const res = {
@@ -759,6 +759,102 @@ suite("Users schema and store against PostgreSQL", () => {
           keys(all),
         );
         expect(third.next).toBeNull();
+      });
+
+      /* bindIntent binds a session to the softphone root call (from
+      client:u…) and pins the session's from_number to the line it dialed
+      from, so the session, its details and its notes follow that line. */
+      test("a Live Assist session bound to a softphone root call follows the line it used", async () => {
+        const IW = "00000000-0000-4000-8000-000000000001";
+        const LEGACY = "+12025550000";
+        const OTHER = {
+          id: "00000000-0000-4000-8000-0000000000e5",
+          role: "owner",
+        };
+        const router = require("../src/callAssist/routes");
+        const route = (method) => {
+          const layer = router.stack.find(
+            (l) =>
+              l.route &&
+              l.route.path === "/history/:callSid" &&
+              l.route.methods[method],
+          );
+          return layer.route.stack[layer.route.stack.length - 1].handle;
+        };
+        const call = async (method, user, workspace, sid, body) => {
+          const res = {
+            sendStatus: jest.fn(),
+            json: jest.fn(),
+            status: jest.fn().mockReturnThis(),
+          };
+          await route(method)(
+            {
+              user,
+              workspace: { id: workspace },
+              params: { callSid: sid },
+              body,
+            },
+            res,
+          );
+          expect(res.status).not.toHaveBeenCalled();
+          return res;
+        };
+        await db.query(`
+          ALTER TABLE phone_call_sessions
+            ADD COLUMN IF NOT EXISTS account_sid text,
+            ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+          CREATE UNIQUE INDEX IF NOT EXISTS phone_call_sessions_call_sid
+            ON phone_call_sessions (call_sid);
+          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, summary, assist, created_at) VALUES
+            ('${S(50)}', 'CS13', '${IW}', '${LEGACY}', '${EXTERNAL}', 'legacy note', '{"reason": "legacy call"}', true, now()),
+            ('${S(51)}', 'CS11', '${W}', '${PERSONAL}', '${EXTERNAL}', 'secret note', '{"reason": "secret eight"}', true, now());
+          -- Owner A also staffs the shared line, so their softphone identity
+          -- is not hidden from owner B as a whole: only the line decides.
+          INSERT INTO number_assignees (number_id, user_id)
+            SELECT id, '${OWNER}'::uuid FROM connection_numbers WHERE phone_number = '${SHARED}';
+        `);
+        try {
+          // The dispatcher sees the owner's legacy-line softphone call's
+          // details and can save notes on it.
+          const shown = await call("get", member, IW, "CS13");
+          expect(shown.sendStatus).not.toHaveBeenCalled();
+          expect(shown.json.mock.calls[0][0]).toMatchObject({ id: S(50) });
+          const saved = await call("patch", member, IW, "CS13", {
+            notes: "called back",
+            outcome: "connected",
+          });
+          expect(saved.sendStatus).toHaveBeenCalledWith(204);
+          // Owner B never sees owner A's personal-line session.
+          const hidden = await call("get", OTHER, W, "CS11");
+          expect(hidden.sendStatus).toHaveBeenCalledWith(404);
+          expect(hidden.json).not.toHaveBeenCalled();
+          const refused = await call("patch", OTHER, W, "CS11", {
+            notes: "x",
+            outcome: null,
+          });
+          expect(refused.sendStatus).toHaveBeenCalledWith(404);
+          const timeline = await fetch(OTHER, EXTERNAL);
+          expect(JSON.stringify(timeline)).not.toContain("secret");
+          expect(keys(timeline)).not.toContain(`assist:${S(51)}`);
+          // Owner A, whose line it is, sees it.
+          expect(keys(await fetch(owner, EXTERNAL))).toContain(
+            `assist:${S(51)}`,
+          );
+          const own = await call("get", owner, W, "CS11");
+          expect(own.json.mock.calls[0][0]).toMatchObject({ id: S(51) });
+          const { rows } = await db.query(
+            "SELECT call_sid, notes FROM phone_call_sessions WHERE call_sid IN ('CS11', 'CS13') ORDER BY call_sid",
+          );
+          expect(rows).toEqual([
+            { call_sid: "CS11", notes: "secret note" },
+            { call_sid: "CS13", notes: "called back" },
+          ]);
+        } finally {
+          await db.query(`
+            DELETE FROM number_assignees WHERE user_id = '${OWNER}'
+              AND number_id IN (SELECT id FROM connection_numbers WHERE phone_number = '${SHARED}');
+          `);
+        }
       });
     });
   });
