@@ -6,6 +6,7 @@ the main index.js file to define the routes for the server. */
 const Router = require("express").Router;
 const { tokenGenerator, tokenFor } = require("./token");
 const { voiceResponse } = require("./callResponse");
+const { ringIdentities } = require("./ringing");
 const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getMessageLogs } = require("./logManager");
 const { sendFax, getFaxStatus } = require("./sendFax");
@@ -99,7 +100,10 @@ router.post(
             provider,
             connection: req.providerConnection,
           });
-      return res.send(agent || voiceResponse(req.body, provider));
+      if (agent) return res.send(agent);
+      // Read only when the softphones ring, so agent calls never wait on it.
+      const ring = outgoing ? undefined : await ringIdentities(provider);
+      return res.send(voiceResponse(req.body, provider, ring));
     } catch (error) {
       return res.sendStatus(
         error.message === "Invalid configured number." ||
@@ -258,7 +262,9 @@ router.post("/voice", validateWebhook, async (req, res) => {
           provider: undefined,
           connection: undefined,
         });
-    res.send(agent || voiceResponse(req.body));
+    if (agent) return res.send(agent);
+    const ring = outgoing ? undefined : await ringIdentities(undefined);
+    res.send(voiceResponse(req.body, undefined, ring));
   } catch (error) {
     console.error("Error processing voice request:", error);
     res

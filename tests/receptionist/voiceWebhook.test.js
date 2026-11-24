@@ -173,3 +173,66 @@ test("the leads API is mounted on the router with a workspace", async () => {
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ leads: 2 });
 });
+
+const person = "00000000-0000-4000-8000-0000000000e1";
+const compact = (value) => value.replace(/-/g, "");
+const ringQuery = (pool) =>
+  pool.query.mock.calls.filter(([sql]) => /number_assignees/.test(sql));
+
+test("an inbound call the agent does not take rings the line's people", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockReset();
+  pool.query.mockResolvedValueOnce({ rows: [{ id: person }] });
+  getProviderForWebhook.mockResolvedValue({
+    id,
+    numberId: "00000000-0000-4000-8000-0000000000e2",
+    workspaceId: "00000000-0000-4000-8000-000000000001",
+    phoneNumber: form.To,
+    voiceEnabled: true,
+  });
+  agentTwiml.mockResolvedValue(null);
+  const text = await (await post(`/webhooks/${id}/voice`)).text();
+  expect(text).toContain(
+    `<Identity>u${compact(person)}_c${compact(id)}</Identity>`,
+  );
+  expect(text).not.toContain("connection_");
+  expect(ringQuery(pool)).toHaveLength(1);
+});
+
+test("the legacy voice webhook rings the owners", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockReset();
+  pool.query.mockResolvedValueOnce({ rows: [{ id: person }] });
+  agentTwiml.mockResolvedValue(null);
+  const text = await (await post("/voice")).text();
+  expect(text).toContain(`>u${compact(person)}_legacy</Client>`);
+  expect(text).not.toContain(">operator</Client>");
+});
+
+test("an agent call does not wait for the ring list", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockReset();
+  getProviderForWebhook.mockResolvedValue({
+    id,
+    workspaceId: "00000000-0000-4000-8000-000000000001",
+    phoneNumber: form.To,
+    voiceEnabled: true,
+  });
+  agentTwiml.mockResolvedValue(relay);
+  expect(await (await post(`/webhooks/${id}/voice`)).text()).toBe(relay);
+  expect(await (await post("/voice")).text()).toBe(relay);
+  expect(ringQuery(pool)).toHaveLength(0);
+});
+
+test("outgoing softphone calls never read the ring list", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockReset();
+  const { getProvider } = require("../../src/providerContext");
+  getProvider.mockResolvedValue({ legacy: true });
+  await post("/voice", {
+    CallSid: sid,
+    From: "client:operator",
+    To: "+15557654321",
+  });
+  expect(ringQuery(pool)).toHaveLength(0);
+});

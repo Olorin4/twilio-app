@@ -11,8 +11,14 @@ const { getConfig, isOpen, sayOptions } = require("./receptionist/config");
 // if (!callerId) throw new Error("Caller ID is missing in Twilio configuration.");
 console.log("✔ Twilio credentials correctly imported into handler.js");
 
-// Handle Incoming Calls
-exports.voiceResponse = function voiceResponse(requestBody, provider) {
+// Handle Incoming Calls. `ringIdentities` (src/ringing.js) lists the
+// softphones an inbound call rings; without one, it rings the identity used
+// before user accounts existed, so a line never rings nobody.
+exports.voiceResponse = function voiceResponse(
+  requestBody,
+  provider,
+  ringIdentities,
+) {
   const toNumberOrClientName = requestBody.To;
   console.log("📞 Incoming call to:", requestBody.To);
   let twiml = new VoiceResponse();
@@ -20,10 +26,19 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
   const connectionCallerId = provider?.phoneNumber || callerId;
   const isIronWing =
     !provider || provider.workspaceId === IRON_WING_WORKSPACE_ID;
-  const identity =
+  const bootstrapIdentity =
     provider && !provider.legacy
       ? `connection_${provider.id.replace(/-/g, "")}`
       : getIdentity();
+  const listed = Array.isArray(ringIdentities)
+    ? [...new Set(ringIdentities.filter(Boolean))]
+    : [];
+  const identities = listed.length
+    ? listed
+    : bootstrapIdentity
+      ? [bootstrapIdentity]
+      : [];
+  const identity = identities[0];
   const callbackBase = (process.env.TWILIO_WEBHOOK_BASE_URL || "").replace(
     /\/$/,
     "",
@@ -45,7 +60,7 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
         ? `/webhooks/${provider.id}/announcement`
         : "/announcement")
     : "";
-  console.log(`🔍 [DEBUG] Dialing client: ${identity}`);
+  console.log(`🔍 [DEBUG] Dialing clients: ${identities.join(", ")}`);
 
   if (
     isIronWing &&
@@ -69,16 +84,19 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
         timeout: 20,
         ...(announcementBase ? { action: `${announcementBase}/missed` } : {}),
       });
-      if (provider && !provider.legacy) {
-        const target = dial.client(callbackOptions);
-        target.identity(identity);
-        target.parameter({ name: "CalledNumber", value: connectionCallerId });
-        if (provider.numberLabel)
-          target.parameter({
-            name: "CalledLabel",
-            value: provider.numberLabel,
-          });
-      } else dial.client(callbackOptions, identity);
+      // One <Dial>, so the first softphone to answer takes the call.
+      for (const ringing of identities) {
+        if (provider && !provider.legacy) {
+          const target = dial.client(callbackOptions);
+          target.identity(ringing);
+          target.parameter({ name: "CalledNumber", value: connectionCallerId });
+          if (provider.numberLabel)
+            target.parameter({
+              name: "CalledLabel",
+              value: provider.numberLabel,
+            });
+        } else dial.client(callbackOptions, ringing);
+      }
     }
 
     // **This message only plays if no one answers within 20 seconds**

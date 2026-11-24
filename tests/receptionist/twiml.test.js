@@ -416,6 +416,38 @@ describe("endedHandler", () => {
     spy.mockRestore();
   });
 
+  test("a failed session rings the line's people", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-11-16T15:00:00Z"));
+    const pool = require("../../src/db");
+    const person = "00000000-0000-4000-8000-0000000000e1";
+    const provider = {
+      id,
+      numberId: "00000000-0000-4000-8000-0000000000e2",
+      workspaceId: ws,
+      phoneNumber: body.To,
+    };
+    getProviderForWebhook.mockResolvedValue(provider);
+    pool.query.mockResolvedValueOnce({ rows: [{ id: person }] });
+    let res = response();
+    await endedHandler(
+      {
+        body: { ...body, SessionStatus: "failed" },
+        providerConnection: { id, workspaceId: ws },
+      },
+      res,
+    );
+    expect(res.send.mock.calls[0][0]).toContain(
+      `<Identity>u${person.replace(/-/g, "")}_c${id.replace(/-/g, "")}</Identity>`,
+    );
+    // The legacy route rings the owners on the legacy number.
+    pool.query.mockResolvedValueOnce({ rows: [{ id: person }] });
+    res = response();
+    await endedHandler({ body: { ...body, SessionStatus: "failed" } }, res);
+    expect(res.send.mock.calls[0][0]).toContain(
+      `>u${person.replace(/-/g, "")}_legacy</Client>`,
+    );
+  });
+
   test.each(["ended", "completed"])("a session that %s hangs up", async (s) => {
     const res = response();
     await endedHandler({ body: { CallSid: sid, SessionStatus: s } }, res);

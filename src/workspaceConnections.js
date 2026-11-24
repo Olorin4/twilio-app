@@ -7,6 +7,8 @@ const {
 const { validateTwilioConnection } = require("./twilioConnectionValidation");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
 
+const PERSONAL_AGENT_ERROR =
+  "A personal line can't be answered by an AI agent.";
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -206,8 +208,14 @@ async function moveNumber(workspaceId, numberId, targetConnectionId) {
       "DELETE FROM workspace_active_numbers WHERE connection_number_id = $1",
       [numberId],
     );
+    // The people on the line belong to the old workspace too; with none, the
+    // line rings the owners until someone is assigned.
+    await client.query("DELETE FROM number_assignees WHERE number_id = $1", [
+      numberId,
+    ]);
     await client.query(
-      `UPDATE connection_numbers SET connection_id = $2, handler = 'softphone', agent_profile_id = NULL
+      `UPDATE connection_numbers SET connection_id = $2, handler = 'softphone', agent_profile_id = NULL,
+         personal = false
        WHERE id = $1 RETURNING id`,
       [numberId, targetConnectionId],
     );
@@ -227,11 +235,15 @@ async function moveNumber(workspaceId, numberId, targetConnectionId) {
 async function updateNumberSettings(workspaceId, numberId, settings = {}) {
   if (!uuidPattern.test(workspaceId || "") || !uuidPattern.test(numberId || ""))
     throw new Error("Invalid workspace or number.");
-  const { handler, agentProfileId, label, observeHours } = settings;
+  const { handler, agentProfileId, label, observeHours, personal } = settings;
   if (handler !== "softphone" && handler !== "ai_agent")
     throw new Error("Enter valid number settings.");
   if (observeHours !== undefined && typeof observeHours !== "boolean")
     throw new Error("Enter valid number settings.");
+  if (personal !== undefined && typeof personal !== "boolean")
+    throw new Error("Enter valid number settings.");
+  if (personal === true && handler === "ai_agent")
+    throw new Error(PERSONAL_AGENT_ERROR);
   let cleanLabel;
   if (label !== undefined && label !== null) {
     if (typeof label !== "string" || label.trim().length > 60)
@@ -240,13 +252,17 @@ async function updateNumberSettings(workspaceId, numberId, settings = {}) {
   } else if (label === null) cleanLabel = null;
   return inTransaction(async (client) => {
     const current = await client.query(
-      `SELECT n.id, n.label, n.observe_hours
+      `SELECT n.id, n.label, n.observe_hours, n.personal
        FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
        WHERE n.id = $1 AND c.workspace_id = $2 FOR UPDATE OF n`,
       [numberId, workspaceId],
     );
     if (!current.rows.length)
       throw new Error("Number does not belong to this workspace.");
+    const nextPersonal =
+      personal === undefined ? current.rows[0].personal === true : personal;
+    if (nextPersonal && handler === "ai_agent")
+      throw new Error(PERSONAL_AGENT_ERROR);
     let profileId = null;
     if (handler === "ai_agent") {
       if (!uuidPattern.test(agentProfileId || ""))
@@ -263,18 +279,70 @@ async function updateNumberSettings(workspaceId, numberId, settings = {}) {
     const row = current.rows[0];
     const updated = await client.query(
       `UPDATE connection_numbers
-       SET handler = $2, agent_profile_id = $3, label = $4, observe_hours = $5
+       SET handler = $2, agent_profile_id = $3, label = $4, observe_hours = $5, personal = $6
        WHERE id = $1
-       RETURNING id, handler, agent_profile_id, label, observe_hours`,
+       RETURNING id, handler, agent_profile_id, label, observe_hours, personal`,
       [
         numberId,
         handler,
         profileId,
         cleanLabel === undefined ? row.label : cleanLabel,
         observeHours === undefined ? row.observe_hours : observeHours,
+        nextPersonal,
       ],
     );
     return updated.rows[0];
+  });
+}
+
+// Users who may be put on a line: enabled, and an owner or a member of the
+// line's workspace. The ring list (src/ringing.js) applies the same rule.
+const CAN_OPEN_WORKSPACE = `u.enabled AND (u.role = 'owner' OR EXISTS (
+  SELECT 1 FROM workspace_members wm WHERE wm.workspace_id = $2 AND wm.user_id = u.id))`;
+const ASSIGNEES_ERROR = "Choose people who can open this workspace.";
+
+// Replaces who a line rings. People already on it keep their place in the
+// ring order; new ones follow in the order given. An empty list clears it,
+// so it rings the owners.
+async function setNumberAssignees(workspaceId, numberId, userIds) {
+  if (!uuidPattern.test(workspaceId || "") || !uuidPattern.test(numberId || ""))
+    throw new Error("Invalid workspace or number.");
+  if (
+    !Array.isArray(userIds) ||
+    userIds.some((id) => typeof id !== "string" || !uuidPattern.test(id))
+  )
+    throw new Error(ASSIGNEES_ERROR);
+  const ids = userIds.map((id) => id.toLowerCase());
+  if (new Set(ids).size !== ids.length) throw new Error(ASSIGNEES_ERROR);
+  return inTransaction(async (client) => {
+    const number = await client.query(
+      `SELECT n.id FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
+       WHERE n.id = $1 AND c.workspace_id = $2 FOR UPDATE OF n`,
+      [numberId, workspaceId],
+    );
+    if (!number.rows.length)
+      throw new Error("Number does not belong to this workspace.");
+    if (ids.length) {
+      const allowed = await client.query(
+        `SELECT u.id FROM app_users u
+         WHERE u.id = ANY($1::uuid[]) AND ${CAN_OPEN_WORKSPACE}`,
+        [ids, workspaceId],
+      );
+      if (allowed.rows.length !== ids.length) throw new Error(ASSIGNEES_ERROR);
+    }
+    await client.query(
+      "DELETE FROM number_assignees WHERE number_id = $1 AND NOT (user_id = ANY($2::uuid[]))",
+      [numberId, ids],
+    );
+    if (ids.length)
+      await client.query(
+        `INSERT INTO number_assignees (number_id, user_id, created_at)
+         SELECT $1, person.id, now() + person.ord * interval '1 microsecond'
+         FROM unnest($2::uuid[]) WITH ORDINALITY AS person(id, ord)
+         ON CONFLICT (number_id, user_id) DO NOTHING`,
+        [numberId, ids],
+      );
+    return { numberId, userIds: ids };
   });
 }
 
@@ -288,16 +356,38 @@ async function listConnections(workspaceId) {
   );
   const numbers = await pool.query(
     `SELECT n.id, n.connection_id, n.provider_number_sid, n.phone_number, n.voice_enabled, n.sms_enabled,
-      n.handler, n.agent_profile_id, n.label, n.observe_hours,
+      n.handler, n.agent_profile_id, n.label, n.observe_hours, n.personal,
       (a.connection_number_id = n.id) AS active
     FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
     LEFT JOIN workspace_active_numbers a ON a.workspace_id = c.workspace_id
     WHERE c.workspace_id = $1 ORDER BY n.phone_number`,
     [workspaceId],
   );
+  // Only the people the line actually rings, in ring order.
+  const assignees = numbers.rows.length
+    ? (
+        await pool.query(
+          `SELECT na.number_id, u.id, u.display_name
+           FROM number_assignees na JOIN app_users u ON u.id = na.user_id
+           WHERE na.number_id = ANY($1::uuid[]) AND ${CAN_OPEN_WORKSPACE}
+           ORDER BY na.created_at, u.id`,
+          [numbers.rows.map((number) => number.id), workspaceId],
+        )
+      ).rows
+    : [];
   return result.rows.map((row) => ({
     ...row,
-    numbers: numbers.rows.filter((number) => number.connection_id === row.id),
+    numbers: numbers.rows
+      .filter((number) => number.connection_id === row.id)
+      .map((number) => ({
+        ...number,
+        assignees: assignees
+          .filter((person) => person.number_id === number.id)
+          .map((person) => ({
+            id: person.id,
+            displayName: person.display_name,
+          })),
+      })),
   }));
 }
 
@@ -672,6 +762,7 @@ module.exports = {
   releaseNumber,
   moveNumber,
   updateNumberSettings,
+  setNumberAssignees,
   listAllConnections,
   listConnections,
   createConnection,
