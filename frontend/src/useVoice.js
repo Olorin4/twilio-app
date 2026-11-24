@@ -58,6 +58,8 @@ export function useVoice(workspace) {
   const [member, setMember] = useState(false);
   const [lines, setLines] = useState([]);
   const [lineId, setLineId] = useState("");
+  // True once a member's lines have loaded and there are none.
+  const [noLine, setNoLine] = useState(false);
   // null for owners: their caller ID is the workspace's active number.
   const linesRef = useRef(null);
   const lineIdRef = useRef("");
@@ -130,6 +132,7 @@ export function useVoice(workspace) {
     lineIdRef.current = "";
     setLines([]);
     setLineId("");
+    setNoLine(false);
     refreshSelection();
     if (!workspace?.id) return undefined;
     apiFetch(`/me/lines?workspace=${encodeURIComponent(workspace.id)}`, {
@@ -146,6 +149,7 @@ export function useVoice(workspace) {
         lineIdRef.current = usable[0]?.numberId || "";
         setLines(usable);
         setLineId(lineIdRef.current);
+        setNoLine(!usable.length);
         refreshSelection();
       })
       .catch((err) => {
@@ -462,6 +466,7 @@ export function useVoice(workspace) {
     member,
     lines,
     lineId,
+    noLine,
     chooseLine,
     tokenStatus,
     call,

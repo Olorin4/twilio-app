@@ -3,11 +3,18 @@ the Twilio API. The sendFax function sends a fax to a
 recipient with a specified media URL. The getFaxStatus 
 function fetches the status of a fax using its SID. */
 
-const twilio = require("twilio");
 const { callerID, client } = require("./token");
+
+// Faxes go out from the legacy number, which is owners only.
+const ownerOnly = (req, res) => {
+  if (req.user?.role === "owner") return false;
+  res.status(403).json({ error: "Only an owner can use this line." });
+  return true;
+};
 
 // Send a fax
 exports.sendFax = async (req, res) => {
+  if (ownerOnly(req, res)) return;
   try {
     const { to, mediaUrl } = req.body; // Get recipient & document URL from request
 
@@ -38,6 +45,7 @@ exports.sendFax = async (req, res) => {
 
 // Fetch Fax Status
 exports.getFaxStatus = async (req, res) => {
+  if (ownerOnly(req, res)) return;
   try {
     const { faxSid } = req.params;
 

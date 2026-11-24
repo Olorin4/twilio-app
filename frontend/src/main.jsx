@@ -724,6 +724,8 @@ function App() {
           destination,
           leadSid: phoneContext?.lead?.callSid,
           assist: assistEligible && assistSelected,
+          // A member's call goes out on their chosen line; owners send none.
+          ...(voice.member && voice.lineId ? { numberId: voice.lineId } : {}),
         });
       }
     } catch {
@@ -1597,6 +1599,11 @@ function App() {
               </span>
             )}
           </div>
+        )}
+        {voice.noLine && (
+          <p className="notice" role="status">
+            No line is assigned to you in this workspace.
+          </p>
         )}
         {phoneContext?.notice && (
           <p className="notice" role="status">

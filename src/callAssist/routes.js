@@ -4,6 +4,7 @@ const pool = require("../db");
 const { events, readCaptions, clearCaptions } = require("./live");
 const { getProvider } = require("../providerContext");
 const { getAssistantSettings } = require("../assistantSettings");
+const { mayUseLine, usableLines } = require("../ringing");
 const { callableNumber } = require("../receptionist/phone");
 const {
   config,
@@ -163,7 +164,36 @@ router.post(
     const assist = req.body?.assist === true;
     if (!e164.test(destination) || (leadSid && !callSid.test(leadSid)))
       return res.status(400).json({ error: "Choose a valid callback number." });
-    const provider = await getProvider(req.workspace.id);
+    const numberId = req.body?.numberId;
+    if (
+      numberId !== undefined &&
+      (typeof numberId !== "string" || !uuid.test(numberId))
+    )
+      return res.status(400).json({ error: "Choose a valid line." });
+    // The session is built on the line the call will be placed from, so the
+    // voice webhook can bind it. Owners default to the active number; a
+    // member uses the line they name, else their first, and only their own.
+    let provider;
+    if (req.user?.role === "owner") {
+      provider =
+        numberId === undefined
+          ? await getProvider(req.workspace.id)
+          : await getProvider(req.workspace.id, numberId);
+    } else {
+      const lines = await usableLines(req.user, req.workspace.id);
+      const line = numberId
+        ? lines.find((own) => own.numberId === numberId)
+        : lines[0];
+      if (!line)
+        return res
+          .status(403)
+          .json({ error: "You can't call from this line." });
+      provider = await getProvider(req.workspace.id, line.numberId);
+      if (!(await mayUseLine(req.user, provider)))
+        return res
+          .status(403)
+          .json({ error: "You can't call from this line." });
+    }
     if (
       !provider.voiceEnabled ||
       (assist &&
