@@ -15,7 +15,16 @@ const {
   updateConnectionCredentials,
   previewConnectionNumbers,
   addConnectionNumbers,
+  updateNumberSettings,
 } = require("./workspaceConnections");
+const {
+  listProfiles,
+  createProfile,
+  updateProfile,
+  setDefault,
+  listRevisions,
+  restoreRevision,
+} = require("./agentProfiles");
 const { validateTwilioConnection } = require("./twilioConnectionValidation");
 const {
   resolveWorkspace,
@@ -95,6 +104,12 @@ function publicError(res, error) {
       "To use a different Twilio account",
       "The updated account no longer owns",
       "Connection changed while validating",
+      "Enter valid agent settings",
+      "Agent does not exist.",
+      "Revision does not exist.",
+      "Choose an agent from this workspace.",
+      "Enter a line label",
+      "Enter valid number settings.",
     ].some((prefix) => message.startsWith(prefix))
   )
     return res.status(400).json({ error: message });
@@ -245,6 +260,113 @@ router.post(
           req.params.workspaceId,
           req.params.numberId,
           req.body?.connectionId,
+        ),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+const SAVED_BY = "operator"; // until 2b adds signed-in users
+router.get("/workspaces/:workspaceId/agents", async (req, res) => {
+  try {
+    return res.json(await listProfiles(req.params.workspaceId));
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+router.post(
+  "/workspaces/:workspaceId/agents",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res
+        .status(201)
+        .json(
+          await createProfile(req.params.workspaceId, req.body || {}, SAVED_BY),
+        );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.put(
+  "/workspaces/:workspaceId/agents/:agentId",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res.json(
+        await updateProfile(
+          req.params.workspaceId,
+          req.params.agentId,
+          req.body || {},
+          SAVED_BY,
+        ),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.post(
+  "/workspaces/:workspaceId/agents/:agentId/default",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res.json(
+        await setDefault(req.params.workspaceId, req.params.agentId),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.get(
+  "/workspaces/:workspaceId/agents/:agentId/revisions",
+  async (req, res) => {
+    try {
+      return res.json(
+        await listRevisions(req.params.workspaceId, req.params.agentId),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.post(
+  "/workspaces/:workspaceId/agents/:agentId/revisions/:revisionId/restore",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res.json(
+        await restoreRevision(
+          req.params.workspaceId,
+          req.params.agentId,
+          req.params.revisionId,
+          SAVED_BY,
+        ),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.patch(
+  "/workspaces/:workspaceId/numbers/:numberId",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      const body = req.body || {};
+      return res.json(
+        await updateNumberSettings(
+          req.params.workspaceId,
+          req.params.numberId,
+          {
+            handler: body.handler,
+            agentProfileId: body.agentProfileId,
+            label: body.label,
+            observeHours: body.observeHours,
+          },
         ),
       );
     } catch (error) {

@@ -21,6 +21,10 @@ function legacyProvider(workspaceId) {
     client: legacy.client,
     voiceEnabled: true,
     smsEnabled: true,
+    handler: "legacy",
+    agentProfileId: null,
+    numberLabel: null,
+    observeHours: true,
   };
 }
 async function getProvider(workspaceId, requestedNumberId) {
@@ -31,13 +35,15 @@ async function getProvider(workspaceId, requestedNumberId) {
     throw new Error("Invalid workspace or number.");
   const result = await pool.query(
     `SELECT c.id, c.workspace_id, c.account_sid, c.encrypted_credentials,
-      n.id AS number_id, n.phone_number, n.voice_enabled, n.sms_enabled
+      n.id AS number_id, n.phone_number, n.voice_enabled, n.sms_enabled,
+      n.handler, n.agent_profile_id, n.label, n.observe_hours
     FROM workspace_active_numbers a JOIN connection_numbers n ON n.id = COALESCE($2::uuid, a.connection_number_id)
       JOIN provider_connections c ON c.id = n.connection_id
     WHERE a.workspace_id = $1 AND c.workspace_id = $1
     UNION ALL
     SELECT c.id, c.workspace_id, c.account_sid, c.encrypted_credentials,
-      n.id AS number_id, n.phone_number, n.voice_enabled, n.sms_enabled
+      n.id AS number_id, n.phone_number, n.voice_enabled, n.sms_enabled,
+      n.handler, n.agent_profile_id, n.label, n.observe_hours
     FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
     WHERE $2::uuid IS NOT NULL AND n.id = $2 AND c.workspace_id = $1
       AND NOT EXISTS (SELECT 1 FROM workspace_active_numbers a WHERE a.workspace_id = $1)
@@ -61,6 +67,10 @@ async function getProvider(workspaceId, requestedNumberId) {
     phoneNumber: row.phone_number,
     voiceEnabled: row.voice_enabled,
     smsEnabled: row.sms_enabled,
+    numberLabel: row.label ?? null,
+    handler: row.handler ?? "softphone",
+    agentProfileId: row.agent_profile_id ?? null,
+    observeHours: row.observe_hours ?? true,
     authToken: secrets.authToken,
     apiKeySid: secrets.apiKeySid,
     apiKeySecret: secrets.apiKeySecret,
@@ -82,4 +92,31 @@ async function getProviderForWebhook(connection, phoneNumber) {
     throw new Error("Connection does not own this number.");
   return provider;
 }
-module.exports = { getProvider, getProviderForWebhook, legacyProvider };
+// Run once at startup. getProvider reads the columns migration 013 adds, so
+// code deployed before that migration breaks inbound calls on connection
+// numbers, outgoing calls and softphone tokens in every workspace. Logs
+// loudly and never throws: true when the column exists, false when it is
+// missing, null when the check itself could not run.
+async function checkNumberSchema() {
+  try {
+    const result = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`,
+      ["connection_numbers", "handler"],
+    );
+    if (result.rows.length) return true;
+    console.error(
+      "DATABASE NOT MIGRATED: connection_numbers.handler is missing. Inbound calls on connection numbers, outgoing calls and softphone tokens will fail in every workspace until `npm run migrate:agent-profiles` (migration 013) is run.",
+    );
+    return false;
+  } catch (error) {
+    console.error("Startup schema check failed:", error.message);
+    return null;
+  }
+}
+module.exports = {
+  getProvider,
+  getProviderForWebhook,
+  legacyProvider,
+  checkNumberSchema,
+};

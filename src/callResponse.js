@@ -49,6 +49,7 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
 
   if (
     isIronWing &&
+    (provider?.observeHours ?? true) &&
     toNumberOrClientName == connectionCallerId &&
     !isOpen(new Date(), getConfig().hours)
   ) {
@@ -72,6 +73,11 @@ exports.voiceResponse = function voiceResponse(requestBody, provider) {
         const target = dial.client(callbackOptions);
         target.identity(identity);
         target.parameter({ name: "CalledNumber", value: connectionCallerId });
+        if (provider.numberLabel)
+          target.parameter({
+            name: "CalledLabel",
+            value: provider.numberLabel,
+          });
       } else dial.client(callbackOptions, identity);
     }
 

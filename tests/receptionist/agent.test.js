@@ -3,7 +3,9 @@ jest.mock("../../src/receptionist/carrierLookup", () => ({
   lookupCarrier: jest.fn(),
 }));
 const { getConfig } = require("../../src/receptionist/config");
-const { buildSystem, TOOLS } = require("../../src/receptionist/prompt");
+const { buildSystem } = require("../../src/receptionist/prompt");
+const { toolsFor } = require("../../src/receptionist/kinds");
+const { JACK } = require("../../src/receptionist/seed/jack");
 const {
   createAgent,
   requestParams,
@@ -119,9 +121,12 @@ test("text deltas are forwarded as they arrive", async () => {
     { text: ["Sure. ", "What's your MC number?"], stop: "end_turn" },
   ]);
   const seen = [];
-  const r = await createAgent({ client, config }).runTurn(history, {
-    onText: (t) => seen.push(t),
-  });
+  const r = await createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText: (t) => seen.push(t),
+    },
+  );
   expect(seen).toEqual(["Sure. ", "What's your MC number?"]);
   expect(r).toMatchObject({
     spoken: "Sure. What's your MC number?",
@@ -138,13 +143,15 @@ test("text deltas are forwarded as they arrive", async () => {
 
 test("the request uses the configured model at low effort with the cached system prompt", async () => {
   const client = fakeClient([{ text: ["Hi."] }]);
-  await createAgent({ client, config }).runTurn(history, { onText() {} });
+  await createAgent({ profile: JACK, client, config }).runTurn(history, {
+    onText() {},
+  });
   expect(client.requests[0]).toMatchObject({
     model: "claude-opus-5-5",
     max_tokens: 4096,
     output_config: { effort: "low" },
-    system: buildSystem(),
-    tools: TOOLS,
+    system: buildSystem(JACK),
+    tools: toolsFor("receptionist"),
     messages: history,
   });
   expect(client.requests[0].tool_choice).toBeUndefined();
@@ -167,7 +174,12 @@ test("lookup_carrier runs, the caller hears a filler, and the model continues wi
     { text: ["I have Smith Trucking out of Dallas, Texas. Is that you?"] },
   ]);
   const seen = [];
-  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+  const r = await createAgent({
+    profile: JACK,
+    client,
+    config,
+    lookup,
+  }).runTurn(history, {
     onText: (t) => seen.push(t),
   });
   expect(lookup).toHaveBeenCalledWith(
@@ -198,9 +210,12 @@ test("the filler is not added when the model already said something before the l
     { text: ["I couldn't find it."] },
   ]);
   const seen = [];
-  await createAgent({ client, config, lookup }).runTurn(history, {
-    onText: (t) => seen.push(t),
-  });
+  await createAgent({ profile: JACK, client, config, lookup }).runTurn(
+    history,
+    {
+      onText: (t) => seen.push(t),
+    },
+  );
   expect(seen).not.toContain(LOOKUP_FILLER);
 });
 
@@ -215,7 +230,12 @@ test("a number that cannot be parsed is reported to the model without a lookup",
     },
     { text: ["Could you give me the digits?"] },
   ]);
-  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+  const r = await createAgent({
+    profile: JACK,
+    client,
+    config,
+    lookup,
+  }).runTurn(history, {
     onText() {},
   });
   expect(lookup).not.toHaveBeenCalled();
@@ -236,7 +256,12 @@ test("a lookup with no match does not become the call's carrier", async () => {
     },
     { text: ["Let me read that back."] },
   ]);
-  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+  const r = await createAgent({
+    profile: JACK,
+    client,
+    config,
+    lookup,
+  }).runTurn(history, {
     onText() {},
   });
   expect(r.carrier).toBeNull();
@@ -260,9 +285,12 @@ test("end_call speaks the goodbye and ends the turn without another model reques
     },
   ]);
   const seen = [];
-  const r = await createAgent({ client, config }).runTurn(history, {
-    onText: (t) => seen.push(t),
-  });
+  const r = await createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText: (t) => seen.push(t),
+    },
+  );
   expect(seen).toEqual(["Thanks, Mike. Talk soon."]);
   expect(r.end).toEqual({
     outcome: "lead",
@@ -285,9 +313,12 @@ test("an end_call with an invalid outcome is rejected back to the model, not act
     },
     { text: ["Anything else?"] },
   ]);
-  const r = await createAgent({ client, config }).runTurn(history, {
-    onText() {},
-  });
+  const r = await createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText() {},
+    },
+  );
   expect(r.end).toBeNull();
   expect(client.requests[1].messages.at(-1).content[0]).toMatchObject({
     type: "tool_result",
@@ -299,6 +330,7 @@ test.each(["refusal", "max_tokens"])(
   "%s is reported as failed, not thrown",
   async (stop) => {
     const r = await createAgent({
+      profile: JACK,
       client: fakeClient([{ text: [], stop }]),
       config,
     }).runTurn(history, { onText() {} });
@@ -309,18 +341,24 @@ test.each(["refusal", "max_tokens"])(
 
 test("an API error is reported as failed", async () => {
   const client = fakeClient([{ error: new Error("401 invalid x-api-key") }]);
-  const r = await createAgent({ client, config }).runTurn(history, {
-    onText() {},
-  });
+  const r = await createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText() {},
+    },
+  );
   expect(r).toMatchObject({ failed: true, spoken: "", end: null });
 });
 
 test("no output within 6 seconds is reported as failed", async () => {
   jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
   const client = fakeClient([{ hang: true }]);
-  const pending = createAgent({ client, config }).runTurn(history, {
-    onText() {},
-  });
+  const pending = createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText() {},
+    },
+  );
   await jest.advanceTimersByTimeAsync(5999);
   let settled = false;
   pending.then(() => (settled = true));
@@ -339,7 +377,12 @@ test("a model that keeps calling tools is stopped after four requests", async ()
     stop: "tool_use",
   };
   const client = fakeClient([step, step, step, step, step]);
-  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+  const r = await createAgent({
+    profile: JACK,
+    client,
+    config,
+    lookup,
+  }).runTurn(history, {
     onText() {},
   });
   expect(client.requests).toHaveLength(4);
@@ -349,20 +392,26 @@ test("a model that keeps calling tools is stopped after four requests", async ()
 test("an aborted turn resolves quietly with what was spoken", async () => {
   const client = fakeClient([{ hang: true }]);
   const controller = new AbortController();
-  const pending = createAgent({ client, config }).runTurn(history, {
-    onText() {},
-    signal: controller.signal,
-  });
+  const pending = createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText() {},
+      signal: controller.signal,
+    },
+  );
   controller.abort();
   expect(await pending).toMatchObject({ failed: false, spoken: "", end: null });
 });
 
 test("a turn started with an aborted signal makes no request", async () => {
   const client = fakeClient([]);
-  const r = await createAgent({ client, config }).runTurn(history, {
-    onText() {},
-    signal: AbortSignal.abort(),
-  });
+  const r = await createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText() {},
+      signal: AbortSignal.abort(),
+    },
+  );
   expect(client.requests).toHaveLength(0);
   expect(r.failed).toBe(false);
 });
@@ -379,7 +428,12 @@ test("thinking blocks are kept inside a tool round and dropped from the returned
     },
     { thinking: true, text: ["Hi."] },
   ]);
-  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+  const r = await createAgent({
+    profile: JACK,
+    client,
+    config,
+    lookup,
+  }).runTurn(history, {
     onText() {},
   });
   expect(JSON.stringify(client.requests[1].messages)).toContain('"thinking"');
@@ -388,7 +442,7 @@ test("thinking blocks are kept inside a tool round and dropped from the returned
 
 test("system and tools are byte-identical across requests", async () => {
   const client = fakeClient([{ text: ["One."] }, { text: ["Two."] }]);
-  const agent = createAgent({ client, config });
+  const agent = createAgent({ profile: JACK, client, config });
   const first = await agent.runTurn(history, { onText() {} });
   await agent.runTurn([...first.history, { role: "user", content: "ok" }], {
     onText() {},
@@ -405,37 +459,43 @@ test.each([
   ["claude-sonnet-5-5", "default", undefined],
 ])("thinking for %s/%s", (liveModel, liveThinking, expected) => {
   expect(
-    requestParams({ ...config, liveModel, liveThinking }).thinking,
+    requestParams({ ...config, liveModel, liveThinking }, JACK).thinking,
   ).toEqual(expected);
 });
 
 test("fast mode applies to Opus only", () => {
-  expect(requestParams({ ...config, liveSpeed: "fast" }).speed).toBe("fast");
-  expect(requestParams(config).speed).toBeUndefined();
+  expect(requestParams({ ...config, liveSpeed: "fast" }, JACK).speed).toBe(
+    "fast",
+  );
+  expect(requestParams(config, JACK).speed).toBeUndefined();
   expect(
-    requestParams({
-      ...config,
-      liveModel: "claude-haiku-5-5",
-      liveSpeed: "fast",
-    }).speed,
+    requestParams(
+      {
+        ...config,
+        liveModel: "claude-haiku-5-5",
+        liveSpeed: "fast",
+      },
+      JACK,
+    ).speed,
   ).toBeUndefined();
 });
 
 test("refusal fallback is requested on Opus and Sonnet, not on Haiku", async () => {
-  expect(requestParams(config)).toMatchObject({
+  expect(requestParams(config, JACK)).toMatchObject({
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
   });
   expect(
-    requestParams({ ...config, liveModel: "claude-sonnet-5-5" }).fallbacks,
+    requestParams({ ...config, liveModel: "claude-sonnet-5-5" }, JACK)
+      .fallbacks,
   ).toBe("default");
   const haiku = { ...config, liveModel: "claude-haiku-5-5" };
-  expect(requestParams(haiku).fallbacks).toBeUndefined();
-  expect(requestParams(haiku).betas).toBeUndefined();
+  expect(requestParams(haiku, JACK).fallbacks).toBeUndefined();
+  expect(requestParams(haiku, JACK).betas).toBeUndefined();
   // Haiku requests go to the standard surface, the others to the beta one.
   const client = fakeClient([{ text: ["Hi."] }]);
   const spy = jest.spyOn(client.messages, "stream");
-  await createAgent({ client, config: haiku }).runTurn(history, {
+  await createAgent({ profile: JACK, client, config: haiku }).runTurn(history, {
     onText() {},
   });
   expect(spy).toHaveBeenCalledTimes(1);
@@ -443,18 +503,18 @@ test("refusal fallback is requested on Opus and Sonnet, not on Haiku", async () 
 
 test("prewarm sends one zero-token request with the same prefix and never throws", async () => {
   const client = fakeClient([]);
-  await createAgent({ client, config }).prewarm();
+  await createAgent({ profile: JACK, client, config }).prewarm();
   expect(client.created[0]).toMatchObject({
     model: "claude-opus-5-5",
     max_tokens: 0,
     output_config: { effort: "low" },
-    system: buildSystem(),
-    tools: TOOLS,
+    system: buildSystem(JACK),
+    tools: toolsFor("receptionist"),
   });
   expect(client.created[0].fallbacks).toBeUndefined();
   client.messages.create.mockRejectedValueOnce(new Error("offline"));
   await expect(
-    createAgent({ client, config }).prewarm(),
+    createAgent({ profile: JACK, client, config }).prewarm(),
   ).resolves.toBeUndefined();
 });
 
@@ -464,9 +524,12 @@ test("a stream that goes quiet after it started speaking is reported as failed",
     { text: ["Let me explain"], stallAfterText: true },
   ]);
   const seen = [];
-  const pending = createAgent({ client, config }).runTurn(history, {
-    onText: (t) => seen.push(t),
-  });
+  const pending = createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText: (t) => seen.push(t),
+    },
+  );
   await jest.advanceTimersByTimeAsync(5900);
   expect(seen).toEqual(["Let me explain"]);
   await jest.advanceTimersByTimeAsync(200);
@@ -494,9 +557,12 @@ test("a tool-only reply that takes seven seconds with events flowing is not a fa
       stop: "tool_use",
     },
   ]);
-  const pending = createAgent({ client, config }).runTurn(history, {
-    onText() {},
-  });
+  const pending = createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText() {},
+    },
+  );
   await jest.advanceTimersByTimeAsync(7100);
   const r = await pending;
   expect(r.failed).toBe(false);
@@ -506,9 +572,12 @@ test("a tool-only reply that takes seven seconds with events flowing is not a fa
 test("a request that runs past twenty seconds is failed even with events flowing", async () => {
   jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
   const client = fakeClient([{ ticks: 60, text: ["Eventually."] }]);
-  const pending = createAgent({ client, config }).runTurn(history, {
-    onText() {},
-  });
+  const pending = createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText() {},
+    },
+  );
   await jest.advanceTimersByTimeAsync(20100);
   expect((await pending).failed).toBe(true);
 });
@@ -532,7 +601,7 @@ test("the latest lookup wins: a later no-match clears an earlier match", async (
     call("t2", "MC 196075"),
     { text: ["Let me read that back."] },
   ]);
-  const agent = createAgent({ client, config, lookup });
+  const agent = createAgent({ profile: JACK, client, config, lookup });
   const first = await agent.runTurn(history, { onText() {} });
   expect(first).toMatchObject({ lookedUp: "found" });
   expect(first.carrier.legalName).toBe("COMPANY A");
@@ -554,7 +623,12 @@ test("a lookup that timed out says nothing about the carrier either way", async 
     },
     { text: ["Let me read that back."] },
   ]);
-  const r = await createAgent({ client, config, lookup }).runTurn(history, {
+  const r = await createAgent({
+    profile: JACK,
+    client,
+    config,
+    lookup,
+  }).runTurn(history, {
     onText() {},
   });
   expect(r.lookedUp).toBeNull();
@@ -562,6 +636,7 @@ test("a lookup that timed out says nothing about the carrier either way", async 
 
 test("a turn with no lookup reports none", async () => {
   const r = await createAgent({
+    profile: JACK,
     client: fakeClient([{ text: ["Hi."] }]),
     config,
   }).runTurn(history, { onText() {} });
@@ -583,9 +658,12 @@ test("the filler is spoken once when one reply holds two lookups", async () => {
     { text: ["Neither came up."] },
   ]);
   const seen = [];
-  await createAgent({ client, config, lookup }).runTurn(history, {
-    onText: (t) => seen.push(t),
-  });
+  await createAgent({ profile: JACK, client, config, lookup }).runTurn(
+    history,
+    {
+      onText: (t) => seen.push(t),
+    },
+  );
   expect(seen.filter((t) => t === LOOKUP_FILLER)).toHaveLength(1);
 });
 
@@ -613,9 +691,12 @@ test("a goodbye the model already spoke is not said a second time", async () => 
     },
   ]);
   const seen = [];
-  const r = await createAgent({ client, config }).runTurn(history, {
-    onText: (t) => seen.push(t),
-  });
+  const r = await createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+    {
+      onText: (t) => seen.push(t),
+    },
+  );
   expect(seen).toEqual([
     "A dispatcher will call you back in the next few minutes. Drive safe.",
   ]);
@@ -647,7 +728,9 @@ test("a goodbye that adds something new after other words is still spoken", asyn
       stop: "tool_use",
     },
   ]);
-  const r = await createAgent({ client, config }).runTurn(history);
+  const r = await createAgent({ profile: JACK, client, config }).runTurn(
+    history,
+  );
   expect(r.spoken).toBe(
     "Got it, I have Smith Trucking out of Dallas, Texas. A dispatcher will call you back in the next few minutes. Drive safe.",
   );
@@ -689,6 +772,7 @@ test("the tokens of every request are counted, the pre-warm included", async () 
     },
   );
   const agent = createAgent({
+    profile: JACK,
     client,
     config,
     lookup: async () => ({ found: false, reason: "no_match" }),
@@ -721,7 +805,7 @@ test("a reply the caller cut off still counts the prompt it had read", async () 
       },
     },
   ]);
-  const agent = createAgent({ client, config });
+  const agent = createAgent({ profile: JACK, client, config });
   const controller = new AbortController();
   const turn = agent.runTurn(history, { signal: controller.signal });
   await new Promise((resolve) => setImmediate(resolve));
@@ -730,4 +814,53 @@ test("a reply the caller cut off still counts the prompt it had read", async () 
   expect(agent.usage()).toEqual([
     expect.objectContaining({ requests: 1, input: 15, cacheRead: 9000 }),
   ]);
+});
+
+describe("the call's agent profile", () => {
+  const support = {
+    ...JACK,
+    kind: "support",
+    companyName: "KelevoTMS",
+    personaName: "Kai",
+    instructions: "You are Kai, the KelevoTMS support assistant.",
+    knowledge: "",
+  };
+  const dispatcher = { ...JACK, kind: "dispatcher" };
+
+  test("requests use the profile's system and tools", () => {
+    const params = requestParams(config, support);
+    expect(params.tools.map((tool) => tool.name)).toEqual(["end_call"]);
+    expect(params.system).toEqual(buildSystem(support));
+  });
+
+  test("end_call rejects another kind's outcome", async () => {
+    const client = fakeClient([
+      {
+        tools: [
+          {
+            id: "t1",
+            name: "end_call",
+            input: { outcome: "lead", callback_promise: "", goodbye: "Bye." },
+          },
+        ],
+        stop: "tool_use",
+      },
+      { text: ["Sorry."] },
+    ]);
+    const r = await createAgent({
+      profile: dispatcher,
+      client,
+      config,
+    }).runTurn(history, { onText() {} });
+    expect(r.end).toBeNull();
+    const result = client.requests[1].messages.at(-1).content[0];
+    expect(result.is_error).toBe(true);
+    expect(JSON.parse(result.content)).toEqual({
+      error: "outcome must be one of message, urgent, spam",
+    });
+  });
+
+  test("an agent without a profile cannot be created", () => {
+    expect(() => createAgent({ client: fakeClient([]), config })).toThrow();
+  });
 });

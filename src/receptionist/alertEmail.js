@@ -1,13 +1,31 @@
-/* The email that tells the owner a lead is waiting for a callback, so the
-alert reaches them when the softphone tab is closed. Plain text only. */
+/* The email that tells the owner a caller is waiting for a callback, so the
+alert reaches them when the softphone tab is closed. Plain text only.
+
+It goes to the agent profile's alert address, else RECEPTIONIST_ALERT_EMAIL.
+A receptionist's (Jack's) lead email keeps the layout it had before agent
+profiles; a dispatcher's or support line's is a message with a to-do. With no
+profile (it could not be loaded) the email is minimal and names no agent. */
 
 const nodemailer = require("nodemailer");
 const { callableNumber } = require("./phone");
 
 const LABELS = {
+  lead: "New lead",
   not_a_lead: "Message",
+  message: "Message",
+  urgent: "URGENT",
+  support_request: "Support request",
   failed: "Agent failed, call back",
 };
+
+function subjectLabel(outcome, profile) {
+  if (!profile)
+    return outcome === "failed" ? "Agent call failed, call back" : "Agent call";
+  return (
+    LABELS[outcome] ||
+    (profile.kind === "receptionist" ? "New lead" : "Agent call")
+  );
+}
 // Caller-supplied text goes into the subject line; keep it to one line.
 const oneLine = (value) =>
   String(value || "")
@@ -27,14 +45,22 @@ function authorityLine(row) {
   return parts.length ? parts.join(" · ") : "No authority yet";
 }
 
-function body(row) {
+function body(row, profile) {
+  const lead = profile?.kind === "receptionist";
+  const persona = profile?.personaName || "Agent";
   const number = callbackNumber(row);
   const script = row.script || {};
   const details = row.details || {};
+  // A lead always says where its authority stands; other calls mention one
+  // only when the caller gave it, and a support line never does.
+  const authority =
+    lead || (profile?.kind !== "support" && (row.mc_number || row.usdot))
+      ? [authorityLine(row)]
+      : [];
   const lines = [
     `Caller: ${oneLine(row.caller_name) || "unknown"}`,
     `Company: ${oneLine(row.company) || "unknown"}`,
-    authorityLine(row),
+    ...authority,
     `Call back: ${number || "no number given"}`,
     // A number given on the call came through speech recognition and may be
     // wrong; the number they called from is the check.
@@ -51,15 +77,20 @@ function body(row) {
   if (!row.script && turns.length) {
     lines.push("", "TRANSCRIPT");
     for (const turn of turns.slice(-60))
-      lines.push(`${turn.role === "caller" ? "Caller" : "Jack"}: ${turn.text}`);
+      lines.push(
+        `${turn.role === "caller" ? "Caller" : persona}: ${turn.text}`,
+      );
   }
   if (script.opener || script.points?.length || script.next_step) {
-    lines.push("", "SUGGESTED SCRIPT");
+    lines.push("", lead ? "SUGGESTED SCRIPT" : "TO DO");
     if (script.opener) lines.push(`Open: ${script.opener}`);
     for (const point of script.points || []) lines.push(`- ${point}`);
     for (const item of script.objections || [])
       lines.push(`- ${item.objection}: ${item.answer}`);
-    if (script.next_step) lines.push(`Ask for: ${script.next_step}`);
+    if (script.next_step)
+      lines.push(
+        `${lead ? "Ask for" : "Before hanging up"}: ${script.next_step}`,
+      );
   }
   if (details.unanswered?.length) {
     lines.push("", "COULDN'T ANSWER ON THE CALL");
@@ -72,8 +103,10 @@ function body(row) {
 }
 
 // Resolves true when the email was handed to the mail server. Never throws.
-async function sendLeadEmail(row, config, { transport } = {}) {
-  if (!config.alertEmail || !config.smtp.host) return false;
+// `profile` is the call's agent profile, or null when it could not be loaded.
+async function sendCallEmail(row, config, profile, { transport } = {}) {
+  const to = profile?.alertEmail || config.alertEmail;
+  if (!to || !config.smtp.host) return false;
   try {
     const mailer =
       transport ||
@@ -88,16 +121,16 @@ async function sendLeadEmail(row, config, { transport } = {}) {
     const who =
       oneLine(row.caller_name) || callbackNumber(row) || "unknown caller";
     await mailer.sendMail({
-      from: config.smtp.from || config.smtp.user || config.alertEmail,
-      to: config.alertEmail,
-      subject: `${LABELS[row.outcome] || "New lead"}: ${who} — ${oneLine(row.company) || "unknown company"}`,
-      text: body(row),
+      from: config.smtp.from || config.smtp.user || to,
+      to,
+      subject: `${subjectLabel(row.outcome, profile)}: ${who} — ${oneLine(row.company) || "unknown company"}`,
+      text: body(row, profile),
     });
     return true;
   } catch (error) {
-    console.error("Lead email failed:", error.code || error.message);
+    console.error("Call email failed:", error.code || error.message);
     return false;
   }
 }
 
-module.exports = { sendLeadEmail };
+module.exports = { sendCallEmail };

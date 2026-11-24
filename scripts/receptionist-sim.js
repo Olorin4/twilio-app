@@ -9,13 +9,19 @@ tone.
     node scripts/receptionist-sim.js                 # explain the cost, run nothing
     node scripts/receptionist-sim.js --yes           # run every scenario
     node scripts/receptionist-sim.js --yes broker    # run one
+    node scripts/receptionist-sim.js --yes --seed    # Jack from the seed, no database
+    node scripts/receptionist-sim.js --yes --profile <id>   # another agent profile
+
+Without --seed or --profile it plays Iron Wing's default agent profile, read
+from the database (DB_URL). With --seed it uses the seed in seed/jack.js and
+needs no database.
 
 It calls the Claude API and costs money, so it only runs with --yes. */
 
 require("dotenv").config({ quiet: true });
 const { getConfig } = require("../src/receptionist/config");
 const { callContext } = require("../src/receptionist/prompt");
-const { GREETING } = require("../src/receptionist/twiml");
+const { JACK } = require("../src/receptionist/seed/jack");
 
 const MAX_CALLER_TURNS = 12;
 const HANG_UP = "[hangs up]";
@@ -362,7 +368,10 @@ const SIM_NOW = new Date("2026-11-16T15:00:00Z");
 
 // Plays one scenario to the end and grades it. `stats.lookups` is counted by
 // the caller of this function, through the lookup it gave the agent.
-async function runScenario(name, { client, agent, config, stats }) {
+async function runScenario(
+  name,
+  { client, agent, config, stats, profile = JACK },
+) {
   const scenario = SCENARIOS[name];
   let history = [
     {
@@ -372,11 +381,12 @@ async function runScenario(name, { client, agent, config, stats }) {
         open: true,
         hours: config.hours,
         now: SIM_NOW,
+        kind: profile.kind,
       }),
     },
-    { role: "assistant", content: GREETING },
+    { role: "assistant", content: profile.greeting },
   ];
-  const transcript = [{ role: "agent", text: GREETING }];
+  const transcript = [{ role: "agent", text: profile.greeting }];
   let end = null;
   let agentTurns = 0;
   let failed = false;
@@ -419,9 +429,27 @@ function explain(config, names) {
   );
 }
 
+// The profile to play: the seed, a profile by id, or Iron Wing's default.
+async function resolveProfile(argv, deps = {}) {
+  if (argv.includes("--seed")) return JACK;
+  const at = argv.indexOf("--profile");
+  if (at >= 0) {
+    const id = argv[at + 1];
+    if (!id || id.startsWith("--")) return null;
+    return (deps.getProfile || require("../src/agentProfiles").getProfile)(id);
+  }
+  const { IRON_WING_WORKSPACE_ID } = require("../src/workspaceContext");
+  return (
+    deps.getDefaultProfile || require("../src/agentProfiles").getDefaultProfile
+  )(IRON_WING_WORKSPACE_ID);
+}
+
 async function main(argv, deps = {}) {
   const config = getConfig();
-  const wanted = argv.filter((arg) => !arg.startsWith("--"));
+  const profileAt = argv.indexOf("--profile");
+  const wanted = argv.filter(
+    (arg, i) => !arg.startsWith("--") && (profileAt < 0 || i !== profileAt + 1),
+  );
   const unknown = wanted.filter((name) => !SCENARIOS[name]);
   if (unknown.length) {
     console.log(
@@ -432,6 +460,13 @@ async function main(argv, deps = {}) {
   const names = wanted.length ? wanted : Object.keys(SCENARIOS);
   if (!argv.includes("--yes")) {
     explain(config, names);
+    return 1;
+  }
+  const profile = await resolveProfile(argv, deps);
+  if (!profile) {
+    console.log(
+      "No agent profile found. Use --seed, or --profile <id> with an existing profile id.",
+    );
     return 1;
   }
   const createClient =
@@ -445,12 +480,18 @@ async function main(argv, deps = {}) {
       stats.lookups++;
       return cannedLookup(docket);
     };
-    const agent = createAgent({ client, config, lookup });
-    const result = await runScenario(name, { client, agent, config, stats });
+    const agent = createAgent({ client, config, profile, lookup });
+    const result = await runScenario(name, {
+      client,
+      agent,
+      config,
+      stats,
+      profile,
+    });
     console.log(`\n=== ${name} ===`);
     for (const turn of result.transcript)
       console.log(
-        `${turn.role === "caller" ? "Caller" : "Jack  "}: ${turn.text}`,
+        `${turn.role === "caller" ? "Caller" : (profile.personaName || "Agent").padEnd(6)}: ${turn.text}`,
       );
     console.log(
       `Ended: ${result.end ? `${result.end.outcome} (${result.end.callbackPromise || "no promise"})` : "not ended by the agent"}`,
@@ -466,15 +507,21 @@ async function main(argv, deps = {}) {
 }
 
 if (require.main === module)
-  main(process.argv.slice(2)).then(
-    (code) => {
-      process.exitCode = code;
-    },
-    (error) => {
-      console.error("Simulation failed:", error.message);
-      process.exitCode = 1;
-    },
-  );
+  main(process.argv.slice(2))
+    .then(
+      (code) => {
+        process.exitCode = code;
+      },
+      (error) => {
+        console.error("Simulation failed:", error.message);
+        process.exitCode = 1;
+      },
+    )
+    .finally(() => {
+      // A profile read from the database leaves the pool open.
+      const db = require.cache[require.resolve("../src/db")];
+      if (db) return db.exports.end();
+    });
 
 module.exports = {
   SCENARIOS,
@@ -482,4 +529,5 @@ module.exports = {
   offListPrices,
   cannedLookup,
   main,
+  resolveProfile,
 };

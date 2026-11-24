@@ -16,6 +16,14 @@ const ctx = {
   workspaceId: "00000000-0000-4000-8000-000000000001",
   connectionId: null,
   from: "+15551230009",
+  agentProfileId: "00000000-0000-4000-8000-0000000000a1",
+};
+// Jack, as the database holds him for Iron Wing.
+const jack = {
+  ...require("../../src/receptionist/seed/jack").JACK,
+  id: ctx.agentProfileId,
+  workspaceId: ctx.workspaceId,
+  alertEmail: null,
 };
 const transcript = [
   { role: "agent", text: "Thanks for calling." },
@@ -81,7 +89,8 @@ beforeEach(() => {
     client,
     config: getConfig({}),
     summarize: jest.fn().mockResolvedValue(summary()),
-    sendLeadEmail: jest.fn().mockResolvedValue(true),
+    sendCallEmail: jest.fn().mockResolvedValue(true),
+    getProfile: jest.fn().mockResolvedValue(jack),
   };
 });
 afterEach(() => jest.restoreAllMocks());
@@ -93,7 +102,7 @@ test("an abandoned call is stored without a model request or email", async () =>
     deps,
   );
   expect(deps.summarize).not.toHaveBeenCalled();
-  expect(deps.sendLeadEmail).not.toHaveBeenCalled();
+  expect(deps.sendCallEmail).not.toHaveBeenCalled();
   expect(store.finishCall).toHaveBeenCalledWith(sid, {
     outcome: "abandoned",
     transcript: [],
@@ -146,6 +155,7 @@ test("a lead gets its summary, then the softphone and the owner are told", async
     transcript,
     carrier: null,
     context: ctx,
+    profile: jack,
     onUsage: expect.any(Function),
   });
   expect(store.updateSummary).toHaveBeenCalledWith(sid, {
@@ -169,14 +179,16 @@ test("a lead gets its summary, then the softphone and the owner are told", async
     script: summary().script,
   });
   expect(publish).toHaveBeenCalledTimes(2);
-  expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
-  expect(deps.sendLeadEmail.mock.calls[0][0]).toMatchObject({
+  expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
+  expect(deps.sendCallEmail.mock.calls[0][0]).toMatchObject({
     call_sid: sid,
     outcome: "lead",
     caller_name: "Mike Alvarez",
     summary: "Owner-operator with two dry vans.",
   });
-  expect(deps.sendLeadEmail.mock.calls[0][1]).toBe(deps.config);
+  expect(deps.sendCallEmail.mock.calls[0][1]).toBe(deps.config);
+  expect(deps.sendCallEmail.mock.calls[0][2]).toBe(jack);
+  expect(deps.getProfile).toHaveBeenCalledWith(ctx.agentProfileId);
 });
 
 test("a carrier the caller confirmed wins over what the summary heard", async () => {
@@ -259,7 +271,7 @@ test("a failed summary still leaves a card and still alerts the owner", async ()
       summary: expect.stringContaining("Summary unavailable"),
     }),
   );
-  expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
+  expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
 });
 
 test("a summary step that throws is treated like a failed summary", async () => {
@@ -271,7 +283,7 @@ test("a summary step that throws is treated like a failed summary", async () => 
       summary: expect.stringContaining("Summary unavailable"),
     }),
   );
-  expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
+  expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
 });
 
 test("without a model client the card is saved from the transcript alone", async () => {
@@ -281,11 +293,11 @@ test("without a model client the card is saved from the transcript alone", async
     sid,
     expect.objectContaining({ outcome: "lead", transcript }),
   );
-  expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
+  expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
 });
 
 test("a failed email does not throw or block", async () => {
-  deps.sendLeadEmail.mockRejectedValue(new Error("smtp down"));
+  deps.sendCallEmail.mockRejectedValue(new Error("smtp down"));
   await expect(finalize(result, ctx, deps)).resolves.toBeUndefined();
   expect(store.finishCall).toHaveBeenCalledTimes(1);
   expect(store.updateSummary).toHaveBeenCalledTimes(1);
@@ -298,7 +310,7 @@ test("spam is saved but not emailed", async () => {
     sid,
     expect.objectContaining({ outcome: "spam" }),
   );
-  expect(deps.sendLeadEmail).not.toHaveBeenCalled();
+  expect(deps.sendCallEmail).not.toHaveBeenCalled();
 });
 
 test("a failed session stays failed even if the summary says lead", async () => {
@@ -316,7 +328,7 @@ test("a failed session stays failed even if the summary says lead", async () => 
 test("a caller promised a callback by the fallback line is emailed at once, before any summary", async () => {
   // The agent broke mid-call and told the caller a dispatcher would call back.
   const order = [];
-  deps.sendLeadEmail.mockImplementation(async () => {
+  deps.sendCallEmail.mockImplementation(async () => {
     order.push("email");
     return true;
   });
@@ -326,8 +338,8 @@ test("a caller promised a callback by the fallback line is emailed at once, befo
   });
   await finalize({ ...result, outcome: "failed" }, ctx, deps);
   expect(order).toEqual(["email", "summarize"]);
-  expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
-  expect(deps.sendLeadEmail.mock.calls[0][0]).toMatchObject({
+  expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
+  expect(deps.sendCallEmail.mock.calls[0][0]).toMatchObject({
     outcome: "failed",
     transcript,
   });
@@ -338,15 +350,15 @@ test("a call that was already closed is neither summarised nor emailed again", a
   await finalize(result, ctx, deps);
   expect(deps.summarize).not.toHaveBeenCalled();
   expect(store.updateSummary).not.toHaveBeenCalled();
-  expect(deps.sendLeadEmail).not.toHaveBeenCalled();
+  expect(deps.sendCallEmail).not.toHaveBeenCalled();
 });
 
 test("if the database is down the lead still reaches the owner by email, transcript included", async () => {
   store.finishCall.mockRejectedValue(new Error("connection refused"));
   await expect(finalize(result, ctx, deps)).resolves.toBeUndefined();
   expect(store.updateSummary).not.toHaveBeenCalled();
-  expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
-  expect(deps.sendLeadEmail.mock.calls[0][0]).toMatchObject({
+  expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
+  expect(deps.sendCallEmail.mock.calls[0][0]).toMatchObject({
     call_sid: sid,
     from_number: "+15551230009",
     outcome: "lead",
@@ -359,8 +371,8 @@ test("if the database is down the lead still reaches the owner by email, transcr
 test("if only the summary cannot be saved the owner still gets it by email", async () => {
   store.updateSummary.mockRejectedValue(new Error("connection lost"));
   await expect(finalize(result, ctx, deps)).resolves.toBeUndefined();
-  expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
-  expect(deps.sendLeadEmail.mock.calls[0][0]).toMatchObject({
+  expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
+  expect(deps.sendCallEmail.mock.calls[0][0]).toMatchObject({
     outcome: "lead",
     caller_name: "Mike Alvarez",
     summary: "Owner-operator with two dry vans.",
@@ -447,12 +459,119 @@ describe("the cost of a call", () => {
     await expect(
       finalize({ ...result, usage: liveUsage }, ctx, deps),
     ).resolves.toBeUndefined();
-    expect(deps.sendLeadEmail).toHaveBeenCalledTimes(1);
+    expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
   });
 
   test("a call that was already closed records nothing twice", async () => {
     store.finishCall.mockResolvedValue(null);
     await finalize({ ...result, usage: liveUsage }, ctx, deps);
     expect(store.saveCosts).not.toHaveBeenCalled();
+  });
+});
+
+describe("calls taken by other kinds of agent", () => {
+  const { OUTCOMES } = jest.requireActual("../../src/receptionist/store");
+  const { outcomesFor } = require("../../src/receptionist/kinds");
+  const ava = {
+    id: ctx.agentProfileId,
+    workspaceId: ctx.workspaceId,
+    kind: "support",
+    personaName: "Ava",
+    companyName: "KelevoTMS",
+    knowledge: "",
+    alertEmail: "support@example.test",
+  };
+  const sam = { ...ava, kind: "dispatcher", personaName: "Sam" };
+
+  test.each([
+    [jack, "lead", true],
+    [jack, "not_a_lead", true],
+    [sam, "message", true],
+    [sam, "urgent", true],
+    [ava, "support_request", true],
+    [ava, "not_support", false],
+    [sam, "spam", false],
+  ])(
+    "emails go out for the five emailed outcomes (%#: %s)",
+    async (profile, outcome, emailed) => {
+      deps.getProfile.mockResolvedValue(profile);
+      deps.summarize.mockResolvedValue(summary({ outcome }));
+      // The session ends on the kind's first outcome; the summary decides.
+      const [first] = outcomesFor(profile.kind);
+      await finalize({ ...result, outcome: first }, ctx, deps);
+      expect(deps.summarize.mock.calls[0][0].profile).toBe(profile);
+      expect(store.updateSummary).toHaveBeenCalledWith(
+        sid,
+        expect.objectContaining({ outcome }),
+      );
+      // Each email is written for the call's own profile.
+      expect(deps.sendCallEmail.mock.calls.map((call) => call[2])).toEqual(
+        emailed ? [profile] : [],
+      );
+    },
+  );
+
+  test("every outcome a dispatcher or support call stores is one the store accepts", async () => {
+    for (const [profile, first, outcomes] of [
+      [sam, "message", ["message", "urgent", "spam"]],
+      [ava, "support_request", ["support_request", "not_support", "spam"]],
+    ]) {
+      for (const outcome of outcomes) {
+        jest.clearAllMocks();
+        deps.getProfile.mockResolvedValue(profile);
+        deps.summarize.mockResolvedValue(summary({ outcome }));
+        await finalize({ ...result, outcome: first }, ctx, deps);
+        expect(OUTCOMES).toContain(store.finishCall.mock.calls[0][1].outcome);
+        expect(OUTCOMES).toContain(
+          store.updateSummary.mock.calls[0][1].outcome,
+        );
+      }
+    }
+  });
+
+  describe.each([
+    ["is missing", (d) => d.getProfile.mockResolvedValue(null)],
+    ["cannot be read", (d) => d.getProfile.mockRejectedValue(new Error("db"))],
+    [
+      "is in another workspace",
+      (d) =>
+        d.getProfile.mockResolvedValue({
+          ...ava,
+          workspaceId: "00000000-0000-4000-8000-000000000009",
+        }),
+    ],
+  ])("when the profile %s", (_name, arrange) => {
+    beforeEach(() => arrange(deps));
+
+    test("the call is still stored, without an AI summary", async () => {
+      await finalize({ ...result, outcome: "support_request" }, ctx, deps);
+      expect(store.finishCall).toHaveBeenCalledWith(
+        sid,
+        expect.objectContaining({ outcome: "support_request", transcript }),
+      );
+      expect(deps.summarize).not.toHaveBeenCalled();
+      expect(store.updateSummary).toHaveBeenCalledWith(
+        sid,
+        expect.objectContaining({
+          outcome: "support_request",
+          summary: expect.stringContaining("Summary unavailable"),
+          script: null,
+        }),
+      );
+    });
+
+    test("no email goes out without a global alert address", async () => {
+      await finalize({ ...result, outcome: "support_request" }, ctx, deps);
+      expect(deps.sendCallEmail).not.toHaveBeenCalled();
+    });
+
+    test("with a global alert address the email has no profile", async () => {
+      deps.config = getConfig({
+        RECEPTIONIST_ALERT_EMAIL: "owner@example.test",
+      });
+      await finalize({ ...result, outcome: "support_request" }, ctx, deps);
+      expect(deps.sendCallEmail).toHaveBeenCalledTimes(1);
+      expect(deps.sendCallEmail.mock.calls[0][2]).toBeNull();
+    });
   });
 });

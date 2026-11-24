@@ -292,24 +292,85 @@ and `docs/superpowers/plans/2026-11-16-ai-receptionist.md`.
 
 All settings are environment variables; `.env.example` lists them with comments.
 
-| Variable                                                            | Default                         | Meaning                                                                                            |
-| ------------------------------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `RECEPTIONIST_ENABLED`                                              | off                             | The agent answers only when this is exactly `true`.                                                |
-| `RECEPTIONIST_TEST_MODE`                                            | on                              | While on, only test callers reach the agent. Off only when exactly `false`.                        |
-| `RECEPTIONIST_TEST_CALLERS`                                         | none                            | Comma-separated E.164 numbers that always reach the agent.                                         |
-| `RECEPTIONIST_HOURS_START` / `_END` / `_TZ`                         | `7` / `18` / `America/New_York` | Calling hours, used for the callback promise and the existing closed-hours announcement.           |
-| `RECEPTIONIST_VOICE`                                                | `7EzWGsX10sAS4c9m9cPf`          | ElevenLabs voice, in ConversationRelay's voice format (a model suffix such as `-v4` may be added). |
-| `RECEPTIONIST_SAY_VOICE`                                            | none                            | Optional voice for the recorded announcements. Unset keeps today's voice.                          |
-| `RECEPTIONIST_LIVE_MODEL` / `_EFFORT`                               | `claude-opus-5-5` / `low`       | Model and effort for the live call.                                                                |
-| `RECEPTIONIST_LIVE_THINKING`                                        | `default`                       | `off` turns thinking off on Sonnet and Haiku models.                                               |
-| `RECEPTIONIST_LIVE_SPEED`                                           | `standard`                      | `fast` uses fast mode on Opus (higher price).                                                      |
-| `RECEPTIONIST_SUMMARY_MODEL`                                        | `claude-opus-5-5`               | Model for the after-call summary.                                                                  |
-| `RECEPTIONIST_DAILY_LIMIT`                                          | `3`                             | Agent calls per caller number per 24 hours.                                                        |
-| `RECEPTIONIST_MAX_CALL_SECONDS`                                     | `480`                           | After this long the agent wraps the call up.                                                       |
-| `RECEPTIONIST_RELAY_RATE`                                           | `0.07`                          | ConversationRelay price per minute in US dollars, used to estimate call costs.                     |
-| `RECEPTIONIST_ALERT_EMAIL`                                          | none                            | Where lead emails go.                                                                              |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | port `587`                      | The mail account that sends them.                                                                  |
-| `ANTHROPIC_API_KEY`                                                 | none                            | Read by the Anthropic SDK.                                                                         |
+| Variable                                                            | Default                         | Meaning                                                                                          |
+| ------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `RECEPTIONIST_ENABLED`                                              | off                             | The agent answers only when this is exactly `true`.                                              |
+| `RECEPTIONIST_TEST_MODE`                                            | on                              | While on, only test callers reach the agent. Off only when exactly `false`.                      |
+| `RECEPTIONIST_TEST_CALLERS`                                         | none                            | Comma-separated E.164 numbers that always reach the agent.                                       |
+| `RECEPTIONIST_HOURS_START` / `_END` / `_TZ`                         | `7` / `18` / `America/New_York` | Calling hours, used for the callback promise and the existing closed-hours announcement.         |
+| `RECEPTIONIST_VOICE`                                                | `7EzWGsX10sAS4c9m9cPf`          | ElevenLabs voice for profiles with no voice of their own (ConversationRelay format, e.g. `-v4`). |
+| `RECEPTIONIST_SAY_VOICE`                                            | none                            | Optional voice for the recorded announcements. Unset keeps today's voice.                        |
+| `RECEPTIONIST_LIVE_MODEL` / `_EFFORT`                               | `claude-opus-5-5` / `low`       | Model and effort for the live call.                                                              |
+| `RECEPTIONIST_LIVE_THINKING`                                        | `default`                       | `off` turns thinking off on Sonnet and Haiku models.                                             |
+| `RECEPTIONIST_LIVE_SPEED`                                           | `standard`                      | `fast` uses fast mode on Opus (higher price).                                                    |
+| `RECEPTIONIST_SUMMARY_MODEL`                                        | `claude-opus-5-5`               | Model for the after-call summary.                                                                |
+| `RECEPTIONIST_DAILY_LIMIT`                                          | `3`                             | Agent calls per caller number per 24 hours, for profiles with no daily limit of their own.       |
+| `RECEPTIONIST_MAX_CALL_SECONDS`                                     | `480`                           | After this long the agent wraps the call up.                                                     |
+| `RECEPTIONIST_RELAY_RATE`                                           | `0.07`                          | ConversationRelay price per minute in US dollars, used to estimate call costs.                   |
+| `RECEPTIONIST_ALERT_EMAIL`                                          | none                            | Where emails go, for profiles with no alert email of their own.                                  |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | port `587`                      | The mail account that sends them.                                                                |
+| `ANTHROPIC_API_KEY`                                                 | none                            | Read by the Anthropic SDK.                                                                       |
+
+### Agent profiles
+
+Each workspace can have several AI agent profiles (kind `receptionist`,
+`dispatcher` or `support`): name, persona, company, greeting, instructions,
+knowledge, voice, daily limit, alert email and an enabled switch, with a saved
+revision history. Each phone number's handler is either the softphone or one
+profile of the same workspace. Iron Wing's default profile (Jack) also answers
+the legacy `/voice` route. Edit profiles and number handlers in the app; the
+code is in `src/agentProfiles.js` and `src/receptionist/`. Design:
+`docs/superpowers/specs/2026-11-24-agent-profiles-and-number-handlers-design.md`.
+
+A profile is read when a call starts; editing it does not change a call in
+progress. If a profile is disabled, missing or in another workspace when a call
+arrives, the call takes the softphone path.
+
+Which settings still apply once Jack is a profile:
+
+- Daily limit: the profile's own value; `RECEPTIONIST_DAILY_LIMIT` only for a
+  profile that leaves it empty (`src/receptionist/routing.js`).
+- Voice: the profile's own voice; `RECEPTIONIST_VOICE` only for a profile with
+  none (`src/receptionist/twiml.js`).
+- Alert email: the profile's own address; `RECEPTIONIST_ALERT_EMAIL` only for a
+  profile with none (`src/receptionist/alertEmail.js`).
+
+After the Jack import these three live in his profile, so changing the
+environment variables later does not change his behavior. Everything else
+(`RECEPTIONIST_ENABLED`, test mode and callers, hours, models, max call length,
+`RECEPTIONIST_SAY_VOICE`, SMTP) stays global and applies to every profile.
+Alert emails for every workspace are sent from the one `SMTP_FROM` display
+name, so another business's emails carry that sender name.
+
+#### Deploy order
+
+Production steps need the owner's go-ahead. Do not run them without it.
+
+1. `npm run migrate:agent-profiles` against production, **before** the new code
+   is deployed. It is additive and safe to rerun. It waits at most 5 seconds
+   for a table lock; if it times out, simply rerun it. Deploying before step 1
+   breaks inbound calls on connection numbers, outgoing calls and softphone
+   tokens in every workspace (the app logs `DATABASE NOT MIGRATED` at startup
+   when this happens).
+2. `npm run seed:agent-profiles` right after the migration, run with
+   production's `RECEPTIONIST_DAILY_LIMIT`
+   (`RECEPTIONIST_DAILY_LIMIT=<prod value> npm run seed:agent-profiles`). It
+   imports Jack as Iron Wing's default profile and takes his daily limit from
+   the machine running the seed; a local `.env` without the variable gives 3,
+   and the value then sticks.
+3. Deploy the code.
+4. Place a test-caller call to the legacy number and check it still reaches
+   Jack (greeting, a saved row in `receptionist_calls`, and the email). In
+   Settings, confirm Jack's daily limit matches production's, his voice is
+   empty and his alert email is empty.
+
+#### Testing against Postgres
+
+The profile database tests are skipped unless a scratch database is named. They
+refuse any database whose name does not end in `_test`. With a scratch Postgres
+on port 55433:
+
+    AGENT_PROFILES_PG_TEST=1 TEST_DB_URL=postgresql://postgres:test@localhost:55433/twilio_app_test npx jest tests/agentProfiles.pg.test.js
 
 ### Simulated callers
 
@@ -317,6 +378,9 @@ All settings are environment variables; `.env.example` lists them with comments.
 (`node scripts/receptionist-sim.js --yes [scenario]`) plays eleven scripted callers
 against the real agent in text only, with no phone call, and prints each
 conversation with PASS/FAIL checks. It calls the Claude API and costs money.
+It plays Iron Wing's default agent profile from the database; `--seed` plays
+Jack from `src/receptionist/seed/jack.js` with no database, and
+`--profile <id>` plays another profile.
 
 ### Rollout checklist
 

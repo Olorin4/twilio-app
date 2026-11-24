@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "dev": "vite",
     "build": "vite build",
+    "seed:agent-profiles": "node scripts/seed-agent-profiles.js",
     "migrate:contacts": "node scripts/migrate-contacts.js",
     "migrate:message-delivery": "node scripts/migrate-message-delivery.js",
     "migrate:activity-views": "node scripts/migrate-activity-views.js",
@@ -25,7 +26,8 @@
     "receptionist:sim": "node scripts/receptionist-sim.js",
     "migrate:call-assist": "node scripts/migrate-call-assist.js",
     "migrate:assistant-settings": "node scripts/migrate-assistant-settings.js",
-    "migrate:workspace-archive": "node scripts/migrate-workspace-archive.js"
+    "migrate:workspace-archive": "node scripts/migrate-workspace-archive.js",
+    "migrate:agent-profiles": "node scripts/migrate-agent-profiles.js"
   },
   "repository": {
     "type": "git",

@@ -113,6 +113,7 @@ export function useVoice(workspace) {
         localNumber:
           instance.customParameters?.get?.("CalledNumber") ||
           target?.phone_number,
+        lineLabel: instance.customParameters?.get?.("CalledLabel") || undefined,
         phase: direction === "incoming" ? "ringing" : "connecting",
       });
       instance.on("accept", () =>

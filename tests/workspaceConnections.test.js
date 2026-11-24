@@ -12,6 +12,7 @@ const {
   archiveWorkspace,
   releaseNumber,
   moveNumber,
+  updateNumberSettings,
   listAllConnections,
 } = require("../src/workspaceConnections");
 const { encryptCredentials } = require("../src/credentialEncryption");
@@ -373,4 +374,133 @@ test("move targets list only active workspaces' connections without secrets", as
   expect(pool.query.mock.calls[0][0]).toContain("w.archived_at IS NULL");
   expect(pool.query.mock.calls[0][0]).not.toContain("encrypted_credentials");
   expect(rows).toHaveLength(1);
+});
+
+const profileId = "00000000-0000-4000-8000-0000000000c1";
+const settingsHandlers = (profileRows = [{ id: profileId }]) => [
+  [
+    "FROM connection_numbers n",
+    {
+      rows: [
+        { id: numberId, handler: "softphone", label: "Old", observe_hours: true },
+      ],
+    },
+  ],
+  ["FROM agent_profiles", { rows: profileRows }],
+  [
+    "UPDATE connection_numbers",
+    {
+      rows: [
+        {
+          id: numberId,
+          handler: "ai_agent",
+          agent_profile_id: profileId,
+          label: null,
+          observe_hours: true,
+        },
+      ],
+    },
+  ],
+];
+const updateParams = (client) =>
+  client.query.mock.calls.find(([sql]) =>
+    sql.includes("UPDATE connection_numbers"),
+  )[1];
+test("ai_agent needs an agent from the number's workspace", async () => {
+  const client = fakeClient(settingsHandlers([]));
+  await expect(
+    updateNumberSettings(workspaceId, numberId, {
+      handler: "ai_agent",
+      agentProfileId: profileId,
+    }),
+  ).rejects.toThrow("Choose an agent from this workspace.");
+  expect(ran(client, "UPDATE connection_numbers")).toBe(false);
+  expect(client.query).toHaveBeenLastCalledWith("ROLLBACK");
+  fakeClient(settingsHandlers());
+  await expect(
+    updateNumberSettings(workspaceId, numberId, { handler: "ai_agent" }),
+  ).rejects.toThrow("Choose an agent from this workspace.");
+});
+test("ai_agent with a valid agent stores it and locks the number row", async () => {
+  const client = fakeClient(settingsHandlers());
+  const result = await updateNumberSettings(workspaceId, numberId, {
+    handler: "ai_agent",
+    agentProfileId: profileId,
+    label: "Main",
+    observeHours: false,
+  });
+  expect(result.handler).toBe("ai_agent");
+  expect(
+    client.query.mock.calls.find(([sql]) => sql.includes("FOR UPDATE"))[0],
+  ).toContain("FROM connection_numbers n");
+  expect(updateParams(client)).toEqual([
+    numberId,
+    "ai_agent",
+    profileId,
+    "Main",
+    false,
+  ]);
+  expect(client.query).toHaveBeenLastCalledWith("COMMIT");
+});
+test("softphone clears the agent", async () => {
+  const client = fakeClient(settingsHandlers());
+  await updateNumberSettings(workspaceId, numberId, {
+    handler: "softphone",
+    agentProfileId: profileId,
+    label: "Main",
+    observeHours: true,
+  });
+  expect(updateParams(client)[2]).toBeNull();
+  expect(ran(client, "FROM agent_profiles")).toBe(false);
+});
+test("labels are trimmed and capped", async () => {
+  await expect(
+    updateNumberSettings(workspaceId, numberId, {
+      handler: "softphone",
+      label: "x".repeat(61),
+    }),
+  ).rejects.toThrow("Enter a line label of up to 60 characters.");
+  let client = fakeClient(settingsHandlers());
+  await updateNumberSettings(workspaceId, numberId, {
+    handler: "softphone",
+    label: "  Manager ",
+  });
+  expect(updateParams(client)[3]).toBe("Manager");
+  client = fakeClient(settingsHandlers());
+  await updateNumberSettings(workspaceId, numberId, {
+    handler: "softphone",
+    label: "",
+  });
+  expect(updateParams(client)[3]).toBeNull();
+});
+test("number settings reject bad ids, handlers and foreign numbers", async () => {
+  await expect(
+    updateNumberSettings("nope", numberId, { handler: "softphone" }),
+  ).rejects.toThrow("Invalid workspace or number.");
+  await expect(
+    updateNumberSettings(workspaceId, numberId, { handler: "robot" }),
+  ).rejects.toThrow("Enter valid number settings.");
+  fakeClient([]);
+  await expect(
+    updateNumberSettings(workspaceId, numberId, { handler: "softphone" }),
+  ).rejects.toThrow("Number does not belong to this workspace.");
+});
+test("moving a number resets its handler and keeps its label", async () => {
+  const client = fakeClient(moveHandlers());
+  await moveNumber(workspaceId, numberId, targetConnection);
+  const [sql] = client.query.mock.calls.find(([text]) =>
+    text.includes("UPDATE connection_numbers"),
+  );
+  expect(sql).toContain("handler = 'softphone'");
+  expect(sql).toContain("agent_profile_id = NULL");
+  expect(sql).not.toContain("label");
+});
+test("listConnections numbers carry handler, agent, label and hours", async () => {
+  pool.query
+    .mockResolvedValueOnce({ rows: [{ id: sourceConnection }] })
+    .mockResolvedValueOnce({ rows: [] });
+  await listConnections(workspaceId);
+  const sql = pool.query.mock.calls[1][0];
+  for (const column of ["handler", "agent_profile_id", "label", "observe_hours"])
+    expect(sql).toContain(`n.${column}`);
 });
