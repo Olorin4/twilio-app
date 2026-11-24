@@ -7,7 +7,7 @@ deleted when next seen. In memory only, so it resets on restart and is per
 process. */
 
 function createLoginLimiter({
-  limits = { ip: 30, ipuser: 10 },
+  limits = { ip: 30, ipuser: 10, user: 100 },
   windowMs = 60 * 1000,
   maxKeys = 10000,
 } = {}) {

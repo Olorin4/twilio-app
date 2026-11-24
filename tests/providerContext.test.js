@@ -193,7 +193,7 @@ describe("checkUsersSchema", () => {
 describe("checkSignInLimits", () => {
   const { checkSignInLimits } = require("../src/providerContext");
   const MESSAGE =
-    "Sign-in rate limiting is off: set TRUST_PROXY to the number of proxies in front of the app.";
+    "Per-client sign-in limits are off: set TRUST_PROXY to the number of proxies in front of the app. Only the per-username cap applies.";
   let warn;
   beforeEach(() => {
     warn = jest.spyOn(console, "warn").mockImplementation(() => {});

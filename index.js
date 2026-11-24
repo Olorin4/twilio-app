@@ -9,15 +9,16 @@ const { reconcile, reconcileAll } = require("./src/reconciliation");
 const {
   requireLogin,
   isTwilioWebhook,
-  trustProxySetting,
+  applyTrustProxy,
 } = require("./src/security");
 
 // Create Express webapp
 const app = express();
 // Before any middleware: req.ip is the client's address (from the edge
 // nginx's X-Forwarded-For) only when this is set. Unset keeps Express's
-// default (off), and the sign-in limiter is then off too.
-app.set("trust proxy", trustProxySetting(process.env.TRUST_PROXY));
+// default (off), and per-client sign-in limits are then off too. An unsafe or
+// invalid value logs why and exits.
+applyTrustProxy(app, process.env.TRUST_PROXY);
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(async (req, res, next) => {
@@ -44,7 +45,7 @@ require("./src/providerContext").checkNumberSchema();
 // Logs loudly (never crashes) when migration 014 has not been run, and warns
 // when TWILIO_IDENTITY is unset.
 require("./src/providerContext").checkUsersSchema();
-// Warns when TRUST_PROXY is unset, which turns the sign-in limiter off.
+// Warns when TRUST_PROXY is unset, which turns per-client sign-in limits off.
 require("./src/providerContext").checkSignInLimits(app.get("trust proxy"));
 
 // Schedule Automatic Sync and Cleanup:

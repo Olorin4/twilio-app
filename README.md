@@ -310,7 +310,7 @@ All settings are environment variables; `.env.example` lists them with comments.
 | `RECEPTIONIST_ALERT_EMAIL`                                          | none                            | Where emails go, for profiles with no alert email of their own.                                  |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | port `587`                      | The mail account that sends them.                                                                |
 | `ANTHROPIC_API_KEY`                                                 | none                            | Read by the Anthropic SDK.                                                                       |
-| `TRUST_PROXY`                                                       | off                             | Proxies in front of the app (production `1`). Unset: no sign-in limits.                          |
+| `TRUST_PROXY`                                                       | off                             | Proxies in front of the app (production `1`). Unset: only the per-username sign-in cap.          |
 
 ### Agent profiles
 
@@ -438,16 +438,23 @@ Before deploying, check:
   client's address from the last hop the edge added. Trust exactly as many
   proxies as really sit in front of the app: with too many trusted, a client
   can send its own `X-Forwarded-For` and forge its address, which lets it
-  dodge the sign-in limits or lock out another address.
-- Failed sign-ins are limited to 30 a minute per client address and 10 a
-  minute per client address and username together, then answered with
-  `429 Too many sign-in attempts`. A stranger's failures never lock a username
-  out from another address, and people already signed in keep working. A
-  cached login lasts 5 minutes from its last passing check, so an active
-  session never falls back to a full password check. Without `TRUST_PROXY` every client
-  looks like the edge nginx, so the limits are off and the server logs this at
-  startup:
-  `Sign-in rate limiting is off: set TRUST_PROXY to the number of proxies in front of the app.`
+  dodge the sign-in limits or lock out another address. `TRUST_PROXY=1` is
+  safe only because port 3001 is reachable only from the edge nginx (the
+  container publishes no host port). `TRUST_PROXY=true` is refused at startup,
+  and so is any value Express can't read; `false`, `off`, `no` and `0` mean
+  off.
+- Failed sign-ins are limited to 30 a minute per client address, 10 a minute
+  per client address and username together, and 100 a minute per username
+  from anywhere, then answered with `429 Too many sign-in attempts`. A
+  stranger's failures from their own address never lock a username out from
+  another, and people already signed in keep working. A cached login lasts 5
+  minutes from its last passing check, so an active session never falls back
+  to a full password check. With IPv6 at the edge one client can rotate
+  addresses within its /64, so the per-address limits slow it less; the
+  per-username cap still applies. Without `TRUST_PROXY` every client looks
+  like the edge nginx, so only the per-username cap applies and the server
+  logs this at startup:
+  `Per-client sign-in limits are off: set TRUST_PROXY to the number of proxies in front of the app. Only the per-username cap applies.`
 
 ### Simulated callers
 

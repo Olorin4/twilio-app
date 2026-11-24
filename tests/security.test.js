@@ -12,7 +12,10 @@ const {
   isTwilioWebhook,
   resetLoginLimits,
   trustProxySetting,
+  applyTrustProxy,
+  limitKeys,
 } = require("../src/security");
+const express = require("express");
 
 function response() {
   const res = {};
@@ -243,6 +246,78 @@ describe("TRUST_PROXY", () => {
       "loopback, 172.16.0.0/12",
     );
   });
+
+  test("false, off, no and 0 in any case are off", () => {
+    for (const value of [
+      "false",
+      "FALSE",
+      "off",
+      "Off",
+      "no",
+      "NO",
+      "0",
+      " 0 ",
+    ])
+      expect(trustProxySetting(value)).toBe(false);
+  });
+
+  // Express would trust every hop, so anyone could forge X-Forwarded-For.
+  test("true, yes and on are refused", () => {
+    for (const value of ["true", "TRUE", "yes", "on", " On "])
+      expect(() => trustProxySetting(value)).toThrow(
+        "TRUST_PROXY=true would let clients forge their address; set it to the number of proxies in front of the app (usually 1).",
+      );
+  });
+
+  test("a value Express rejects is named instead of an opaque stack", () => {
+    expect(() => trustProxySetting("not-an-address")).toThrow(
+      'TRUST_PROXY "not-an-address" is not valid',
+    );
+    expect(() => trustProxySetting("10.0.0.0/99")).toThrow(
+      'TRUST_PROXY "10.0.0.0/99" is not valid',
+    );
+  });
+
+  describe("applyTrustProxy at startup", () => {
+    let error;
+    let exit;
+    beforeEach(() => {
+      error = jest.spyOn(console, "error").mockImplementation(() => {});
+      exit = jest.spyOn(process, "exit").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      error.mockRestore();
+      exit.mockRestore();
+    });
+
+    test("sets the app's trust proxy for good values", () => {
+      for (const [value, expected] of [
+        [undefined, false],
+        ["off", false],
+        ["1", 1],
+        ["loopback", "loopback"],
+      ]) {
+        const app = express();
+        applyTrustProxy(app, value);
+        expect(app.get("trust proxy")).toBe(expected);
+      }
+      expect(exit).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    test("logs the reason and exits non-zero for true and invalid values", () => {
+      for (const [value, message] of [
+        ["true", "TRUST_PROXY=true would let clients forge their address"],
+        ["not-an-address", 'TRUST_PROXY "not-an-address" is not valid'],
+      ]) {
+        error.mockClear();
+        exit.mockClear();
+        applyTrustProxy(express(), value);
+        expect(error).toHaveBeenCalledWith(expect.stringContaining(message));
+        expect(exit).toHaveBeenCalledWith(1);
+      }
+    });
+  });
 });
 
 describe("failed-login limits", () => {
@@ -263,9 +338,9 @@ describe("failed-login limits", () => {
   const usernames = (count) =>
     Array.from({ length: count }, (_, i) => `user${i}:wrong-password-1`);
 
-  // Without trust proxy every client is the edge nginx's address, so any
-  // limit would lock everyone out together.
-  test("the limiter is off without TRUST_PROXY", async () => {
+  // Without trust proxy every client is the edge nginx's address, so a
+  // per-client limit would lock everyone out together.
+  test("per-client limits are off without TRUST_PROXY", async () => {
     for (const trust of [false, 0])
       for (let i = 0; i < 50; i += 1) {
         const { res } = await attempt(
@@ -329,6 +404,63 @@ describe("failed-login limits", () => {
     expect(users.authenticate).not.toHaveBeenCalled();
     // The same address can still try another username.
     await fail(1, "erin:any-password-1", "198.51.100.7");
+  });
+
+  // Distributed guessing on one account is capped loosely in both modes.
+  for (const trust of [1, false])
+    test(`100 failures on one username from many addresses limit it (trust proxy ${trust})`, async () => {
+      for (let i = 0; i < 99; i += 1)
+        await fail(
+          1,
+          "Nick:wrong-password-1",
+          `10.1.${i >> 8}.${i & 255}`,
+          trust,
+        );
+      // 99 is not limited.
+      await fail(1, "nick:wrong-password-2", "10.2.0.1", trust);
+      users.authenticate.mockClear();
+      const { res } = await attempt(
+        "nick:the-right-password",
+        "10.3.0.1",
+        trust,
+      );
+      expect(res.status).toHaveBeenCalledWith(429);
+      expect(res.send).toHaveBeenCalledWith(LIMITED);
+      expect(users.authenticate).not.toHaveBeenCalled();
+      // Other usernames are not affected.
+      await fail(1, "erin:any-password-1", "10.3.0.1", trust);
+      // A signed-in (cached) nick still gets in.
+      users.isCachedLogin.mockImplementation(
+        (username, password) =>
+          username === "nick" && password === "the-right-password",
+      );
+      users.authenticate.mockResolvedValueOnce({ ...member, username: "nick" });
+      const cached = await attempt(
+        "nick:the-right-password",
+        "10.3.0.1",
+        trust,
+      );
+      expect(cached.next).toHaveBeenCalledTimes(1);
+    });
+
+  test("limiter keys carry a sha256 of the folded username, never the raw string", () => {
+    const hash = require("crypto")
+      .createHash("sha256")
+      .update("nick")
+      .digest("hex");
+    const long = "x".repeat(5000);
+    expect(limitKeys(request("", "198.51.100.7", 1), " Nick ")).toEqual([
+      "ip:198.51.100.7",
+      `ipuser:198.51.100.7|${hash}`,
+      `user:${hash}`,
+    ]);
+    expect(limitKeys(request("", "198.51.100.7", false), "NICK")).toEqual([
+      `user:${hash}`,
+    ]);
+    for (const key of limitKeys(request("", "198.51.100.7", 1), long)) {
+      expect(key).not.toContain("xxxx");
+      expect(key.length).toBeLessThan(120);
+    }
   });
 
   test("the limit rolls off after a minute", async () => {
