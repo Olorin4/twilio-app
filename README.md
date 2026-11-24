@@ -366,11 +366,75 @@ Production steps need the owner's go-ahead. Do not run them without it.
 
 #### Testing against Postgres
 
-The profile database tests are skipped unless a scratch database is named. They
-refuse any database whose name does not end in `_test`. With a scratch Postgres
-on port 55433:
+The Postgres suites are skipped unless a scratch database is named. They refuse
+any database whose name does not end in `_test`. Some suites read `TEST_DB_URL`
+and others `DB_URL`, so set both to the same scratch database. Run them with
+`--runInBand` (they share the public schema and can flake in parallel). With a
+scratch Postgres on port 55433:
 
-    AGENT_PROFILES_PG_TEST=1 TEST_DB_URL=postgresql://postgres:test@localhost:55433/twilio_app_test npx jest tests/agentProfiles.pg.test.js
+    DB_SSL=false DB_URL=postgresql://postgres:test@localhost:55433/twilio_app_test \
+      TEST_DB_URL=postgresql://postgres:test@localhost:55433/twilio_app_test \
+      AGENT_PROFILES_PG_TEST=1 USERS_PG_TEST=1 RINGING_PG_TEST=1 \
+      CALL_ASSIST_PG_TEST=1 OUTREACH_INTAKE_PG_TEST=1 npx jest --runInBand
+
+### Users, login and recovery
+
+People sign in with a username and password. Settings and Users are
+owner-only. Members see only their workspaces, ring only on lines assigned to
+them, call and text only from their own lines, and see only the lines they may
+see: assigned lines and shared AI lines (including the Iron Wing customer line
+for Iron Wing members). A personal line is visible only to its assignees;
+owners also see a personal line while it has no reachable assignee, because it
+rings them.
+
+#### Cutover
+
+The `operator:APP_PASSWORD` login works only until the first enabled owner
+exists. In order:
+
+1. Deploy.
+2. Log in as `operator`.
+3. Create your owner in Settings -> Users.
+4. Sign out and sign in again as your owner; the `operator` login stops working.
+5. Create the dispatcher as a member of Iron Wing.
+6. Assign the dispatcher's line ("Dispatcher 2") to him, and mark your own
+   lines ("Manager" and "Lead dev") personal.
+
+#### Recovery commands
+
+`DB_URL=<target> npm run migrate:users` applies migration 014. The user scripts read the
+password only from the `USER_PASSWORD` environment variable, never from argv:
+
+    read -rs USER_PASSWORD; export USER_PASSWORD
+    DB_URL=<target> npm run users -- create-owner <username>
+    DB_URL=<target> npm run users -- reset-password <username>
+
+The scripts load `.env` through dotenv, so a missing shell `DB_URL` silently
+falls back to the `.env` database. Always pass `DB_URL` explicitly for the
+database you mean. A CLI password reset, and any disable or role change made in Settings -> Users,
+take effect on the running server immediately, because the server re-checks the
+user's row on every cached login.
+
+#### Deploy order (after 2a and 2b)
+
+Migration 013, the 013 seed (with production's `RECEPTIONIST_DAILY_LIMIT`),
+migration 014, then deploy the code, then the cutover steps above. Production
+runs happen only after Phase 2c also lands, and only with the owner's go-ahead.
+
+Before deploying, check:
+
+- `TWILIO_IDENTITY` is set in production. After cutover the `operator` login
+  never mints a token again, so it is the only source of the legacy number's
+  bootstrap identity: without it, the fallback ring (when the ring list can't
+  be read) dials nobody and sync misses legacy softphone calls. The server
+  warns at startup when it is unset.
+- At startup the server logs `DATABASE NOT MIGRATED: run npm run migrate:users`
+  when migration 014 is missing. It never crashes on it, so check the log.
+- Failed sign-ins are limited to 10 a minute per client address and per
+  username (then `429 Too many sign-in attempts`). The app does not set Express
+  `trust proxy`, so behind the edge nginx every client shares the proxy's
+  address: 10 failures a minute from anyone briefly limits every sign-in that
+  is not already cached, though people already signed in keep working.
 
 ### Simulated callers
 

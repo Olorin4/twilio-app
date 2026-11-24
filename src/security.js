@@ -1,27 +1,112 @@
 const crypto = require("crypto");
 const twilio = require("twilio");
+const { authenticate, hasEnabledOwner, isCachedLogin } = require("./users");
+const { createLoginLimiter } = require("./loginLimiter");
 
 function equalSecret(a, b) {
   const hash = (value) => crypto.createHash("sha256").update(value).digest();
   return crypto.timingSafeEqual(hash(a), hash(b));
 }
 
-function requireLogin(req, res, next) {
-  const password = process.env.APP_PASSWORD;
-  if (!password) return res.status(503).send("App login is not configured.");
+const REALM = 'Basic realm="Iron Wing Dispatching", charset="UTF-8"';
+
+function challenge(res) {
+  res.set("WWW-Authenticate", REALM);
+  return res.status(401).send("Authentication required.");
+}
+
+function credentialsFrom(req) {
   const authorization = req.get("authorization") || "";
   const match = /^Basic ([A-Za-z0-9+/]+={0,2})$/i.exec(authorization);
-  const decoded = match ? Buffer.from(match[1], "base64").toString("utf8") : "";
-  const valid = equalSecret(decoded, `operator:${password}`);
-  if (!valid) {
-    res.set(
-      "WWW-Authenticate",
-      'Basic realm="Iron Wing Dispatching", charset="UTF-8"',
-    );
-    return res.status(401).send("Authentication required.");
+  if (!match) return null;
+  const decoded = Buffer.from(match[1], "base64").toString("utf8");
+  const colon = decoded.indexOf(":");
+  if (colon < 0) return null;
+  return {
+    username: decoded.slice(0, colon),
+    password: decoded.slice(colon + 1),
+  };
+}
+
+const bootstrapUser = () => ({
+  id: null,
+  username: "operator",
+  displayName: "Operator",
+  role: "owner",
+  bootstrap: true,
+  workspaceIds: [],
+});
+
+// Works out who is signing in. Returns a user, null for a bad login, or a
+// string for a 503. Throws when the account store cannot be read.
+async function loginFor({ username, password }) {
+  const appPassword = process.env.APP_PASSWORD;
+  // The shared operator password only works until the first owner exists.
+  if (
+    username === "operator" &&
+    appPassword &&
+    equalSecret(password, appPassword) &&
+    !(await hasEnabledOwner())
+  )
+    return bootstrapUser();
+  const user = await authenticate(username, password);
+  if (user) return { ...user, bootstrap: false };
+  if (username === "operator" && !appPassword && !(await hasEnabledOwner()))
+    return "App login is not configured.";
+  return null;
+}
+
+/* Failed logins are limited per client address and per username: 10 in a
+rolling minute and that key is refused with 429 before any password hashing,
+so bad logins can't tie up the thread pool live calls share. Successful
+logins don't count. The 429 carries no WWW-Authenticate, so the browser does
+not re-prompt in a loop. A login that is a live cache hit (no hashing) still
+passes, so signed-in people keep working while an address is limited.
+req.ip is the socket address: the app does not set "trust proxy", so behind
+the edge nginx every client shares the proxy's address and the per-username
+key is what tells them apart. */
+const loginLimiter = createLoginLimiter();
+const LIMITED = "Too many sign-in attempts. Try again in a minute.";
+const limitKeys = (req, username) => [
+  `ip:${req.ip || req.socket?.remoteAddress || "unknown"}`,
+  `user:${String(username).trim().toLowerCase()}`,
+];
+
+// Sets req.user to a signed-in User or the bootstrap operator. Fails closed:
+// if the account store cannot be read, nobody gets in.
+async function requireLogin(req, res, next) {
+  const credentials = credentialsFrom(req);
+  if (!credentials) return challenge(res);
+  const keys = limitKeys(req, credentials.username);
+  if (
+    loginLimiter.blocked(keys) &&
+    !isCachedLogin(credentials.username, credentials.password)
+  ) {
+    res.set("Retry-After", "60");
+    return res.status(429).send(LIMITED);
   }
+  let user;
+  try {
+    user = await loginFor(credentials);
+  } catch (error) {
+    if (error.code === "LOGIN_BUSY")
+      return res.status(503).send("App login is busy. Try again.");
+    console.error("Login check failed:", error.message);
+    return res.status(503).send("App login is unavailable.");
+  }
+  if (typeof user === "string") return res.status(503).send(user);
+  if (!user) {
+    loginLimiter.fail(keys);
+    return challenge(res);
+  }
+  req.user = user;
   res.set("Cache-Control", "no-store");
   return next();
+}
+
+function requireOwner(req, res, next) {
+  if (req.user && req.user.role === "owner") return next();
+  return res.status(403).json({ error: "Only an owner can change settings." });
 }
 
 function validateWebhook(req, res, next) {
@@ -51,4 +136,10 @@ function isTwilioWebhook(req) {
   );
 }
 
-module.exports = { requireLogin, validateWebhook, isTwilioWebhook };
+module.exports = {
+  requireLogin,
+  resetLoginLimits: () => loginLimiter.clear(),
+  requireOwner,
+  validateWebhook,
+  isTwilioWebhook,
+};

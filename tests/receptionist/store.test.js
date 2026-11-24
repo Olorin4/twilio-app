@@ -72,10 +72,20 @@ test("setStatus rejects unknown statuses without querying", async () => {
   expect(pool.query).not.toHaveBeenCalled();
 });
 
+// An owner's scope: hides nothing here.
+const ownerScope = { all: true, hidden: [], hiddenClients: [] };
+
 test("setStatus reports whether a row in the workspace changed", async () => {
   pool.query.mockResolvedValueOnce({ rowCount: 1 });
-  expect(await store.setStatus(ws, sid, "called")).toBe(true);
-  expect(pool.query.mock.calls[0][1]).toEqual([ws, sid, "called"]);
+  expect(await store.setStatus(ws, sid, "called", ownerScope)).toBe(true);
+  expect(pool.query.mock.calls[0][1]).toEqual([
+    ws,
+    sid,
+    "called",
+    [],
+    [],
+    true,
+  ]);
   pool.query.mockResolvedValueOnce({ rowCount: 0 });
   expect(await store.setStatus(ws, sid, "called")).toBe(false);
 });
@@ -92,11 +102,27 @@ test("countAgentCalls counts one caller's calls to one profile", async () => {
 
 test("listCalls hides calls still in progress and reports stale ones as failed", async () => {
   pool.query.mockResolvedValue({ rows: [{ call_sid: sid }] });
-  expect(await store.listCalls(ws)).toEqual([{ call_sid: sid }]);
+  expect(await store.listCalls(ws, ownerScope)).toEqual([{ call_sid: sid }]);
   const [sql, params] = pool.query.mock.calls[0];
   expect(sql).toMatch(/ended_at IS NOT NULL OR (c\.)?started_at < now\(\) - /);
   expect(sql).toMatch(/COALESCE\((c\.)?outcome, 'failed'\) AS outcome/);
-  expect(params).toEqual([ws, 50]);
+  expect(params).toEqual([ws, 50, [], [], true]);
+});
+
+test("every lead query follows the dialed line's visibility", async () => {
+  pool.query.mockResolvedValue({ rows: [{ count: "0" }], rowCount: 0 });
+  const member = { all: false, clientPrefix: "client:uabc_", visible: ["+1"] };
+  await store.listCalls(ws, member);
+  await store.countNew(ws, member);
+  await store.setStatus(ws, sid, "called", member);
+  for (const [sql, params] of pool.query.mock.calls) {
+    expect(sql).toMatch(
+      /FROM call_logs vc WHERE vc\.call_sid = c\.call_sid AND vc\.workspace_id = c\.workspace_id/,
+    );
+    expect(sql).toMatch(/vc\.to_number/);
+    // A lead with no call row: owners only.
+    expect(params.slice(-3)).toEqual(["client:uabc_", ["+1"], false]);
+  }
 });
 
 test("countNew counts unhandled calls that are owed a callback", async () => {
@@ -112,7 +138,7 @@ test("countNew also counts a call that was never closed, as the list shows it", 
   pool.query.mockResolvedValue({ rows: [{ count: "1" }] });
   await store.countNew(ws);
   expect(pool.query.mock.calls[0][0]).toMatch(
-    /outcome IS NULL AND started_at < now\(\) - interval '15 minutes'/,
+    /outcome IS NULL AND (c\.)?started_at < now\(\) - interval '15 minutes'/,
   );
 });
 

@@ -3,6 +3,9 @@ const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
 const pool = require("./db");
 const { publish } = require("./messageEvents");
 const { saveStatus } = require("./conversations");
+const { mayUseLine, usableLines } = require("./ringing");
+
+const NOT_YOUR_LINE = "You can't send from this line.";
 
 async function sendSms(req, res) {
   if (!req.is("application/json")) {
@@ -28,12 +31,31 @@ async function sendSms(req, res) {
       .status(400)
       .json({ error: "Enter a message of 1 to 1600 characters." });
   }
+  if (!req.user)
+    return res.status(401).json({ error: "Authentication required." });
+  const workspaceId = req.workspace?.id || IRON_WING_WORKSPACE_ID;
   let provider;
   try {
-    provider = await getProvider(
-      req.workspace?.id || IRON_WING_WORKSPACE_ID,
-      req.get?.("X-Connection-Number-Id"),
-    );
+    if (req.user.role === "owner") {
+      provider = await getProvider(
+        workspaceId,
+        req.get?.("X-Connection-Number-Id"),
+      );
+    } else {
+      // A member sends only from a line assigned to them: the one named by
+      // localNumber, else their first. Nothing the browser sends can widen
+      // that, and the workspace's active number is never a fallback.
+      const lines = await usableLines(req.user, workspaceId, {
+        voiceOnly: false,
+      });
+      const line = localNumber
+        ? lines.find((own) => own.phoneNumber === localNumber)
+        : lines[0];
+      if (!line) return res.status(403).json({ error: NOT_YOUR_LINE });
+      provider = await getProvider(workspaceId, line.numberId);
+      if (!(await mayUseLine(req.user, provider)))
+        return res.status(403).json({ error: NOT_YOUR_LINE });
+    }
     if (!provider.smsEnabled)
       return res
         .status(409)

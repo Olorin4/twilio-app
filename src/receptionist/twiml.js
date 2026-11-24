@@ -141,7 +141,10 @@ async function endedHandler(req, res) {
           req.body.To,
         )
       : undefined;
-    return res.send(voiceResponse(req.body, provider));
+    // Never throws: a failed lookup rings the bootstrap identity.
+    const { ringIdentities } = require("../ringing");
+    const ring = await ringIdentities(provider);
+    return res.send(voiceResponse(req.body, provider, ring));
   } catch (error) {
     console.error("Receptionist fallback failed:", error.message);
     // Only Iron Wing's own calls (the legacy route has no connection) may

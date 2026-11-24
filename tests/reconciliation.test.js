@@ -1,7 +1,13 @@
 jest.mock("../src/db", () => ({ query: jest.fn() }));
-jest.mock("../src/token", () => ({ client: {} }));
+jest.mock("../src/token", () => ({
+  client: {},
+  getIdentity: () => "operator",
+}));
 jest.mock("../src/callEvents", () => ({ saveLeg: jest.fn() }));
-jest.mock("../src/conversations", () => ({ saveStatus: jest.fn() }));
+jest.mock("../src/conversations", () => ({
+  saveStatus: jest.fn(),
+  numbers: () => [],
+}));
 jest.mock("../src/messageEvents", () => ({ publish: jest.fn() }));
 const pool = require("../src/db");
 const {
@@ -10,6 +16,7 @@ const {
   reconcileAll,
   saveCall,
   refreshPrices,
+  reconcileOne,
 } = require("../src/reconciliation");
 beforeEach(() => jest.clearAllMocks());
 test("processes every page and advances checkpoint only after successful processing", async () => {
@@ -140,5 +147,71 @@ describe("call prices from Twilio", () => {
     pool.query.mockResolvedValueOnce({ rows: [] });
     expect(await refreshPrices(owner, new Date())).toBe(0);
     expect(owner.client.calls.page).not.toHaveBeenCalled();
+  });
+});
+
+describe("softphone identities in the sync", () => {
+  const connectionId = "cccccccc-3333-4333-8333-333333333333";
+  const userHex = "aaaaaaaa111141118111111111111111";
+  const stream = (instances) => ({
+    page: jest.fn().mockResolvedValue({
+      instances,
+      nextPage: jest.fn().mockResolvedValue(undefined),
+    }),
+  });
+  async function sync(owner, calls) {
+    pool.query.mockImplementation(async (sql) => {
+      if (sql.includes("synced_through FROM"))
+        return { rows: [{ synced_through: new Date() }] };
+      return { rows: [], rowCount: 1 };
+    });
+    await reconcileOne({
+      ...owner,
+      client: { calls: stream(calls), messages: stream([]) },
+    });
+    return pool.query.mock.calls
+      .filter(([sql]) => sql.includes("INSERT INTO call_logs"))
+      .map(([, params]) => params[0]);
+  }
+  const workspaceId = "00000000-0000-4000-8000-000000000001";
+  test("saves a root call placed by a user identity on its connection", async () => {
+    const saved = await sync({ workspaceId, id: connectionId }, [
+      {
+        sid: "CA1",
+        direction: "outbound-api",
+        from: `client:u${userHex}_c${connectionId.replace(/-/g, "")}`,
+        to: "+15550000009",
+      },
+      {
+        sid: "CA2",
+        direction: "outbound-api",
+        from: `client:u${userHex}_cdddddddd444444448444444444444444`,
+        to: "+15550000009",
+      },
+    ]);
+    expect(saved).toEqual(["CA1"]);
+  });
+  test("saves a legacy root call placed by a user's legacy identity", async () => {
+    const saved = await sync({ workspaceId, id: null }, [
+      {
+        sid: "CA3",
+        direction: "outbound-api",
+        from: `client:u${userHex}_legacy`,
+        to: "+15550000009",
+      },
+      {
+        sid: "CA4",
+        direction: "outbound-api",
+        from: "client:operator",
+        to: "+15550000009",
+      },
+      {
+        sid: "CA5",
+        direction: "outbound-api",
+        from: `client:connection_${connectionId.replace(/-/g, "")}`,
+        to: "+15550000009",
+      },
+    ]);
+    expect(saved).toEqual(["CA3", "CA4"]);
   });
 });

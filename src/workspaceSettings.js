@@ -16,7 +16,9 @@ const {
   previewConnectionNumbers,
   addConnectionNumbers,
   updateNumberSettings,
+  setNumberAssignees,
 } = require("./workspaceConnections");
+const { listUsers, createUser, updateUser, setPassword } = require("./users");
 const {
   listProfiles,
   createProfile,
@@ -39,7 +41,22 @@ const {
   config: callAssistConfig,
   available: callAssistAvailable,
 } = require("./callAssist/config");
+const { requireOwner } = require("./security");
 const router = Router();
+
+// Everything under /settings is owner-only except these reads, which members
+// need to pick a workspace, register their phone and see assistant state.
+const MEMBER_READS = new Set([
+  "GET /workspaces",
+  "GET /voice-targets",
+  "GET /assist",
+]);
+router.use((req, res, next) =>
+  MEMBER_READS.has(`${req.method} ${req.path}`)
+    ? next()
+    : requireOwner(req, res, next),
+);
+
 router.get("/config", (req, res) =>
   res.json({
     webhookBaseUrl: (process.env.TWILIO_WEBHOOK_BASE_URL || "").replace(
@@ -110,6 +127,17 @@ function publicError(res, error) {
       "Choose an agent from this workspace.",
       "Enter a line label",
       "Enter valid number settings.",
+      "Enter a username",
+      "Enter a password of",
+      "That username is taken.",
+      "User does not exist.",
+      "Keep at least one enabled owner.",
+      "Choose a role of",
+      "Enter a display name of",
+      "Choose valid workspaces.",
+      "Enabled must be",
+      "Choose people who can open",
+      "A personal line can't",
     ].some((prefix) => message.startsWith(prefix))
   )
     return res.status(400).json({ error: message });
@@ -180,14 +208,14 @@ router.patch(
 
 router.get("/workspaces", async (req, res) => {
   try {
-    return res.json(await listWorkspaces());
+    return res.json(await listWorkspaces(req.user));
   } catch (error) {
     return publicError(res, error);
   }
 });
 router.get("/voice-targets", async (req, res) => {
   try {
-    return res.json(await listVoiceTargets());
+    return res.json(await listVoiceTargets(req.user));
   } catch (error) {
     return publicError(res, error);
   }
@@ -267,7 +295,8 @@ router.post(
     }
   },
 );
-const SAVED_BY = "operator"; // until 2b adds signed-in users
+// The bootstrap login is the username "operator"; everyone else is by name.
+const savedBy = (req) => req.user?.username || "operator";
 router.get("/workspaces/:workspaceId/agents", async (req, res) => {
   try {
     return res.json(await listProfiles(req.params.workspaceId));
@@ -283,7 +312,11 @@ router.post(
       return res
         .status(201)
         .json(
-          await createProfile(req.params.workspaceId, req.body || {}, SAVED_BY),
+          await createProfile(
+            req.params.workspaceId,
+            req.body || {},
+            savedBy(req),
+          ),
         );
     } catch (error) {
       return publicError(res, error);
@@ -300,7 +333,7 @@ router.put(
           req.params.workspaceId,
           req.params.agentId,
           req.body || {},
-          SAVED_BY,
+          savedBy(req),
         ),
       );
     } catch (error) {
@@ -343,7 +376,7 @@ router.post(
           req.params.workspaceId,
           req.params.agentId,
           req.params.revisionId,
-          SAVED_BY,
+          savedBy(req),
         ),
       );
     } catch (error) {
@@ -366,9 +399,78 @@ router.patch(
             agentProfileId: body.agentProfileId,
             label: body.label,
             observeHours: body.observeHours,
+            personal: body.personal,
           },
         ),
       );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.put(
+  "/workspaces/:workspaceId/numbers/:numberId/assignees",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res.json(
+        await setNumberAssignees(
+          req.params.workspaceId,
+          req.params.numberId,
+          req.body?.userIds,
+        ),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.get("/users", async (req, res) => {
+  try {
+    return res.json(await listUsers());
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+router.post("/users", requireSettingsWrite, async (req, res) => {
+  try {
+    const { username, displayName, password, role, workspaceIds } =
+      req.body || {};
+    return res.status(201).json(
+      await createUser({
+        username,
+        displayName,
+        password,
+        role,
+        workspaceIds,
+      }),
+    );
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+router.patch("/users/:userId", requireSettingsWrite, async (req, res) => {
+  try {
+    const { displayName, role, enabled, workspaceIds } = req.body || {};
+    return res.json(
+      await updateUser(req.params.userId, {
+        displayName,
+        role,
+        enabled,
+        workspaceIds,
+      }),
+    );
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+router.post(
+  "/users/:userId/password",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      await setPassword(req.params.userId, req.body?.password);
+      return res.status(204).end();
     } catch (error) {
       return publicError(res, error);
     }

@@ -6,14 +6,19 @@ jest.mock("../../src/receptionist/store", () => ({
   setStatus: jest.fn(),
   countNew: jest.fn(),
 }));
+jest.mock("../../src/visibility", () => ({ lineScope: jest.fn() }));
 const http = require("http");
 const express = require("express");
 const store = require("../../src/receptionist/store");
 const { publish } = require("../../src/messageEvents");
+const { lineScope } = require("../../src/visibility");
 const leads = require("../../src/receptionist/routes");
 
 const sid = `CA${"1".repeat(32)}`;
 const ws = "00000000-0000-4000-8000-000000000001";
+const member = { id: "00000000-0000-4000-8000-0000000000a1", role: "member" };
+// What lineScope answered; the store applies it to every lead query.
+const scope = { all: false, visible: ["+15550000001"] };
 let server;
 let origin;
 
@@ -22,6 +27,7 @@ beforeAll(async () => {
   app.use(express.json());
   app.use((req, res, next) => {
     req.workspace = { id: ws };
+    req.user = member;
     next();
   });
   app.use("/leads", leads);
@@ -32,6 +38,7 @@ beforeAll(async () => {
 afterAll(() => new Promise((resolve) => server.close(resolve)));
 beforeEach(() => {
   jest.clearAllMocks();
+  lineScope.mockResolvedValue(scope);
   jest.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => jest.restoreAllMocks());
@@ -91,7 +98,8 @@ test("GET /leads maps rows to camelCase", async () => {
       transcript: [{ role: "caller", text: "hi" }],
     },
   ]);
-  expect(store.listCalls).toHaveBeenCalledWith(ws);
+  expect(lineScope).toHaveBeenCalledWith(member, ws);
+  expect(store.listCalls).toHaveBeenCalledWith(ws, scope);
 });
 
 test("a storage failure on the list is a 500 with a plain message", async () => {
@@ -115,7 +123,7 @@ test("the unread count is a number and survives a missing table", async () => {
   expect(await (await fetch(`${origin}/leads/count`)).json()).toEqual({
     leads: 3,
   });
-  expect(store.countNew).toHaveBeenCalledWith(ws);
+  expect(store.countNew).toHaveBeenCalledWith(ws, scope);
   store.countNew.mockRejectedValue(
     Object.assign(new Error("missing"), { code: "42P01" }),
   );
@@ -128,7 +136,7 @@ test("a status change is saved and announced", async () => {
   store.setStatus.mockResolvedValue(true);
   const res = await post(`/leads/${sid}/status`, { status: "called" });
   expect(res.status).toBe(204);
-  expect(store.setStatus).toHaveBeenCalledWith(ws, sid, "called");
+  expect(store.setStatus).toHaveBeenCalledWith(ws, sid, "called", scope);
   expect(publish).toHaveBeenCalledTimes(1);
 });
 
@@ -144,7 +152,21 @@ test("status change validates the SID and the status", async () => {
   expect(publish).not.toHaveBeenCalled();
 });
 
-test("status change returns 404 for another workspace's call", async () => {
+test("a scope that can't be read fails closed", async () => {
+  lineScope.mockRejectedValue(new Error("db down"));
+  expect((await fetch(`${origin}/leads`)).status).toBe(500);
+  expect(await (await fetch(`${origin}/leads/count`)).json()).toEqual({
+    leads: 0,
+  });
+  expect(
+    (await post(`/leads/${sid}/status`, { status: "called" })).status,
+  ).toBe(500);
+  expect(store.listCalls).not.toHaveBeenCalled();
+  expect(store.setStatus).not.toHaveBeenCalled();
+});
+
+// A lead on a line the person may not see is answered as unknown.
+test("status change returns 404 for another workspace's call or a hidden lead", async () => {
   store.setStatus.mockResolvedValue(false);
   expect(
     (await post(`/leads/${sid}/status`, { status: "called" })).status,

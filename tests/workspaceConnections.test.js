@@ -14,6 +14,7 @@ const {
   moveNumber,
   updateNumberSettings,
   listAllConnections,
+  setNumberAssignees,
 } = require("../src/workspaceConnections");
 const { encryptCredentials } = require("../src/credentialEncryption");
 const workspaceId = "00000000-0000-4000-8000-000000000001";
@@ -221,12 +222,93 @@ test("archiving rejects bad ids and missing or already archived workspaces", asy
     "Workspace does not exist.",
   );
 });
+const listOwner = { id: "o1", role: "owner", workspaceIds: [] };
+const listMember = {
+  id: "11111111-1111-4111-8111-111111111111",
+  role: "member",
+  workspaceIds: [otherId],
+};
 test("archived workspaces are left out of lists and voice targets", async () => {
   pool.query.mockResolvedValue({ rows: [] });
-  await listWorkspaces();
-  await listVoiceTargets();
+  await listWorkspaces(listOwner);
+  await listVoiceTargets(listOwner);
   expect(pool.query.mock.calls[0][0]).toContain("w.archived_at IS NULL");
   expect(pool.query.mock.calls[1][0]).toContain("w.archived_at IS NULL");
+});
+
+test("workspace lists are filtered for members", async () => {
+  process.env.TWILIO_CALLER_ID = "+15550009999";
+  pool.query.mockResolvedValue({ rows: [{ name: "Iron Wing" }] });
+  await listWorkspaces(listMember);
+  let [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(
+    /JOIN workspace_members \w+ ON \w+\.workspace_id = w\.id AND \w+\.user_id = \$3/,
+  );
+  expect(params[2]).toBe(listMember.id);
+
+  pool.query.mockClear();
+  pool.query.mockResolvedValue({ rows: [] });
+  const targets = await listVoiceTargets(listMember);
+  [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(
+    /JOIN workspace_members \w+ ON \w+\.workspace_id = w\.id AND \w+\.user_id = \$1/,
+  );
+  expect(params).toEqual([listMember.id]);
+  // The legacy number is owners only.
+  expect(targets.some((t) => t.connection_id === "legacy")).toBe(false);
+  if (originalCaller === undefined) delete process.env.TWILIO_CALLER_ID;
+  else process.env.TWILIO_CALLER_ID = originalCaller;
+});
+
+test("members never see a workspace's active phone number", async () => {
+  pool.query.mockImplementation(async () => ({
+    rows: [{ id: otherId, name: "Acme", active_phone: "+15550001111" }],
+  }));
+  expect((await listWorkspaces(listMember))[0].active_phone).toBeNull();
+  expect((await listWorkspaces(listOwner))[0].active_phone).toBe(
+    "+15550001111",
+  );
+});
+
+test("a member's voice targets are their own assigned voice lines", async () => {
+  pool.query.mockResolvedValue({ rows: [] });
+  await listVoiceTargets(listMember);
+  const [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(
+    /JOIN number_assignees na ON na\.number_id = n\.id AND na\.user_id = \$1/,
+  );
+  expect(sql).toMatch(/ORDER BY c\.id, na\.created_at, n\.id/);
+  expect(params).toEqual([listMember.id]);
+  pool.query.mockClear();
+  await listVoiceTargets(listOwner);
+  expect(pool.query.mock.calls[0][0]).not.toContain("number_assignees");
+});
+
+test("owners list every workspace without a membership join", async () => {
+  process.env.TWILIO_CALLER_ID = "+15550009999";
+  pool.query.mockResolvedValue({ rows: [{ name: "Iron Wing" }] });
+  for (const user of [
+    listOwner,
+    { id: null, role: "owner", bootstrap: true, workspaceIds: [] },
+  ]) {
+    pool.query.mockClear();
+    await listWorkspaces(user);
+    expect(pool.query.mock.calls[0][0]).not.toContain("workspace_members");
+    pool.query.mockClear();
+    const targets = await listVoiceTargets(user);
+    expect(pool.query.mock.calls[0][0]).not.toContain("workspace_members");
+    expect(targets.some((t) => t.connection_id === "legacy")).toBe(true);
+  }
+  if (originalCaller === undefined) delete process.env.TWILIO_CALLER_ID;
+  else process.env.TWILIO_CALLER_ID = originalCaller;
+});
+
+test("workspace lists fail closed without a user", async () => {
+  pool.query.mockResolvedValue({ rows: [] });
+  await expect(listWorkspaces()).rejects.toThrow();
+  await expect(listVoiceTargets()).rejects.toThrow();
+  await expect(listWorkspaces({ role: "member" })).rejects.toThrow();
+  expect(pool.query).not.toHaveBeenCalled();
 });
 
 test("archiving also frees the workspace's numbers in the same statement", async () => {
@@ -382,7 +464,12 @@ const settingsHandlers = (profileRows = [{ id: profileId }]) => [
     "FROM connection_numbers n",
     {
       rows: [
-        { id: numberId, handler: "softphone", label: "Old", observe_hours: true },
+        {
+          id: numberId,
+          handler: "softphone",
+          label: "Old",
+          observe_hours: true,
+        },
       ],
     },
   ],
@@ -438,6 +525,7 @@ test("ai_agent with a valid agent stores it and locks the number row", async () 
     "ai_agent",
     profileId,
     "Main",
+    false,
     false,
   ]);
   expect(client.query).toHaveBeenLastCalledWith("COMMIT");
@@ -501,6 +589,171 @@ test("listConnections numbers carry handler, agent, label and hours", async () =
     .mockResolvedValueOnce({ rows: [] });
   await listConnections(workspaceId);
   const sql = pool.query.mock.calls[1][0];
-  for (const column of ["handler", "agent_profile_id", "label", "observe_hours"])
+  for (const column of [
+    "handler",
+    "agent_profile_id",
+    "label",
+    "observe_hours",
+  ])
     expect(sql).toContain(`n.${column}`);
+});
+
+const alice = "00000000-0000-4000-8000-0000000000d1";
+const bob = "00000000-0000-4000-8000-0000000000d2";
+const assigneeHandlers = (allowedRows) => [
+  ["FROM connection_numbers n", { rows: [{ id: numberId }] }],
+  ["FROM app_users u", { rows: allowedRows }],
+];
+test("assignees must be able to open the workspace", async () => {
+  // Only Alice is enabled and an owner or member of this workspace.
+  let client = fakeClient(assigneeHandlers([{ id: alice }]));
+  await expect(
+    setNumberAssignees(workspaceId, numberId, [alice, bob]),
+  ).rejects.toThrow("Choose people who can open this workspace.");
+  expect(ran(client, "INSERT INTO number_assignees")).toBe(false);
+  expect(ran(client, "DELETE FROM number_assignees")).toBe(false);
+  expect(client.query).toHaveBeenLastCalledWith("ROLLBACK");
+  const check = client.query.mock.calls.find(([sql]) =>
+    sql.includes("FROM app_users u"),
+  );
+  expect(check[0]).toContain("u.enabled");
+  expect(check[0]).toContain("u.role = 'owner'");
+  expect(check[0]).toContain("workspace_members");
+  expect(check[1]).toEqual([[alice, bob], workspaceId]);
+
+  client = fakeClient(assigneeHandlers([{ id: alice }, { id: bob }]));
+  expect(await setNumberAssignees(workspaceId, numberId, [bob, alice])).toEqual(
+    { numberId, userIds: [bob, alice] },
+  );
+  expect(
+    client.query.mock.calls.find(([sql]) => sql.includes("FOR UPDATE"))[0],
+  ).toContain("FROM connection_numbers n");
+  const insert = client.query.mock.calls.find(([sql]) =>
+    sql.includes("INSERT INTO number_assignees"),
+  );
+  expect(insert[1]).toEqual([numberId, [bob, alice]]);
+  expect(client.query).toHaveBeenLastCalledWith("COMMIT");
+
+  // An empty list clears the line, so it rings the owners.
+  client = fakeClient(assigneeHandlers([]));
+  expect(await setNumberAssignees(workspaceId, numberId, [])).toEqual({
+    numberId,
+    userIds: [],
+  });
+  expect(ran(client, "DELETE FROM number_assignees")).toBe(true);
+
+  fakeClient([]);
+  await expect(
+    setNumberAssignees(workspaceId, numberId, [alice]),
+  ).rejects.toThrow("Number does not belong to this workspace.");
+  for (const bad of [undefined, "x", [alice, alice], ["nope"]])
+    await expect(
+      setNumberAssignees(workspaceId, numberId, bad),
+    ).rejects.toThrow("Choose people who can open this workspace.");
+  await expect(setNumberAssignees("nope", numberId, [])).rejects.toThrow(
+    "Invalid workspace or number.",
+  );
+});
+
+test("personal and ai_agent cannot combine", async () => {
+  await expect(
+    updateNumberSettings(workspaceId, numberId, {
+      handler: "ai_agent",
+      agentProfileId: profileId,
+      personal: true,
+    }),
+  ).rejects.toThrow("A personal line can't be answered by an AI agent.");
+  await expect(
+    updateNumberSettings(workspaceId, numberId, {
+      handler: "softphone",
+      personal: "yes",
+    }),
+  ).rejects.toThrow("Enter valid number settings.");
+
+  // A line that is already personal can't switch to an agent either.
+  const personalRow = settingsHandlers();
+  personalRow[0][1].rows[0].personal = true;
+  let client = fakeClient(personalRow);
+  await expect(
+    updateNumberSettings(workspaceId, numberId, {
+      handler: "ai_agent",
+      agentProfileId: profileId,
+    }),
+  ).rejects.toThrow("A personal line can't be answered by an AI agent.");
+  expect(ran(client, "UPDATE connection_numbers")).toBe(false);
+
+  // Unless the same request makes it shared again.
+  const sharedAgain = settingsHandlers();
+  sharedAgain[0][1].rows[0].personal = true;
+  client = fakeClient(sharedAgain);
+  await updateNumberSettings(workspaceId, numberId, {
+    handler: "ai_agent",
+    agentProfileId: profileId,
+    personal: false,
+  });
+  expect(updateParams(client)[5]).toBe(false);
+
+  client = fakeClient(settingsHandlers());
+  await updateNumberSettings(workspaceId, numberId, {
+    handler: "softphone",
+    personal: true,
+  });
+  expect(updateParams(client)[5]).toBe(true);
+  // Leaving personal out keeps the stored value.
+  const kept = settingsHandlers();
+  kept[0][1].rows[0].personal = true;
+  client = fakeClient(kept);
+  await updateNumberSettings(workspaceId, numberId, { handler: "softphone" });
+  expect(updateParams(client)[5]).toBe(true);
+});
+
+test("moving a number clears its assignees", async () => {
+  const client = fakeClient(moveHandlers());
+  await moveNumber(workspaceId, numberId, targetConnection);
+  const cleared = client.query.mock.calls.find(([sql]) =>
+    sql.includes("DELETE FROM number_assignees"),
+  );
+  expect(cleared[1]).toEqual([numberId]);
+  const [sql] = client.query.mock.calls.find(([text]) =>
+    text.includes("UPDATE connection_numbers"),
+  );
+  expect(sql).toContain("personal = false");
+  expect(client.query).toHaveBeenLastCalledWith("COMMIT");
+});
+
+test("listConnections numbers carry their assignees and personal", async () => {
+  pool.query
+    .mockResolvedValueOnce({ rows: [{ id: sourceConnection }] })
+    .mockResolvedValueOnce({
+      rows: [
+        { id: numberId, connection_id: sourceConnection, personal: true },
+        {
+          id: "00000000-0000-4000-8000-0000000000a2",
+          connection_id: sourceConnection,
+          personal: false,
+        },
+      ],
+    })
+    .mockResolvedValueOnce({
+      rows: [
+        { number_id: numberId, id: bob, display_name: "Bob" },
+        { number_id: numberId, id: alice, display_name: "Alice" },
+      ],
+    });
+  const [connection] = await listConnections(workspaceId);
+  expect(pool.query.mock.calls[1][0]).toContain("n.personal");
+  const assignees = pool.query.mock.calls[2][0];
+  expect(assignees).toContain("u.enabled");
+  expect(assignees).toContain("workspace_members");
+  expect(connection.numbers[0]).toMatchObject({
+    personal: true,
+    assignees: [
+      { id: bob, displayName: "Bob" },
+      { id: alice, displayName: "Alice" },
+    ],
+  });
+  expect(connection.numbers[1]).toMatchObject({
+    personal: false,
+    assignees: [],
+  });
 });

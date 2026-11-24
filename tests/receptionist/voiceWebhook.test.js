@@ -9,7 +9,7 @@ jest.mock("../../src/token", () => ({
   callerId: "+15550000001",
   client: {},
   tokenGenerator: jest.fn(),
-  tokenForProvider: jest.fn(),
+  tokenFor: jest.fn(),
   getIdentity: () => "operator",
 }));
 jest.mock("../../src/db", () => ({ query: jest.fn() }));
@@ -60,6 +60,11 @@ beforeAll(async () => {
   jest.spyOn(console, "log").mockImplementation(() => {});
   const app = express();
   app.use(bodyParser.urlencoded({ extended: false }));
+  // index.js signs non-webhook requests in; stand in for a signed-in owner.
+  app.use((req, res, next) => {
+    req.user = { id: null, role: "owner", bootstrap: true, workspaceIds: [] };
+    next();
+  });
   app.use(require("../../src/router"));
   server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -133,6 +138,10 @@ test("the connection voice webhook passes its provider and connection", async ()
 });
 
 test("outgoing softphone calls never consult the receptionist", async () => {
+  // Before cutover: no owner account yet, so the bootstrap identity calls.
+  require("../../src/db").query.mockResolvedValue({
+    rows: [{ exists: false }],
+  });
   const { getProvider } = require("../../src/providerContext");
   getProvider.mockResolvedValue({ legacy: true });
   const res = await post("/voice", {
@@ -155,16 +164,295 @@ test("both session-ended routes reach the handler", async () => {
 
 test("the leads API is mounted on the router with a workspace", async () => {
   const pool = require("../../src/db");
-  pool.query.mockImplementation(async (sql) =>
-    /FROM workspaces/.test(sql)
-      ? {
-          rows: [
-            { id: "00000000-0000-4000-8000-000000000001", name: "Iron Wing" },
-          ],
-        }
-      : { rows: [{ count: "2" }] },
-  );
+  pool.query.mockImplementation(async (sql) => {
+    if (/FROM workspaces/.test(sql))
+      return {
+        rows: [
+          { id: "00000000-0000-4000-8000-000000000001", name: "Iron Wing" },
+        ],
+      };
+    // The visibility scope: no connection lines.
+    if (/number_assignees/.test(sql)) return { rows: [] };
+    return { rows: [{ count: "2" }] };
+  });
   const res = await fetch(`${origin}/leads/count`);
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ leads: 2 });
+});
+
+const person = "00000000-0000-4000-8000-0000000000e1";
+const compact = (value) => value.replace(/-/g, "");
+const ringQuery = (pool) =>
+  pool.query.mock.calls.filter(([sql]) => /number_assignees/.test(sql));
+
+test("an inbound call the agent does not take rings the line's people", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockReset();
+  pool.query.mockResolvedValueOnce({ rows: [{ id: person }] });
+  getProviderForWebhook.mockResolvedValue({
+    id,
+    numberId: "00000000-0000-4000-8000-0000000000e2",
+    workspaceId: "00000000-0000-4000-8000-000000000001",
+    phoneNumber: form.To,
+    voiceEnabled: true,
+  });
+  agentTwiml.mockResolvedValue(null);
+  const text = await (await post(`/webhooks/${id}/voice`)).text();
+  expect(text).toContain(
+    `<Identity>u${compact(person)}_c${compact(id)}</Identity>`,
+  );
+  expect(text).not.toContain("connection_");
+  expect(ringQuery(pool)).toHaveLength(1);
+});
+
+test("the legacy voice webhook rings the owners", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockReset();
+  pool.query.mockResolvedValueOnce({ rows: [{ id: person }] });
+  agentTwiml.mockResolvedValue(null);
+  const text = await (await post("/voice")).text();
+  expect(text).toContain(`>u${compact(person)}_legacy</Client>`);
+  expect(text).not.toContain(">operator</Client>");
+});
+
+test("an agent call does not wait for the ring list", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockReset();
+  getProviderForWebhook.mockResolvedValue({
+    id,
+    workspaceId: "00000000-0000-4000-8000-000000000001",
+    phoneNumber: form.To,
+    voiceEnabled: true,
+  });
+  agentTwiml.mockResolvedValue(relay);
+  expect(await (await post(`/webhooks/${id}/voice`)).text()).toBe(relay);
+  expect(await (await post("/voice")).text()).toBe(relay);
+  expect(ringQuery(pool)).toHaveLength(0);
+});
+
+test("outgoing softphone calls never read the ring list", async () => {
+  const pool = require("../../src/db");
+  pool.query.mockReset();
+  const { getProvider } = require("../../src/providerContext");
+  getProvider.mockResolvedValue({ legacy: true });
+  await post("/voice", {
+    CallSid: sid,
+    From: "client:operator",
+    To: "+15557654321",
+  });
+  expect(ringQuery(pool)).toHaveLength(0);
+});
+
+describe("who may place an outgoing call", () => {
+  const WORKSPACE = "00000000-0000-4000-8000-000000000001";
+  const member = "00000000-0000-4000-8000-0000000000f1";
+  const owner = "00000000-0000-4000-8000-0000000000f2";
+  const ownLine = "00000000-0000-4000-8000-0000000000f3";
+  const otherLine = "00000000-0000-4000-8000-0000000000f4";
+  const otherConnection = "00000000-0000-4000-8000-0000000000f5";
+  const onLine = (userId, connection = id) =>
+    `client:u${compact(userId)}_c${compact(connection)}`;
+  const line = (numberId, phoneNumber) => ({
+    id,
+    numberId,
+    workspaceId: WORKSPACE,
+    phoneNumber,
+    voiceEnabled: true,
+  });
+  const outgoing = (From, FromNumber) => ({
+    CallSid: sid,
+    From,
+    FromNumber,
+    To: "+15557654321",
+  });
+  // The app_users lookup answers as `who`, for whichever user is asked.
+  function accounts(who) {
+    const pool = require("../../src/db");
+    pool.query.mockReset();
+    pool.query.mockImplementation(async (sql) =>
+      /FROM app_users/.test(sql) ? { rows: who ? [who] : [] } : { rows: [] },
+    );
+    return pool;
+  }
+  const lookups = (pool) =>
+    pool.query.mock.calls.filter(([sql]) => /FROM app_users/.test(sql));
+  const { getProvider } = require("../../src/providerContext");
+
+  test("a member calls out only from an assigned line", async () => {
+    // The member forges FromNumber: the line it names isn't theirs.
+    let pool = accounts({
+      role: "member",
+      enabled: true,
+      assigned: false,
+      member: true,
+    });
+    getProviderForWebhook.mockResolvedValue(line(otherLine, "+15550000009"));
+    getProvider.mockResolvedValue(line(otherLine, "+15550000009"));
+    let res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(onLine(member), "+15550000009"),
+    );
+    expect(res.status).toBe(403);
+    expect(lookups(pool)[0][1]).toEqual([member, otherLine, WORKSPACE]);
+    expect(logCall).not.toHaveBeenCalled();
+
+    // Their own line works, even though it isn't the workspace's active one.
+    pool = accounts({
+      role: "member",
+      enabled: true,
+      assigned: true,
+      member: true,
+    });
+    getProviderForWebhook.mockResolvedValue(line(ownLine, "+15550000008"));
+    getProvider.mockResolvedValue(line(otherLine, "+15550000009"));
+    res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(onLine(member), "+15550000008"),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<Number>+15557654321</Number>");
+    expect(lookups(pool)[0][1]).toEqual([member, ownLine, WORKSPACE]);
+  });
+
+  test("owners keep today's active-number rule", async () => {
+    accounts({ role: "owner", enabled: true, assigned: false, member: false });
+    getProviderForWebhook.mockResolvedValue(line(ownLine, "+15550000008"));
+    getProvider.mockResolvedValue(line(otherLine, "+15550000009"));
+    let res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(onLine(owner), "+15550000008"),
+    );
+    expect(res.status).toBe(409);
+    getProvider.mockResolvedValue(line(ownLine, "+15550000008"));
+    res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(onLine(owner), "+15550000008"),
+    );
+    expect(res.status).toBe(200);
+
+    // Before cutover the bootstrap identity is an owner too, with no account
+    // to look up: only whether an owner account exists yet.
+    const pool = accounts(null);
+    pool.query.mockImplementation(async (sql) =>
+      /SELECT EXISTS/.test(sql) ? { rows: [{ exists: false }] } : { rows: [] },
+    );
+    getProvider.mockResolvedValue(line(otherLine, "+15550000009"));
+    res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(`client:connection_${compact(id)}`, "+15550000008"),
+    );
+    expect(res.status).toBe(409);
+    getProvider.mockResolvedValue(line(ownLine, "+15550000008"));
+    res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(`client:connection_${compact(id)}`, "+15550000008"),
+    );
+    expect(res.status).toBe(200);
+    expect(
+      lookups(pool).filter(([sql]) => !/SELECT EXISTS/.test(sql)),
+    ).toHaveLength(0);
+
+    // After cutover its still-valid token places no owner calls.
+    pool.query.mockImplementation(async (sql) =>
+      /SELECT EXISTS/.test(sql) ? { rows: [{ exists: true }] } : { rows: [] },
+    );
+    res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(`client:connection_${compact(id)}`, "+15550000008"),
+    );
+    expect(res.status).toBe(403);
+    getProvider.mockResolvedValue({ legacy: true });
+    res = await post("/voice", {
+      CallSid: sid,
+      From: "client:operator",
+      To: "+15557654321",
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test("a disabled or unknown user's softphone can't call out", async () => {
+    getProviderForWebhook.mockResolvedValue(line(ownLine, "+15550000008"));
+    getProvider.mockResolvedValue(line(ownLine, "+15550000008"));
+    accounts({ role: "owner", enabled: false, assigned: true, member: true });
+    let res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(onLine(owner), "+15550000008"),
+    );
+    expect(res.status).toBe(403);
+    accounts(null);
+    res = await post(
+      `/webhooks/${id}/voice`,
+      outgoing(onLine(owner), "+15550000008"),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("a From that isn't a softphone of this connection gets 403", async () => {
+    const pool = accounts({
+      role: "owner",
+      enabled: true,
+      assigned: true,
+      member: true,
+    });
+    getProviderForWebhook.mockResolvedValue(line(ownLine, "+15550000008"));
+    getProvider.mockResolvedValue(line(ownLine, "+15550000008"));
+    for (const From of [
+      onLine(owner, otherConnection),
+      `client:connection_${compact(otherConnection)}`,
+      `client:u${compact(owner)}_legacy`,
+      "client:operator",
+      "client:someone",
+    ]) {
+      const res = await post(
+        `/webhooks/${id}/voice`,
+        outgoing(From, "+15550000008"),
+      );
+      expect(res.status).toBe(403);
+    }
+    expect(lookups(pool)).toHaveLength(0);
+    expect(logCall).not.toHaveBeenCalled();
+  });
+
+  test("members cannot place calls on the legacy number", async () => {
+    getProvider.mockResolvedValue({ legacy: true });
+    const pool = accounts({
+      role: "member",
+      enabled: true,
+      assigned: true,
+      member: true,
+    });
+    let res = await post(
+      "/voice",
+      outgoing(`client:u${compact(member)}_legacy`, "+15550000001"),
+    );
+    expect(res.status).toBe(403);
+    expect(lookups(pool)[0][1][0]).toBe(member);
+
+    accounts({ role: "owner", enabled: true, assigned: false, member: false });
+    res = await post(
+      "/voice",
+      outgoing(`client:u${compact(owner)}_legacy`, "+15550000001"),
+    );
+    expect(res.status).toBe(200);
+    // Owners still need the legacy line selected, as today.
+    getProvider.mockResolvedValue(line(ownLine, "+15550000008"));
+    res = await post(
+      "/voice",
+      outgoing(`client:u${compact(owner)}_legacy`, "+15550000001"),
+    );
+    expect(res.status).toBe(409);
+  });
+
+  test("the legacy webhook refuses a softphone of another line", async () => {
+    getProvider.mockResolvedValue({ legacy: true });
+    accounts({ role: "owner", enabled: true, assigned: true, member: true });
+    for (const From of [
+      onLine(owner),
+      `client:connection_${compact(id)}`,
+      "client:someone",
+    ]) {
+      const res = await post("/voice", outgoing(From, "+15550000001"));
+      expect(res.status).toBe(403);
+    }
+  });
 });

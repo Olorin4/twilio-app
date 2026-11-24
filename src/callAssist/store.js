@@ -1,4 +1,5 @@
 const pool = require("../db");
+const { isClientOf } = require("../identity");
 const { events, publishCaption, clearCaptions } = require("./live");
 const { getAssistantSettings } = require("../assistantSettings");
 const {
@@ -13,12 +14,8 @@ const {
 async function bindIntent(body, provider) {
   if (!uuid.test(body.AssistIntent || "") || !callSid.test(body.CallSid || ""))
     return;
-  const identity = provider.legacy
-    ? require("../token").getIdentity()
-    : `connection_${provider.id.replace(/-/g, "")}`;
   if (
-    !identity ||
-    body.From !== `client:${identity}` ||
+    !isClientOf(body.From, provider) ||
     body.AccountSid !== provider.accountSid
   )
     return;

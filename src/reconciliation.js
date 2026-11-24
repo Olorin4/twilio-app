@@ -1,4 +1,4 @@
-const { client, getIdentity } = require("./token");
+const { client } = require("./token");
 const pool = require("./db");
 const { saveLeg } = require("./callEvents");
 const { saveStatus, numbers } = require("./conversations");
@@ -201,9 +201,8 @@ function reconcileOne(owner) {
             )
           ).rows.map((row) => row.phone_number)
         : numbers();
-      const identity = owner.id
-        ? `connection_${owner.id.replace(/-/g, "")}`
-        : getIdentity();
+      // The line whose softphone identities own the calls they place.
+      const line = owner.id ? owner : { ...owner, legacy: true };
       const pendingChildren = [];
       const checkpoint = owner.id ? { connectionId: owner.id } : {};
       const results = await Promise.allSettled([
@@ -216,7 +215,7 @@ function reconcileOne(owner) {
               return;
             }
             if (
-              ownsRootCall(call, ownedNumbers, identity) ||
+              ownsRootCall(call, ownedNumbers, line) ||
               (await callBelongsToOwner(call.sid, owner))
             )
               await saveCall(call, owner);

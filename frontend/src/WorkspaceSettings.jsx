@@ -30,12 +30,21 @@ const json = (body, method = "POST") => ({
 
 // Label, handler and hours settings for one number. Keeps its own draft until
 // Save so typing does not touch the phone.
-function NumberSettings({ number, profiles, showHours, disabled, onSave }) {
+function NumberSettings({
+  number,
+  profiles,
+  people,
+  showHours,
+  disabled,
+  onSave,
+}) {
   const stored = {
     handler: number.handler || "softphone",
     agentProfileId: number.agent_profile_id || "",
     label: number.label || "",
     observeHours: number.observe_hours !== false,
+    personal: number.personal === true,
+    userIds: (number.assignees || []).map((person) => person.id),
   };
   const [draft, setDraft] = useState(stored);
   useEffect(() => {
@@ -46,8 +55,16 @@ function NumberSettings({ number, profiles, showHours, disabled, onSave }) {
     number.agent_profile_id,
     number.label,
     number.observe_hours,
+    number.personal,
+    (number.assignees || []).map((person) => person.id).join(","),
   ]);
   const set = (patch) => setDraft({ ...draft, ...patch });
+  const toggleRing = (id, on) =>
+    set({
+      userIds: on
+        ? [...draft.userIds, id]
+        : draft.userIds.filter((userId) => userId !== id),
+    });
   const aiWithoutAgent = draft.handler === "ai_agent" && !draft.agentProfileId;
   return (
     <div className="settings-number-options">
@@ -66,7 +83,23 @@ function NumberSettings({ number, profiles, showHours, disabled, onSave }) {
         <select
           value={draft.handler}
           disabled={disabled}
-          onChange={(e) => set({ handler: e.target.value })}
+          onChange={(e) => {
+            const handler = e.target.value;
+            // Clearing Personal opens the line's history to members, so the
+            // owner confirms it; cancelling keeps the previous handler.
+            if (
+              handler === "ai_agent" &&
+              draft.personal &&
+              !window.confirm(
+                "This line stops being personal; its history becomes visible to members of this workspace.",
+              )
+            )
+              return;
+            set({
+              handler,
+              ...(handler === "ai_agent" ? { personal: false } : {}),
+            });
+          }}
         >
           <option value="softphone">Softphone</option>
           <option value="ai_agent">AI agent</option>
@@ -90,6 +123,30 @@ function NumberSettings({ number, profiles, showHours, disabled, onSave }) {
           </select>
         </label>
       )}
+      <fieldset className="settings-rings" disabled={disabled}>
+        <legend>Rings</legend>
+        {people.length === 0 && <span>No one can open this workspace.</span>}
+        {people.map((person) => (
+          <label key={person.id}>
+            <input
+              type="checkbox"
+              checked={draft.userIds.includes(person.id)}
+              onChange={(e) => toggleRing(person.id, e.target.checked)}
+            />
+            {person.displayName}
+          </label>
+        ))}
+        <small>With no one chosen, every owner is rung.</small>
+      </fieldset>
+      <label>
+        <input
+          type="checkbox"
+          checked={draft.personal}
+          disabled={disabled || draft.handler === "ai_agent"}
+          onChange={(e) => set({ personal: e.target.checked })}
+        />
+        Personal
+      </label>
       {showHours && (
         <label>
           <input
@@ -106,13 +163,17 @@ function NumberSettings({ number, profiles, showHours, disabled, onSave }) {
         className="button button-light"
         disabled={disabled || aiWithoutAgent}
         onClick={() =>
-          onSave({
-            handler: draft.handler,
-            agentProfileId:
-              draft.handler === "ai_agent" ? draft.agentProfileId : null,
-            label: draft.label.trim() || null,
-            ...(showHours ? { observeHours: draft.observeHours } : {}),
-          })
+          onSave(
+            {
+              handler: draft.handler,
+              agentProfileId:
+                draft.handler === "ai_agent" ? draft.agentProfileId : null,
+              label: draft.label.trim() || null,
+              personal: draft.handler === "ai_agent" ? false : draft.personal,
+              ...(showHours ? { observeHours: draft.observeHours } : {}),
+            },
+            draft.userIds,
+          )
         }
       >
         Save line settings
@@ -161,6 +222,18 @@ export default function WorkspaceSettings({
       setError(err.message);
     }
   }, [workspaceId]);
+  const [users, setUsers] = useState([]);
+  useEffect(() => {
+    request("/settings/users")
+      .then(setUsers)
+      .catch(() => setUsers([]));
+  }, []);
+  // People a line may ring: enabled owners and members of this workspace.
+  const people = users.filter(
+    (user) =>
+      user.enabled &&
+      (user.role === "owner" || user.workspaceIds.includes(workspaceId)),
+  );
   const loadAgents = useCallback(async () => {
     try {
       setAgents(await request(`/settings/workspaces/${workspaceId}/agents`));
@@ -378,13 +451,17 @@ export default function WorkspaceSettings({
       `Number moved to ${target.workspace_name}. Update its Twilio webhooks.`,
     );
   };
-  const saveNumberSettings = (number, settings) =>
+  const saveNumberSettings = (number, settings, userIds) =>
     withPhonePaused(
       "Finish the current call before changing line settings.",
       async () => {
         await request(
           `/settings/workspaces/${workspaceId}/numbers/${number.id}`,
           json(settings, "PATCH"),
+        );
+        await request(
+          `/settings/workspaces/${workspaceId}/numbers/${number.id}/assignees`,
+          json({ userIds }, "PUT"),
         );
         await load();
       },
@@ -600,9 +677,12 @@ export default function WorkspaceSettings({
                   <NumberSettings
                     number={number}
                     profiles={agents}
+                    people={people}
                     showHours={workspaceId === IRON_WING_WORKSPACE_ID}
                     disabled={working || busy}
-                    onSave={(settings) => saveNumberSettings(number, settings)}
+                    onSave={(settings, userIds) =>
+                      saveNumberSettings(number, settings, userIds)
+                    }
                   />
                 </div>
               ))}

@@ -1,7 +1,17 @@
 jest.mock("../src/db", () => ({ query: jest.fn() }));
 jest.mock("../src/messageEvents", () => ({ publish: jest.fn() }));
-jest.mock("../src/conversations", () => ({
-  numbersFor: async () => ["+15551234567"],
+// History reads are filtered by lineScope (tests/historyVisibility.test.js);
+// here an owner sees every line.
+jest.mock("../src/visibility", () => ({
+  ...jest.requireActual("../src/visibility"),
+  lineScope: jest.fn(async () => ({
+    all: true,
+    hidden: [],
+    hiddenClients: [],
+    visible: [],
+    numbers: ["+15551234567"],
+    clientPrefix: null,
+  })),
 }));
 const pool = require("../src/db");
 const { publish } = require("../src/messageEvents");
@@ -21,13 +31,15 @@ test("counts return numeric totals for configured lines", async () => {
   expect(pool.query.mock.calls[0][1]).toEqual([
     ["+15551234567"],
     "00000000-0000-4000-8000-000000000001",
+    [],
+    [],
   ]);
   expect(res.json).toHaveBeenCalledWith({ calls: 3, messages: 12 });
 });
 test("marking a call is idempotent and publishes only a change", async () => {
   pool.query
-    .mockResolvedValueOnce({ rowCount: 1 })
-    .mockResolvedValueOnce({ rowCount: 0 });
+    .mockResolvedValueOnce({ rows: [{ found: "1", inserted: "1" }] })
+    .mockResolvedValueOnce({ rows: [{ found: "1", inserted: "0" }] });
   const res = response();
   await markCall({ params: { id: "42" } }, res);
   await markCall({ params: { id: "42" } }, res);
@@ -50,6 +62,8 @@ test("conversation acknowledgement validates and limits its snapshot", async () 
     "123",
     "00000000-0000-4000-8000-000000000001",
     null,
+    [],
+    [],
   ]);
   expect(publish).toHaveBeenCalledTimes(1);
 });

@@ -12,9 +12,15 @@ const { requireLogin, isTwilioWebhook } = require("./src/security");
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (isTwilioWebhook(req)) return next();
-  return requireLogin(req, res, next);
+  try {
+    return await requireLogin(req, res, next);
+  } catch (error) {
+    // Fail closed: a login that could not be checked never reaches next().
+    console.error("Login middleware failed:", error.message);
+    if (!res.headersSent) res.status(503).send("App login is unavailable.");
+  }
 });
 app.use(express.static(path.join(__dirname, "dist")));
 app.use(router);
@@ -27,6 +33,9 @@ const port = process.env.PORT || 3001;
 server.listen(port, () => console.log("Express server running on *:" + port));
 // Logs loudly (never crashes) when migration 013 has not been run.
 require("./src/providerContext").checkNumberSchema();
+// Logs loudly (never crashes) when migration 014 has not been run, and warns
+// when TWILIO_IDENTITY is unset.
+require("./src/providerContext").checkUsersSchema();
 
 // Schedule Automatic Sync and Cleanup:
 if (!global.cleanupScheduled) {

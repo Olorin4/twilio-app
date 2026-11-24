@@ -4,7 +4,9 @@ const pool = require("../db");
 const { events, readCaptions, clearCaptions } = require("./live");
 const { getProvider } = require("../providerContext");
 const { getAssistantSettings } = require("../assistantSettings");
+const { mayUseLine, usableLines } = require("../ringing");
 const { callableNumber } = require("../receptionist/phone");
+const { lineScope, lineCondition } = require("../visibility");
 const {
   config,
   eligible,
@@ -46,12 +48,47 @@ const sessionQuery = `SELECT s.*, l.status AS leg_status FROM phone_call_session
     ORDER BY updated_at DESC LIMIT 1
   ) l ON true WHERE s.workspace_id = $1`;
 
-async function snapshot(workspace, key, sid = false, includeTranscript = true) {
+// A call log's line: from_number when outbound, else to_number.
+const callLine = (alias) =>
+  `CASE WHEN ${alias}.direction LIKE 'outbound%' THEN ${alias}.from_number ELSE ${alias}.to_number END`;
+
+/* Whether the person may see a session (alias s), with params numbered from
+firstParam. A session on a logged call follows that call's visibility; one not
+yet bound to a call follows its line, which is its from_number. */
+function sessionCondition(scope, firstParam) {
+  const call = lineCondition(
+    scope,
+    callLine("vc"),
+    "vc.from_number",
+    firstParam,
+  );
+  const line = lineCondition(
+    scope,
+    "s.from_number",
+    "s.from_number",
+    firstParam,
+  );
+  const logged = `SELECT 1 FROM call_logs vc WHERE vc.call_sid = s.call_sid AND vc.workspace_id = s.workspace_id`;
+  return {
+    sql: `(CASE WHEN EXISTS (${logged}) THEN EXISTS (${logged} AND ${call.sql}) ELSE ${line.sql} END)`,
+    params: call.params,
+  };
+}
+
+// The visibility filter is read once per request; pass it to every snapshot.
+async function snapshot(
+  workspace,
+  key,
+  sid = false,
+  includeTranscript = true,
+  scope = undefined,
+) {
+  const visible = sessionCondition(scope, 3);
   const {
     rows: [row],
   } = await pool.query(
-    `${sessionQuery} AND s.${sid ? "call_sid" : "id"} = $2`,
-    [workspace, key],
+    `${sessionQuery} AND s.${sid ? "call_sid" : "id"} = $2 AND ${visible.sql}`,
+    [workspace, key, ...visible.params],
   );
   if (!row) return null;
   const settings = config();
@@ -163,7 +200,36 @@ router.post(
     const assist = req.body?.assist === true;
     if (!e164.test(destination) || (leadSid && !callSid.test(leadSid)))
       return res.status(400).json({ error: "Choose a valid callback number." });
-    const provider = await getProvider(req.workspace.id);
+    const numberId = req.body?.numberId;
+    if (
+      numberId !== undefined &&
+      (typeof numberId !== "string" || !uuid.test(numberId))
+    )
+      return res.status(400).json({ error: "Choose a valid line." });
+    // The session is built on the line the call will be placed from, so the
+    // voice webhook can bind it. Owners default to the active number; a
+    // member uses the line they name, else their first, and only their own.
+    let provider;
+    if (req.user?.role === "owner") {
+      provider =
+        numberId === undefined
+          ? await getProvider(req.workspace.id)
+          : await getProvider(req.workspace.id, numberId);
+    } else {
+      const lines = await usableLines(req.user, req.workspace.id);
+      const line = numberId
+        ? lines.find((own) => own.numberId === numberId)
+        : lines[0];
+      if (!line)
+        return res
+          .status(403)
+          .json({ error: "You can't call from this line." });
+      provider = await getProvider(req.workspace.id, line.numberId);
+      if (!(await mayUseLine(req.user, provider)))
+        return res
+          .status(403)
+          .json({ error: "You can't call from this line." });
+    }
     if (
       !provider.voiceEnabled ||
       (assist &&
@@ -221,11 +287,13 @@ router.get(
   safe(async (req, res) => {
     const workspace = req.workspace.id;
     const sid = req.params.callSid;
-    const data = await snapshot(workspace, sid, true);
+    const scope = await lineScope(req.user, workspace);
+    const data = await snapshot(workspace, sid, true, true, scope);
     if (data) return res.json(data);
+    const visible = lineCondition(scope, callLine("cl"), "cl.from_number", 3);
     const { rowCount } = await pool.query(
-      "SELECT 1 FROM call_logs WHERE workspace_id = $1 AND call_sid = $2",
-      [workspace, sid],
+      `SELECT 1 FROM call_logs cl WHERE cl.workspace_id = $1 AND cl.call_sid = $2 AND ${visible.sql}`,
+      [workspace, sid, ...visible.params],
     );
     return rowCount
       ? res.json({ callSid: sid, notes: "" })
@@ -249,13 +317,19 @@ router.patch(
   safe(async (req, res) => {
     const fields = resultFields(req);
     if (!fields) return res.sendStatus(400);
+    const visible = lineCondition(
+      await lineScope(req.user, req.workspace.id),
+      callLine("cl"),
+      "cl.from_number",
+      6,
+    );
     const { rowCount } = await pool.query(
       `INSERT INTO phone_call_sessions
        (id, workspace_id, provider_connection_id, account_sid, from_number, destination,
         call_sid, notes, outcome)
-     SELECT $1, workspace_id, provider_connection_id, '', COALESCE(from_number, ''),
-       COALESCE(to_number, ''), call_sid, $4, $5 FROM call_logs
-     WHERE workspace_id = $2 AND call_sid = $3
+     SELECT $1, cl.workspace_id, cl.provider_connection_id, '', COALESCE(cl.from_number, ''),
+       COALESCE(cl.to_number, ''), cl.call_sid, $4, $5 FROM call_logs cl
+     WHERE cl.workspace_id = $2 AND cl.call_sid = $3 AND ${visible.sql}
      ON CONFLICT (call_sid) DO UPDATE SET notes = EXCLUDED.notes, outcome = EXCLUDED.outcome,
        updated_at = now() WHERE phone_call_sessions.workspace_id = EXCLUDED.workspace_id
        AND phone_call_sessions.provider_connection_id IS NOT DISTINCT FROM EXCLUDED.provider_connection_id`,
@@ -265,6 +339,7 @@ router.patch(
         req.params.callSid,
         fields.notes,
         fields.outcome,
+        ...visible.params,
       ],
     );
     return res.sendStatus(rowCount ? 204 : 404);
@@ -274,7 +349,14 @@ router.patch(
 router.get(
   "/sessions/:sessionId",
   safe(async (req, res) => {
-    const data = await snapshot(req.workspace.id, req.params.sessionId);
+    const scope = await lineScope(req.user, req.workspace.id);
+    const data = await snapshot(
+      req.workspace.id,
+      req.params.sessionId,
+      false,
+      true,
+      scope,
+    );
     return data ? res.json(data) : res.sendStatus(404);
   }),
 );
@@ -284,7 +366,8 @@ router.get(
   safe(async (req, res) => {
     const key = req.params.sessionId;
     const workspace = req.workspace.id;
-    let data = await snapshot(workspace, key, false, false);
+    const scope = await lineScope(req.user, workspace);
+    let data = await snapshot(workspace, key, false, false, scope);
     if (!data) return res.sendStatus(404);
     res.set({
       "Content-Type": "text/event-stream",
@@ -315,7 +398,7 @@ router.get(
       }
       busy = true;
       try {
-        data = await snapshot(workspace, key, false, false);
+        data = await snapshot(workspace, key, false, false, scope);
         if (!data) res.end();
         else write();
       } catch {
@@ -342,9 +425,20 @@ router.patch(
   safe(async (req, res) => {
     const fields = resultFields(req);
     if (!fields) return res.sendStatus(400);
+    const visible = sessionCondition(
+      await lineScope(req.user, req.workspace.id),
+      5,
+    );
     const { rowCount } = await pool.query(
-      "UPDATE phone_call_sessions SET notes = $3, outcome = $4, updated_at = now() WHERE workspace_id = $1 AND id = $2 AND call_sid IS NOT NULL",
-      [req.workspace.id, req.params.sessionId, fields.notes, fields.outcome],
+      `UPDATE phone_call_sessions s SET notes = $3, outcome = $4, updated_at = now()
+       WHERE s.workspace_id = $1 AND s.id = $2 AND s.call_sid IS NOT NULL AND ${visible.sql}`,
+      [
+        req.workspace.id,
+        req.params.sessionId,
+        fields.notes,
+        fields.outcome,
+        ...visible.params,
+      ],
     );
     return res.sendStatus(rowCount ? 204 : 404);
   }),
@@ -356,7 +450,8 @@ router.post(
     const id = req.params.sessionId;
     const workspace = req.workspace.id;
     const action = req.params.action;
-    const data = await snapshot(workspace, id, false, false);
+    const scope = await lineScope(req.user, workspace);
+    const data = await snapshot(workspace, id, false, false, scope);
     if (!data?.assist) return res.sendStatus(404);
     if (action === "stop") {
       await pool.query(
