@@ -559,7 +559,8 @@ suite("Users schema and store against PostgreSQL", () => {
         await db.query(`
           ALTER TABLE phone_call_sessions
             ADD COLUMN IF NOT EXISTS destination text,
-            ADD COLUMN IF NOT EXISTS summary jsonb;
+            ADD COLUMN IF NOT EXISTS summary jsonb,
+            ADD COLUMN IF NOT EXISTS assist boolean NOT NULL DEFAULT false;
           ALTER TABLE phone_contacts ADD COLUMN IF NOT EXISTS company text;
           ALTER TABLE receptionist_calls
             ADD COLUMN IF NOT EXISTS workspace_id uuid,
@@ -595,23 +596,28 @@ suite("Users schema and store against PostgreSQL", () => {
           INSERT INTO phone_contacts (workspace_id, phone, name, company)
             VALUES ('${W}', '${TL}', 'Tara Lane', 'Lane Freight');
           INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, status, duration, direction, workspace_id) VALUES
-            (20, 'CT20', now() - interval '1 hour', '${TL}', '${SHARED}', 'completed', 95, 'inbound', '${W}'),
-            (21, 'CT21', now() - interval '2 hours', '${TL}', '${PERSONAL}', 'completed', 600, 'inbound', '${W}'),
-            (22, 'CT22', now() - interval '3 hours', '${PERSONAL}', '${TL}', 'completed', 300, 'outbound-api', '${W}');
+            (20, 'CT20', now() AT TIME ZONE 'UTC' - interval '1 hour', '${TL}', '${SHARED}', 'completed', 95, 'inbound', '${W}'),
+            (21, 'CT21', now() AT TIME ZONE 'UTC' - interval '2 hours', '${TL}', '${PERSONAL}', 'completed', 600, 'inbound', '${W}'),
+            (22, 'CT22', now() AT TIME ZONE 'UTC' - interval '3 hours', '${PERSONAL}', '${TL}', 'completed', 300, 'outbound-api', '${W}');
           INSERT INTO twilio_call_legs VALUES
             ('CT20c', 'CT20', '${W}', NULL, 'completed', true, 95, now());
           INSERT INTO message_logs (id, message_sid, from_number, to_number, body, timestamp, workspace_id) VALUES
-            (20, 'SMT20', '${TL}', '${SHARED}', 'shared hello', now() - interval '4 hours', '${W}'),
-            (21, 'SMT21', '${TL}', '${PERSONAL}', 'secret one', now() - interval '5 hours', '${W}'),
-            (22, 'SMT22', '${PERSONAL}', '${TL}', 'secret two', now() - interval '6 hours', '${W}');
+            (20, 'SMT20', '${TL}', '${SHARED}', 'shared hello', now() AT TIME ZONE 'UTC' - interval '4 hours', '${W}'),
+            (21, 'SMT21', '${TL}', '${PERSONAL}', 'secret one', now() AT TIME ZONE 'UTC' - interval '5 hours', '${W}'),
+            (22, 'SMT22', '${PERSONAL}', '${TL}', 'secret two', now() AT TIME ZONE 'UTC' - interval '6 hours', '${W}');
           INSERT INTO receptionist_calls (call_sid, workspace_id, from_number, callback_number, started_at, ended_at, outcome, summary) VALUES
             ('CT20', '${W}', '${TL}', NULL, now() - interval '1 hour', now(), 'lead', 'Needs a reefer'),
             ('CT21', '${W}', '${TL}', NULL, now() - interval '2 hours', now(), 'urgent', 'secret three'),
             ('CT29', '${W}', 'anonymous', '${TL}', now() - interval '7 hours', now(), 'message', 'secret four');
-          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, summary, created_at) VALUES
-            ('${S(1)}', NULL, '${W}', '${SHARED}', '${TL}', 'shared note', NULL, now() - interval '8 hours'),
-            ('${S(2)}', NULL, '${W}', '${PERSONAL}', '${TL}', 'secret five', NULL, now() - interval '9 hours'),
-            ('${S(3)}', 'CT21', '${W}', '${SHARED}', '${TL}', '', '{"reason": "secret six"}', now() - interval '10 hours');
+          -- S1, S2, S4 and S5 are plain app-dialed calls (assist off); S3 is
+          -- Live Assist. A plain one with no notes or outcome (S4) is just
+          -- its call and never an entry.
+          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, outcome, summary, assist, created_at) VALUES
+            ('${S(1)}', NULL, '${W}', '${SHARED}', '${TL}', 'shared note', NULL, NULL, false, now() - interval '8 hours'),
+            ('${S(2)}', NULL, '${W}', '${PERSONAL}', '${TL}', 'secret five', NULL, NULL, false, now() - interval '9 hours'),
+            ('${S(3)}', 'CT21', '${W}', '${SHARED}', '${TL}', '', NULL, '{"reason": "secret six"}', true, now() - interval '10 hours'),
+            ('${S(4)}', 'CT40', '${W}', '${SHARED}', '${TL}', '', NULL, NULL, false, now() - interval '11 hours'),
+            ('${S(5)}', NULL, '${W}', '${SHARED}', '${TL}', '', 'connected', NULL, false, now() - interval '12 hours');
         `);
         const forMember = await fetch(member, TL);
         expect(keys(forMember)).toEqual([
@@ -619,6 +625,7 @@ suite("Users schema and store against PostgreSQL", () => {
           "call:20",
           "text:20",
           `assist:${S(1)}`,
+          `assist:${S(5)}`,
         ]);
         expect(forMember.contact).toEqual({
           name: "Tara Lane",
@@ -630,6 +637,12 @@ suite("Users schema and store against PostgreSQL", () => {
           "Answered · 2 min",
           "shared hello",
           "shared note",
+          "Call notes",
+        ]);
+        // A plain session links nowhere; only Live Assist opens the call.
+        expect(forMember.entries.slice(-2).map((e) => e.link)).toEqual([
+          null,
+          null,
         ]);
         expect(forMember.entries.every((e) => e.line === SHARED)).toBe(true);
         // Nothing of the personal line, in any field.
@@ -667,6 +680,7 @@ suite("Users schema and store against PostgreSQL", () => {
             `assist:${S(1)}`,
             `assist:${S(2)}`,
             `assist:${S(3)}`,
+            `assist:${S(5)}`,
           ].sort(),
         );
         const byKey = Object.fromEntries(
@@ -677,6 +691,8 @@ suite("Users schema and store against PostgreSQL", () => {
           line: PERSONAL,
           summary: "Outgoing call · 5 min",
         });
+        // No leg ever answered it: not "Answered".
+        expect(byKey["call:21"].summary).toBe("Incoming call · 10 min");
         expect(byKey["text:22"]).toMatchObject({
           direction: "outbound",
           line: PERSONAL,
@@ -701,8 +717,8 @@ suite("Users schema and store against PostgreSQL", () => {
             (31, 'SMT31', '${SHARED}', '${TIE}', 'two', '2026-01-01 12:00:00.123456', '${W}');
           INSERT INTO receptionist_calls (call_sid, workspace_id, from_number, started_at, ended_at, outcome, summary) VALUES
             ('CT30', '${W}', '${TIE}', '2026-01-01 12:00:00.123456+00', now(), 'spam', NULL);
-          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, created_at) VALUES
-            ('${S(30)}', NULL, '${W}', '${SHARED}', '${TIE}', '', '2026-01-01 12:00:00.123456+00');
+          INSERT INTO phone_call_sessions (id, call_sid, workspace_id, from_number, destination, notes, assist, created_at) VALUES
+            ('${S(30)}', NULL, '${W}', '${SHARED}', '${TIE}', '', true, '2026-01-01 12:00:00.123456+00');
         `);
         const all = await fetch(member, TIE);
         expect(keys(all)).toEqual([

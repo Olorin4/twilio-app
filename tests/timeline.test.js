@@ -126,6 +126,51 @@ describe("each kind's summary text", () => {
       "Answered · 3 min",
     ],
     [
+      "after hours (closed announcement), not answered",
+      {
+        kind: "call",
+        direction: "inbound",
+        answered: false,
+        announcement: "closed",
+        status: "completed",
+        duration: 40,
+      },
+      "Incoming call · 1 min",
+    ],
+    [
+      "failed, not answered",
+      {
+        kind: "call",
+        direction: "inbound",
+        answered: false,
+        status: "failed",
+        duration: 0,
+      },
+      "Incoming call",
+    ],
+    [
+      "still ringing",
+      {
+        kind: "call",
+        direction: "inbound",
+        answered: false,
+        status: "ringing",
+        duration: null,
+      },
+      "Incoming call",
+    ],
+    [
+      "completed but never bridged to anyone",
+      {
+        kind: "call",
+        direction: "inbound",
+        answered: false,
+        status: "completed",
+        duration: 125,
+      },
+      "Incoming call · 3 min",
+    ],
+    [
       "outgoing with no duration",
       { kind: "call", direction: "outbound", duration: 0 },
       "Outgoing call",
@@ -169,6 +214,7 @@ describe("each kind's summary text", () => {
       "a Live Assist summary",
       {
         kind: "assist",
+        assist: true,
         assist_summary: { reason: "Rate check\nfor lane", outcome: "x" },
         notes: "note",
       },
@@ -178,6 +224,7 @@ describe("each kind's summary text", () => {
       "Live Assist notes when there is no summary",
       {
         kind: "assist",
+        assist: true,
         assist_summary: null,
         notes: "\n Call back Monday\nok",
       },
@@ -185,8 +232,28 @@ describe("each kind's summary text", () => {
     ],
     [
       "Live Assist with neither",
-      { kind: "assist", assist_summary: { reason: " " }, notes: "" },
+      {
+        kind: "assist",
+        assist: true,
+        assist_summary: { reason: " " },
+        notes: "",
+      },
       "Live Assist call",
+    ],
+    [
+      "a plain call session, first line of its notes",
+      {
+        kind: "assist",
+        assist: false,
+        assist_summary: null,
+        notes: "Quoted 2.10/mi\nwill call back",
+      },
+      "Quoted 2.10/mi",
+    ],
+    [
+      "a plain call session with only an outcome",
+      { kind: "assist", assist: false, assist_summary: null, notes: "" },
+      "Call notes",
     ],
   ])("%s", (_, fields, summary) => {
     expect(timeline.summarize(fields)).toBe(summary);
@@ -252,6 +319,10 @@ test("every source query carries the visibility condition", async () => {
   expect(sql).not.toContain(CALLER);
   expect(params).toContain(CALLER);
   expect(params).toContainEqual([SHARED]);
+  // A plain call session shows only once it has notes or an outcome.
+  expect(sql).toContain(
+    "AND (s.assist OR COALESCE(s.notes, '') <> '' OR s.outcome IS NOT NULL)",
+  );
   // The leads condition carries its third, owners-only param.
   expect(agents.params).toEqual([memberScope.clientPrefix, [SHARED], false]);
 });
@@ -406,6 +477,29 @@ test("the route answers entries, the contact and next", async () => {
         assist_summary: null,
         notes: "",
         call_sid: null,
+        assist: true,
+      },
+      {
+        kind: "assist",
+        id: "00000000-0000-4000-8000-0000000000ab",
+        at: "2026-11-24T10:00:00.000000Z",
+        direction: "outbound",
+        line: SHARED,
+        assist_summary: null,
+        notes: "Left a voicemail",
+        call_sid: "CA8",
+        assist: false,
+      },
+      {
+        kind: "assist",
+        id: "00000000-0000-4000-8000-0000000000ac",
+        at: "2026-11-24T09:00:00.000000Z",
+        direction: "outbound",
+        line: SHARED,
+        assist_summary: { reason: "Rate check" },
+        notes: "",
+        call_sid: "CA7",
+        assist: true,
       },
     ],
     contact: [{ name: "Alex", company: "Carrier" }],
@@ -441,6 +535,24 @@ test("the route answers entries, the contact and next", async () => {
         line: SHARED,
         summary: "Live Assist call",
         link: null,
+      },
+      {
+        kind: "assist",
+        id: "00000000-0000-4000-8000-0000000000ab",
+        at: "2026-11-24T10:00:00.000000Z",
+        direction: "outbound",
+        line: SHARED,
+        summary: "Left a voicemail",
+        link: null,
+      },
+      {
+        kind: "assist",
+        id: "00000000-0000-4000-8000-0000000000ac",
+        at: "2026-11-24T09:00:00.000000Z",
+        direction: "outbound",
+        line: SHARED,
+        summary: "Rate check",
+        link: { view: "call", callSid: "CA7" },
       },
     ],
     next: null,

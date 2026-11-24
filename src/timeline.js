@@ -1,5 +1,7 @@
 /* One caller's history in one workspace, newest first: calls, texts, AI
-agent calls and Live Assist sessions with that phone number. Every source is
+agent calls and app-dialed call sessions with that phone number (a Live
+Assist session, or a plain one only once it has notes or an outcome; a plain
+session is otherwise just its call). Every source is
 filtered by the viewer's line scope (src/visibility.js) in SQL, so a row the
 viewer may not see is never fetched, counted or summarised.
 
@@ -144,11 +146,12 @@ const columns = ({
   assistSummary = "NULL::jsonb",
   notes = "NULL::text",
   callSid = "NULL::text",
+  assist = "NULL::boolean",
 }) => `${status} AS status, ${missed} AS missed, ${answered} AS answered,
     ${announcement} AS announcement, ${duration} AS duration, ${body} AS body,
     ${outcome} AS outcome, ${summary} AS summary,
     ${assistSummary} AS assist_summary, ${notes} AS notes,
-    ${callSid} AS call_sid`;
+    ${callSid} AS call_sid, ${assist} AS assist`;
 
 function timelineQuery(conditions) {
   const [calls, texts, agents, assists] = conditions;
@@ -157,7 +160,7 @@ function timelineQuery(conditions) {
       to_char(t.at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at,
       t.direction, t.line, t.status, t.missed, t.answered, t.announcement,
       t.duration, t.body, t.outcome, t.summary, t.assist_summary, t.notes,
-      t.call_sid
+      t.call_sid, t.assist
     FROM (
       SELECT 'call'::text AS kind, cl.id::text AS id,
         cl.timestamp AT TIME ZONE 'UTC' AS at,
@@ -205,9 +208,11 @@ function timelineQuery(conditions) {
           assistSummary: "s.summary",
           notes: "s.notes",
           callSid: "s.call_sid",
+          assist: "s.assist",
         })}
       FROM phone_call_sessions s
       WHERE s.workspace_id = $2 AND s.destination = $3
+        AND (s.assist OR COALESCE(s.notes, '') <> '' OR s.outcome IS NOT NULL)
         AND ${assists.sql}
     ) t
     WHERE $6::timestamptz IS NULL OR t.at < $6::timestamptz
@@ -249,7 +254,9 @@ function summarize(row) {
       const length = minutes(row.duration);
       if (row.direction === "outbound")
         return length ? `Outgoing call · ${length} min` : "Outgoing call";
-      return `Answered · ${length} min`;
+      if (row.answered === true) return `Answered · ${length} min`;
+      // After hours, failed, still ringing or never bridged.
+      return length ? `Incoming call · ${length} min` : "Incoming call";
     }
     case "text":
       return (
@@ -271,7 +278,7 @@ function summarize(row) {
           firstLine(summary.reason) ||
             firstLine(summary.outcome) ||
             firstLine(row.notes),
-        ) || "Live Assist call"
+        ) || (row.assist ? "Live Assist call" : "Call notes")
       );
     }
     default:
@@ -282,7 +289,7 @@ function summarize(row) {
 function linkFor(row) {
   if (row.kind === "agent_call" && row.call_sid)
     return { view: "leads", callSid: row.call_sid };
-  if (row.kind === "assist" && row.call_sid)
+  if (row.kind === "assist" && row.assist === true && row.call_sid)
     return { view: "call", callSid: row.call_sid };
   return null;
 }
