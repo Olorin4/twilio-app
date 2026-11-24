@@ -43,12 +43,19 @@ async function changeWithEvent(sql, params, revision) {
   }
 }
 
-async function startCall({ callSid, workspaceId, connectionId, from }) {
+async function startCall({
+  callSid,
+  workspaceId,
+  connectionId,
+  from,
+  agentProfileId,
+}) {
   await pool.query(
-    `INSERT INTO receptionist_calls (call_sid, workspace_id, provider_connection_id, from_number)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO receptionist_calls
+       (call_sid, workspace_id, provider_connection_id, from_number, agent_profile_id)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (call_sid) DO NOTHING`,
-    [callSid, workspaceId, connectionId || null, from],
+    [callSid, workspaceId, connectionId || null, from, agentProfileId || null],
   );
 }
 
@@ -87,11 +94,14 @@ async function finishCall(callSid, fields = {}) {
   );
 }
 
-async function countAgentCalls(from, hours = 24) {
+// The daily limit is per profile: a caller who reached one business's agent
+// three times can still reach another's.
+async function countAgentCalls(from, agentProfileId, hours = 24) {
   const result = await pool.query(
     `SELECT count(*) FROM receptionist_calls
-     WHERE from_number = $1 AND started_at >= now() - make_interval(hours => $2)`,
-    [from, hours],
+     WHERE from_number = $1 AND agent_profile_id = $2
+       AND started_at >= now() - make_interval(hours => $3)`,
+    [from, agentProfileId, hours],
   );
   return Number(result.rows[0].count);
 }

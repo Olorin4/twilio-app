@@ -4,6 +4,7 @@ const store = require("../../src/receptionist/store");
 
 const sid = `CA${"1".repeat(32)}`;
 const ws = "00000000-0000-4000-8000-000000000001";
+const profileId = "00000000-0000-4000-8000-0000000000a1";
 
 // finishCall and updateSummary run in a transaction on a pooled client; the
 // fake client sends its statements through pool.query so they can be seen.
@@ -24,10 +25,18 @@ test("startCall records the call once", async () => {
     workspaceId: ws,
     connectionId: null,
     from: "+15551230009",
+    agentProfileId: profileId,
   });
   const [sql, params] = pool.query.mock.calls[0];
   expect(sql).toMatch(/ON CONFLICT \(call_sid\) DO NOTHING/);
-  expect(params).toEqual([sid, ws, null, "+15551230009"]);
+  expect(sql).toMatch(/agent_profile_id/);
+  expect(params).toEqual([sid, ws, null, "+15551230009", profileId]);
+});
+
+test("startCall without a profile stores a null profile", async () => {
+  pool.query.mockResolvedValue({ rowCount: 1 });
+  await store.startCall({ callSid: sid, workspaceId: ws, from: "x" });
+  expect(pool.query.mock.calls[0][1]).toEqual([sid, ws, null, "x", null]);
 });
 
 test("finishCall only closes an open call and serialises json fields", async () => {
@@ -71,10 +80,14 @@ test("setStatus reports whether a row in the workspace changed", async () => {
   expect(await store.setStatus(ws, sid, "called")).toBe(false);
 });
 
-test("countAgentCalls returns a number", async () => {
+test("countAgentCalls counts one caller's calls to one profile", async () => {
   pool.query.mockResolvedValue({ rows: [{ count: "2" }] });
-  expect(await store.countAgentCalls("+15551230001")).toBe(2);
-  expect(pool.query.mock.calls[0][1]).toEqual(["+15551230001", 24]);
+  expect(await store.countAgentCalls("+15551230001", profileId)).toBe(2);
+  const [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toMatch(/agent_profile_id = \$2/);
+  expect(params).toEqual(["+15551230001", profileId, 24]);
+  await store.countAgentCalls("+15551230001", profileId, 6);
+  expect(pool.query.mock.calls[1][1]).toEqual(["+15551230001", profileId, 6]);
 });
 
 test("listCalls hides calls still in progress and reports stale ones as failed", async () => {

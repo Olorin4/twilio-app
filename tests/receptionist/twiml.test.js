@@ -9,13 +9,17 @@ jest.mock("../../src/receptionist/store", () => ({
 }));
 jest.mock("../../src/receptionist/routing", () => ({
   decideRoute: jest.fn(),
+  resolveProfile: jest.fn(),
 }));
 jest.mock("../../src/providerContext", () => ({
   getProviderForWebhook: jest.fn(),
 }));
 
 const store = require("../../src/receptionist/store");
-const { decideRoute } = require("../../src/receptionist/routing");
+const {
+  decideRoute,
+  resolveProfile,
+} = require("../../src/receptionist/routing");
 const { getProviderForWebhook } = require("../../src/providerContext");
 const { getConfig } = require("../../src/receptionist/config");
 const tokens = require("../../src/receptionist/tokens");
@@ -32,6 +36,31 @@ const sid = `CA${"1".repeat(32)}`;
 const ws = "00000000-0000-4000-8000-000000000001";
 const id = "00000000-0000-4000-8000-000000000002";
 const body = { CallSid: sid, From: "+15551230009", To: "+15550000001" };
+const { JACK } = require("../../src/receptionist/seed/jack");
+const jackId = "00000000-0000-4000-8000-0000000000a1";
+const jack = {
+  ...JACK,
+  id: jackId,
+  workspaceId: ws,
+  isDefault: true,
+  enabled: true,
+  voice: null,
+};
+const kelevo = "00000000-0000-4000-8000-000000000003";
+const supportId = "00000000-0000-4000-8000-0000000000c3";
+const support = {
+  id: supportId,
+  workspaceId: kelevo,
+  kind: "support",
+  name: "Support",
+  personaName: "Sam",
+  companyName: "KelevoTMS",
+  greeting: "Thanks for calling KelevoTMS support. This is Sam.",
+  voice: "kelevoVoice123",
+  enabled: true,
+  isDefault: false,
+  dailyLimit: 20,
+};
 
 function response() {
   return {
@@ -47,6 +76,7 @@ beforeEach(() => {
   process.env.RECEPTIONIST_ENABLED = "true";
   jest.spyOn(console, "error").mockImplementation(() => {});
   jest.spyOn(console, "log").mockImplementation(() => {});
+  resolveProfile.mockResolvedValue(jack);
 });
 afterEach(() => {
   delete process.env.TWILIO_WEBHOOK_BASE_URL;
@@ -62,6 +92,7 @@ describe("relayTwiml", () => {
       token: "tok123",
       config: getConfig({}),
       baseUrl: "https://example.test",
+      profile: jack,
     });
     expect(xml).toContain('url="wss://example.test/receptionist/ws"');
     expect(xml).toContain('action="https://example.test/receptionist/ended"');
@@ -93,8 +124,29 @@ describe("relayTwiml", () => {
       token: "t",
       config: getConfig({}),
       baseUrl: "https://example.test/",
+      profile: jack,
     });
     expect(xml).toContain("This is Jack. How can I help you today?");
+  });
+
+  test("the relay uses the profile's greeting and voice", () => {
+    const xml = relayTwiml({
+      token: "t",
+      config: getConfig({}),
+      baseUrl: "https://example.test",
+      profile: support,
+    });
+    expect(xml).toContain(`welcomeGreeting="${support.greeting}"`);
+    expect(xml).toContain('voice="kelevoVoice123"');
+    expect(xml).not.toContain("Iron Wing");
+    // A profile without a voice uses the configured one.
+    const fallback = relayTwiml({
+      token: "t",
+      config: getConfig({}),
+      baseUrl: "https://example.test",
+      profile: { ...support, voice: null },
+    });
+    expect(fallback).toContain(`voice="${getConfig({}).voice}"`);
   });
 
   test("connection calls use the connection-scoped paths", () => {
@@ -103,6 +155,7 @@ describe("relayTwiml", () => {
       connectionId: id,
       config: getConfig({}),
       baseUrl: "https://example.test",
+      profile: jack,
     });
     expect(xml).toContain(
       `url="wss://example.test/webhooks/${id}/receptionist/ws"`,
@@ -146,17 +199,73 @@ describe("agentTwiml", () => {
     decideRoute.mockResolvedValue({ agent: true, reason: "ok" });
     const xml = await agentTwiml({ body });
     expect(xml).toContain("<ConversationRelay");
+    expect(resolveProfile).toHaveBeenCalledWith(undefined);
+    expect(decideRoute).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: jack }),
+    );
     expect(store.startCall).toHaveBeenCalledWith({
       callSid: sid,
       workspaceId: ws,
       connectionId: null,
       from: "+15551230009",
+      agentProfileId: jackId,
     });
     const token = /name="token" value="([^"]+)"/.exec(xml)[1];
-    expect(tokens.consume(token, sid)).toMatchObject({
+    expect(tokens.consume(token, sid)).toEqual({
       callSid: sid,
+      workspaceId: ws,
+      connectionId: null,
       from: "+15551230009",
+      agentProfileId: jackId,
     });
+    expect(xml).toContain(`welcomeGreeting="${JACK.greeting}"`);
+  });
+
+  test("the token context carries the profile and its workspace", async () => {
+    decideRoute.mockResolvedValue({ agent: true, reason: "ok" });
+    resolveProfile.mockResolvedValue(support);
+    const provider = {
+      id,
+      workspaceId: kelevo,
+      phoneNumber: body.To,
+      handler: "ai_agent",
+      agentProfileId: supportId,
+    };
+    const xml = await agentTwiml({
+      body,
+      provider,
+      connection: { id, workspaceId: kelevo },
+    });
+    expect(resolveProfile).toHaveBeenCalledWith(provider);
+    const context = {
+      callSid: sid,
+      workspaceId: kelevo,
+      connectionId: id,
+      from: "+15551230009",
+      agentProfileId: supportId,
+    };
+    expect(store.startCall).toHaveBeenCalledWith(context);
+    const token = /name="token" value="([^"]+)"/.exec(xml)[1];
+    expect(tokens.consume(token, sid)).toEqual(context);
+    expect(context.workspaceId).not.toBe(ws);
+    expect(xml).toContain(`welcomeGreeting="${support.greeting}"`);
+  });
+
+  test("a call with no profile is routed with none and gets null", async () => {
+    resolveProfile.mockResolvedValue(null);
+    decideRoute.mockResolvedValue({ agent: false, reason: "no_agent" });
+    expect(await agentTwiml({ body })).toBeNull();
+    expect(decideRoute).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: null }),
+    );
+    expect(store.startCall).not.toHaveBeenCalled();
+  });
+
+  test("a failed profile lookup falls back", async () => {
+    resolveProfile.mockRejectedValue(new Error("database down"));
+    decideRoute.mockResolvedValue({ agent: true, reason: "ok" });
+    expect(await agentTwiml({ body })).toBeNull();
+    expect(store.startCall).not.toHaveBeenCalled();
   });
 
   test("a connection call is scoped to its connection", async () => {
@@ -194,6 +303,7 @@ describe("agentTwiml", () => {
     delete process.env.RECEPTIONIST_ENABLED;
     expect(await agentTwiml({ body })).toBeNull();
     expect(decideRoute).not.toHaveBeenCalled();
+    expect(resolveProfile).not.toHaveBeenCalled();
   });
 
   test("any failure returns null so the call follows today's path", async () => {
@@ -315,6 +425,17 @@ describe("agentTwiml under a slow database", () => {
     expect(settled).toBe(false);
     await jest.advanceTimersByTimeAsync(2);
     expect(await pending).toBeNull();
+    expect(store.startCall).not.toHaveBeenCalled();
+  });
+
+  test("a profile lookup slower than the deadline falls back within it", async () => {
+    jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+    resolveProfile.mockReturnValue(new Promise(() => {}));
+    decideRoute.mockResolvedValue({ agent: true, reason: "ok" });
+    const pending = agentTwiml({ body });
+    await jest.advanceTimersByTimeAsync(2001);
+    expect(await pending).toBeNull();
+    expect(decideRoute).not.toHaveBeenCalled();
     expect(store.startCall).not.toHaveBeenCalled();
   });
 

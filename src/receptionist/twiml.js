@@ -5,11 +5,13 @@ const {
   twiml: { VoiceResponse },
 } = require("twilio");
 const { getConfig, sayOptions } = require("./config");
-const { decideRoute } = require("./routing");
+const { decideRoute, resolveProfile } = require("./routing");
 const store = require("./store");
 const tokens = require("./tokens");
-const { IRON_WING_WORKSPACE_ID } = require("../workspaceContext");
 
+// Jack's greeting. The relay now speaks the answering profile's greeting;
+// this stays for the session, which still opens its history with it until it
+// reads the profile itself.
 const GREETING =
   "Thanks for calling Iron Wing Dispatching. This is Jack. How can I help you today?";
 
@@ -18,7 +20,9 @@ const callSidPattern = /^CA[0-9a-f]{32}$/i;
 // Past this, the call follows today's path instead of waiting on a slow one.
 const DECISION_DEADLINE_MS = 2000;
 
-function relayTwiml({ token, connectionId, config, baseUrl }) {
+// `profile` is the agent answering: its greeting is the welcome message and
+// its voice, when set, replaces the configured one.
+function relayTwiml({ token, connectionId, config, baseUrl, profile }) {
   const base = baseUrl.replace(/\/$/, "");
   const prefix = connectionId ? `/webhooks/${connectionId}` : "";
   const response = new VoiceResponse();
@@ -26,12 +30,12 @@ function relayTwiml({ token, connectionId, config, baseUrl }) {
     .connect({ action: `${base}${prefix}/receptionist/ended` })
     .conversationRelay({
       url: `${base.replace(/^http/i, "ws")}${prefix}/receptionist/ws`,
-      welcomeGreeting: GREETING,
+      welcomeGreeting: profile.greeting,
       // The greeting carries the AI and transcription notice, so the caller
       // cannot talk over it.
       welcomeGreetingInterruptible: "none",
       ttsProvider: "ElevenLabs",
-      voice: config.voice,
+      voice: profile.voice || config.voice,
       language: "en-US",
       dtmfDetection: true,
       interruptible: "any",
@@ -62,20 +66,26 @@ async function agentTwiml({ body, provider, connection }) {
 
   let expired = false;
   let timer;
+  // The profile lookup runs inside the deadline too: a slow or failing read
+  // sends the call down today's path.
   const decide = (async () => {
+    const profile = await resolveProfile(provider);
+    if (expired) return null;
     const route = await decideRoute({
       from: body.From,
       to: body.To,
       provider,
       config,
+      profile,
     });
     if (!route.agent || expired) return null;
     const context = {
       callSid: body.CallSid,
-      workspaceId: IRON_WING_WORKSPACE_ID,
+      workspaceId: profile.workspaceId,
       connectionId: connection?.id || null,
       from:
         typeof body.From === "string" && body.From ? body.From : "anonymous",
+      agentProfileId: profile.id,
     };
     await store.startCall(context);
     if (expired) {
@@ -89,6 +99,7 @@ async function agentTwiml({ body, provider, connection }) {
       connectionId: context.connectionId,
       config,
       baseUrl,
+      profile,
     });
   })().catch((error) => {
     console.error("Receptionist routing failed:", error.message);
