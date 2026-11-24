@@ -132,14 +132,17 @@ function historyParams(req) {
 }
 
 /* The line a softphone call (from client:<identity>) used: its newest child
-leg's E.164 from_number, or NULL. Shown as local_number and used by the
+leg's E.164 from_number, or NULL. Every E.164 child leg of a softphone root
+carries the connection's single callerId today (the outgoing Dial in
+src/callResponse.js), so the newest leg is representative; call_sid breaks
+ties so the pick is deterministic. Shown as local_number and used by the
 visibility filter, so both judge the same line. */
 const CLIENT_LINE = `(SELECT child.from_number FROM twilio_call_legs leg JOIN call_logs child ON child.call_sid = leg.call_sid
                 AND child.workspace_id = cl.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
                 WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id
                   AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
                   AND child.from_number ~ '^[+][1-9][0-9]{1,14}$'
-                ORDER BY leg.updated_at DESC LIMIT 1)`;
+                ORDER BY leg.updated_at DESC, leg.call_sid DESC LIMIT 1)`;
 
 // Fetch Call Logs
 exports.getCallLogs = async (req, res) => {

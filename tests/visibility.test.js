@@ -167,9 +167,8 @@ test("owner B sees owner A's softphone call placed from a shared line", async ()
   expect(scope.hiddenClients).toEqual([`client:u${hex(OWNER)}_c${hex(CONN)}`]);
   const { sql, params } = lineCondition(scope, "LINE", "FROM", 6, CLIENT_LINE);
   // ...but a call whose line is known is judged by that line, not the caller.
-  expect(sql).toContain(
-    `WHEN ${known} THEN NOT ((${CLIENT_LINE}) = ANY($7::text[]))`,
-  );
+  expect(sql).toContain(`WHEN ${known} THEN (`);
+  expect(sql).toContain(`OR NOT ((${CLIENT_LINE}) = ANY($7::text[])))`);
   expect(params).toEqual([[`client:u${hex(OWNER)}_c${hex(CONN)}`], [PERSONAL]]);
   expect(params[1]).not.toContain(SHARED);
 });
@@ -221,4 +220,32 @@ test("callers without clientLineExpr behave exactly as before", () => {
   expect(lineCondition(memberScope, "LINE", "FROM", 3, null)).toEqual(
     memberBefore,
   );
+});
+
+test("an owner's own softphone call shows whatever line it used", async () => {
+  const scope = await lineScope({ id: OWNER2, role: "owner" }, IRON_WING);
+  expect(scope.clientPrefix).toBe(`client:u${hex(OWNER2)}_`);
+  const { sql, params } = lineCondition(scope, "LINE", "FROM", 6, CLIENT_LINE);
+  // Embedded as a validated literal: still exactly 2 params.
+  expect(params).toHaveLength(2);
+  expect(sql).toContain(
+    `WHEN ${known} THEN (left(COALESCE(FROM, ''), ${`client:u${hex(OWNER2)}_`.length}) = 'client:u${hex(OWNER2)}_'
+            OR NOT ((${CLIENT_LINE}) = ANY($7::text[])))`,
+  );
+});
+
+test.each([
+  ["the bootstrap login", null],
+  ["a prefix with a quote", "client:u'; DROP TABLE x; --_"],
+  ["an uppercase prefix", `client:u${hex(OWNER).toUpperCase()}_`],
+  ["a short prefix", "client:uabc_"],
+])("an owner prefix from %s is never embedded", (_name, clientPrefix) => {
+  const scope = { all: true, hidden: ["H"], hiddenClients: [], clientPrefix };
+  const { sql, params } = lineCondition(scope, "LINE", "FROM", 6, CLIENT_LINE);
+  expect(sql).not.toContain("left(");
+  expect(sql).not.toContain("DROP");
+  expect(sql).toContain(
+    `WHEN ${known} THEN NOT ((${CLIENT_LINE}) = ANY($7::text[]))`,
+  );
+  expect(params).toEqual([[], ["H"]]);
 });

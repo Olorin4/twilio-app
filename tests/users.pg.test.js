@@ -506,5 +506,38 @@ suite("Users schema and store against PostgreSQL", () => {
       expect(res.status).not.toHaveBeenCalled();
       expect(res.json.mock.calls[0][0].map((row) => row.id)).toEqual(["13"]);
     });
+
+    test("an owner's own softphone call from a line hidden from them still shows to them", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      // Owner C's staffed personal line, hidden from owners A and B. A can
+      // still place a call on the connection that shows it as caller ID.
+      const OWNER_C = "00000000-0000-4000-8000-0000000000e8";
+      const PERSONAL_C = "+12025550198";
+      await db.query(`
+        INSERT INTO app_users (id, username, display_name, password_hash, role) VALUES
+          ('${OWNER_C}', 'owner.c', 'C', 'x', 'owner');
+        INSERT INTO connection_numbers (id, connection_id, phone_number, personal) VALUES
+          (gen_random_uuid(), '${C}', '${PERSONAL_C}', true);
+        INSERT INTO number_assignees (number_id, user_id)
+          SELECT id, '${OWNER_C}'::uuid FROM connection_numbers WHERE phone_number = '${PERSONAL_C}';
+        INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, direction, workspace_id) VALUES
+          (14, 'CS14', now(), 'client:u${hex(OWNER)}_c${hex(C)}', '${EXTERNAL}', 'inbound', '${W}'),
+          (114, 'CS14c', now(), '${PERSONAL_C}', '${EXTERNAL}', 'outbound-dial', '${W}');
+        INSERT INTO twilio_call_legs VALUES
+          ('CS14c', 'CS14', '${W}', NULL, 'completed', true, 5, now());
+      `);
+      const ids = (result) => result.rows.map((row) => row.id);
+      const forA = await run(getCallLogs, owner);
+      await expect(
+        db.query(`EXPLAIN ${forA.sql}`, forA.params),
+      ).resolves.toBeTruthy();
+      expect(ids(forA)).toContain("14");
+      const other = {
+        id: "00000000-0000-4000-8000-0000000000e5",
+        role: "owner",
+      };
+      expect(ids(await run(getCallLogs, other))).not.toContain("14");
+      expect(ids(await run(getCallLogs, member))).not.toContain("14");
+    });
   });
 });
