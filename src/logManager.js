@@ -131,6 +131,16 @@ function historyParams(req) {
   return { offset: (page - 1) * pageSize, pageSize, search };
 }
 
+/* The line a softphone call (from client:<identity>) used: its newest child
+leg's E.164 from_number, or NULL. Shown as local_number and used by the
+visibility filter, so both judge the same line. */
+const CLIENT_LINE = `(SELECT child.from_number FROM twilio_call_legs leg JOIN call_logs child ON child.call_sid = leg.call_sid
+                AND child.workspace_id = cl.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
+                WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id
+                  AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
+                  AND child.from_number ~ '^[+][1-9][0-9]{1,14}$'
+                ORDER BY leg.updated_at DESC LIMIT 1)`;
+
 // Fetch Call Logs
 exports.getCallLogs = async (req, res) => {
   const params = historyParams(req);
@@ -145,6 +155,7 @@ exports.getCallLogs = async (req, res) => {
       "CASE WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number ELSE cl.to_number END",
       "cl.from_number",
       6,
+      CLIENT_LINE,
     );
 
     const callResult = `(SELECT CASE WHEN s.summary_state = 'ready' THEN 'summary'
@@ -168,12 +179,7 @@ exports.getCallLogs = async (req, res) => {
              COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND (leg.answered OR cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration) AS duration,
              (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AS outgoing,
              CASE WHEN cl.from_number LIKE 'client:%' THEN
-               (SELECT child.from_number FROM twilio_call_legs leg JOIN call_logs child ON child.call_sid = leg.call_sid
-                AND child.workspace_id = cl.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
-                WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id
-                  AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id
-                  AND child.from_number ~ '^[+][1-9][0-9]{1,14}$'
-                ORDER BY leg.updated_at DESC LIMIT 1)
+               ${CLIENT_LINE}
              WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number
              ELSE cl.to_number END AS local_number,
              cl.timestamp,

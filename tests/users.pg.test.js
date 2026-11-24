@@ -440,5 +440,71 @@ suite("Users schema and store against PostgreSQL", () => {
         messages: 2,
       });
     });
+
+    /* A softphone call (from client:<identity>) is judged by the line it
+    used: its child leg's from_number. Last, so the other tests' rows and
+    counts are untouched. */
+    test("softphone calls follow the line they used", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      const IW = "00000000-0000-4000-8000-000000000001";
+      const IWC = "00000000-0000-4000-8000-0000000000e7";
+      const LEGACY = "+12025550000";
+      const fromOwner = `client:u${hex(OWNER)}_c${hex(C)}`;
+      // Parent and child legs: the child's from_number is the line used.
+      const call = (id, sid, ws, from, line) => `
+        INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, direction, workspace_id) VALUES
+          (${id}, '${sid}', now(), '${from}', '${EXTERNAL}', 'inbound', '${ws}'),
+          (${id + 100}, '${sid}c', now(), '${line}', '${EXTERNAL}', 'outbound-dial', '${ws}');
+        INSERT INTO twilio_call_legs VALUES
+          ('${sid}c', '${sid}', '${ws}', NULL, 'completed', true, 5, now());`;
+      await db.query(`
+        ${call(10, "CS10", W, fromOwner, SHARED)}
+        ${call(11, "CS11", W, fromOwner, PERSONAL)}
+        ${call(12, "CS12", W, fromOwner, "anonymous")}
+        INSERT INTO workspaces VALUES ('${IW}', 'iron wing');
+        INSERT INTO provider_connections VALUES ('${IWC}', '${IW}');
+        ${call(13, "CS13", IW, `client:u${hex(OWNER)}_c${hex(IWC)}`, LEGACY)}
+      `);
+      const other = {
+        id: "00000000-0000-4000-8000-0000000000e5",
+        role: "owner",
+      };
+      const ids = (result) => result.rows.map((row) => row.id).sort();
+      const forOther = await run(getCallLogs, other);
+      await expect(
+        db.query(`EXPLAIN ${forOther.sql}`, forOther.params),
+      ).resolves.toBeTruthy();
+      // Owner B sees owner A's call from the shared line, though A's only
+      // line on the connection is personal; not the one from A's personal
+      // line. With no E.164 line (CS12) or no child leg (4) the caller's
+      // identity decides, as before.
+      expect(ids(forOther)).toEqual(["1", "10", "3", "5"]);
+      expect(forOther.rows.find((row) => row.id === "10").local_number).toBe(
+        SHARED,
+      );
+      // The member sees it on their shared line too, never the personal one.
+      const forMember = await run(getCallLogs, member);
+      expect(ids(forMember)).toEqual(["1", "10", "5"]);
+      // A's own calls, and the owner of every line, still see them all.
+      expect(ids(await run(getCallLogs, owner))).toEqual([
+        "1",
+        "10",
+        "11",
+        "12",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+      ]);
+      // An Iron Wing member sees the owner's call on the legacy line.
+      const res = { set: jest.fn(), json: jest.fn(), status: jest.fn() };
+      await getCallLogs(
+        { user: member, workspace: { id: IW }, query: {} },
+        res,
+      );
+      expect(res.status).not.toHaveBeenCalled();
+      expect(res.json.mock.calls[0][0].map((row) => row.id)).toEqual(["13"]);
+    });
   });
 });

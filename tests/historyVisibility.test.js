@@ -227,3 +227,19 @@ test.each([
     expect(res.sendStatus).toHaveBeenCalledWith(404);
   },
 );
+
+// The child leg's E.164 from_number: the line a softphone call used.
+const CHILD_LINE = "child.from_number ~ '^[+][1-9][0-9]{1,14}$'";
+
+test("call history judges softphone calls by the line they used", async () => {
+  await getCallLogs(request(), response());
+  const [[sql]] = expectFiltered();
+  // Once for local_number in the SELECT, then in the visibility filter.
+  expect(sql.split(CHILD_LINE).length - 1).toBe(3);
+});
+
+test("other history endpoints keep the caller-identity rule for softphone calls", async () => {
+  await getMessageLogs(request(), response());
+  await conversations.list(request(), response());
+  for (const [sql] of endpointCalls()) expect(sql).not.toContain(CHILD_LINE);
+});
