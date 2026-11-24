@@ -1643,6 +1643,11 @@ function App() {
                   : "Connecting"}
             </div>
             <strong>{voice.call.number}</strong>
+            {voice.call.callerContext && (
+              <span className="caller-context">
+                {voice.call.callerContext}
+              </span>
+            )}
             {[
               voice.call.workspaceName,
               voice.call.lineLabel,

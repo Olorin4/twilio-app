@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Device } from "@twilio/voice-sdk";
 import { apiFetch, IRON_WING_WORKSPACE_ID } from "./api";
+import { popLine, shouldFetch, isCurrent } from "./screenPop.mjs";
 
 const NO_LINE_MESSAGE = "No line is assigned to you in this workspace.";
 async function getToken(target) {
@@ -191,7 +192,31 @@ export function useVoice(workspace) {
           target?.phone_number,
         lineLabel: instance.customParameters?.get?.("CalledLabel") || undefined,
         phase: direction === "incoming" ? "ringing" : "connecting",
+        callerContext: null,
       });
+      // Screen pop: fetched after the call is shown, never awaited, silent on failure.
+      if (direction === "incoming" && shouldFetch(number)) {
+        const ringAt = Date.now();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        apiFetch(`/contacts/${encodeURIComponent(number)}/timeline?limit=3`, {
+          cache: "no-store",
+          signal: controller.signal,
+          headers: { "X-Workspace-Id": target?.workspace_id },
+        })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data) => {
+            const line = data && popLine(data, ringAt);
+            if (!line || !isCurrent(instance, callRef.current)) return;
+            setCall((current) =>
+              current && callRef.current === instance
+                ? { ...current, callerContext: line }
+                : current,
+            );
+          })
+          .catch(() => {})
+          .finally(() => clearTimeout(timer));
+      }
       instance.on("accept", () =>
         setCall((current) =>
           current && callRef.current === instance
