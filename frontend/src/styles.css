@@ -546,6 +546,22 @@ h1 {
   border-radius: 8px;
   padding: 2px 11px;
 }
+.caller-id-select {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid #e0e7dd;
+  background: #fbfcfa;
+  border-radius: 8px;
+  padding: 10px 11px;
+  font-size: 14px;
+  color: #26382b;
+}
+.caller-id-select:focus {
+  outline: 0;
+  border-color: #9bbd91;
+  box-shadow: 0 0 0 3px #edf5ea;
+}
 .input-wrap:focus-within {
   border-color: #9bbd91;
   box-shadow: 0 0 0 3px #edf5ea;

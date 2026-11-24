@@ -71,4 +71,105 @@ async function ringIdentities(provider) {
   }
 }
 
-module.exports = { ringIdentities, RING_DEADLINE_MS, MAX_RING };
+/* Who may place calls and send texts from a line. Owners and the bootstrap
+login may use any line, and the legacy number. Members may use only lines
+assigned to them in a workspace they belong to, and never the legacy number.
+The account is always read afresh, so a disabled user's still-valid Twilio
+token can't place calls, and a role claimed by the caller counts for nothing. */
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const ACCESS_SQL = `
+  SELECT u.role, u.enabled,
+    EXISTS (SELECT 1 FROM number_assignees na
+      WHERE na.number_id = $2::uuid AND na.user_id = u.id) AS assigned,
+    EXISTS (SELECT 1 FROM workspace_members wm
+      WHERE wm.workspace_id = $3::uuid AND wm.user_id = u.id) AS member
+  FROM app_users u WHERE u.id = $1::uuid`;
+
+// "owner" or "member" when the user may use the line, else null. Throws when
+// the account can't be read.
+async function lineRole(user, provider) {
+  if (!user || !provider) return null;
+  if (user.bootstrap === true) return "owner";
+  if (typeof user.id !== "string" || !uuidPattern.test(user.id)) return null;
+  const numberId = provider.legacy ? null : provider.numberId || null;
+  const workspaceId = provider.workspaceId || null;
+  const { rows } = await pool.query(ACCESS_SQL, [
+    user.id,
+    numberId,
+    workspaceId,
+  ]);
+  const account = rows[0];
+  if (!account || account.enabled !== true) return null;
+  if (account.role === "owner") return "owner";
+  if (account.role !== "member" || provider.legacy || !numberId) return null;
+  return account.assigned === true && account.member === true ? "member" : null;
+}
+
+async function mayUseLine(user, provider) {
+  return (await lineRole(user, provider)) !== null;
+}
+
+const OWNER_LINES_SQL = `
+  SELECT n.id AS number_id, n.phone_number, n.label, c.id AS connection_id
+  FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
+  LEFT JOIN workspace_active_numbers a ON a.workspace_id = c.workspace_id
+  WHERE c.workspace_id = $1::uuid AND n.voice_enabled = true
+  ORDER BY (a.connection_number_id = n.id) DESC NULLS LAST, n.phone_number, n.id`;
+const MEMBER_LINES_SQL = `
+  SELECT n.id AS number_id, n.phone_number, n.label, c.id AS connection_id
+  FROM number_assignees na
+  JOIN connection_numbers n ON n.id = na.number_id
+  JOIN provider_connections c ON c.id = n.connection_id
+  WHERE na.user_id = $1::uuid AND c.workspace_id = $2::uuid
+    AND ($3::boolean IS FALSE OR n.voice_enabled = true)
+    AND EXISTS (SELECT 1 FROM workspace_members wm
+      WHERE wm.workspace_id = $2::uuid AND wm.user_id = $1::uuid)
+  ORDER BY na.created_at, n.id`;
+
+/* The lines a signed-in user may use in a workspace, as
+[{ numberId, phoneNumber, label, legacy, connectionId }]. Owners get every
+voice line (the active one first, then the legacy number in Iron Wing);
+members only their assigned lines, in assignment order. voiceOnly: false also
+returns a member's lines without voice, for texts. */
+async function usableLines(user, workspaceId, { voiceOnly = true } = {}) {
+  if (!user || !uuidPattern.test(workspaceId || "")) return [];
+  const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+  const owner = user.role === "owner";
+  if (!owner && (user.role !== "member" || !uuidPattern.test(user.id || "")))
+    return [];
+  const { rows } = owner
+    ? await pool.query(OWNER_LINES_SQL, [workspaceId])
+    : await pool.query(MEMBER_LINES_SQL, [user.id, workspaceId, voiceOnly]);
+  const lines = rows.map((row) => ({
+    numberId: row.number_id,
+    phoneNumber: row.phone_number,
+    label: row.label ?? null,
+    legacy: false,
+    connectionId: row.connection_id,
+  }));
+  if (
+    owner &&
+    workspaceId.toLowerCase() === IRON_WING_WORKSPACE_ID &&
+    process.env.TWILIO_CALLER_ID
+  )
+    lines.push({
+      numberId: null,
+      phoneNumber: process.env.TWILIO_CALLER_ID,
+      label: null,
+      legacy: true,
+      connectionId: null,
+    });
+  return lines;
+}
+
+module.exports = {
+  ringIdentities,
+  RING_DEADLINE_MS,
+  MAX_RING,
+  lineRole,
+  mayUseLine,
+  usableLines,
+};

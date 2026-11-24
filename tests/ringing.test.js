@@ -8,7 +8,13 @@ const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
 const pool = require("../src/db");
-const { ringIdentities, RING_DEADLINE_MS } = require("../src/ringing");
+const {
+  ringIdentities,
+  RING_DEADLINE_MS,
+  mayUseLine,
+  lineRole,
+  usableLines,
+} = require("../src/ringing");
 
 const WORKSPACE = "00000000-0000-4000-8000-000000000001";
 const OTHER_WORKSPACE = "00000000-0000-4000-8000-000000000002";
@@ -62,6 +68,34 @@ describe("when the ring list can't be read", () => {
     expect(await ringIdentities(line)).toEqual([onLine(NUMBER)]);
     expect(pool.query).toHaveBeenCalledTimes(1);
     expect(pool.query.mock.calls[0][1]).toEqual([NUMBER, WORKSPACE]);
+  });
+});
+
+describe("who may use a line, without a database", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test("the bootstrap user may use any line and is never looked up", async () => {
+    const bootstrap = { id: null, role: "owner", bootstrap: true };
+    expect(await mayUseLine(bootstrap, line)).toBe(true);
+    expect(await mayUseLine(bootstrap, legacyLine)).toBe(true);
+    expect(await lineRole(bootstrap, line)).toBe("owner");
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  test("nobody, or a user without a valid id, may use no line", async () => {
+    expect(await mayUseLine(null, line)).toBe(false);
+    expect(await mayUseLine({ id: "not-a-uuid" }, line)).toBe(false);
+    expect(await mayUseLine({ id: NUMBER }, null)).toBe(false);
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+
+  test("the user is read from the database, not trusted from the caller", async () => {
+    pool.query.mockResolvedValue({
+      rows: [{ role: "member", enabled: true, assigned: false, member: true }],
+    });
+    // A caller-supplied role of owner changes nothing.
+    expect(await mayUseLine({ id: NUMBER, role: "owner" }, line)).toBe(false);
+    expect(pool.query.mock.calls[0][1]).toEqual([NUMBER, NUMBER, WORKSPACE]);
   });
 });
 
@@ -271,5 +305,132 @@ suite("ring list against PostgreSQL", () => {
     await setNumberAssignees(WORKSPACE, NUMBER, []);
     const { rows } = await db.query("SELECT 1 FROM number_assignees");
     expect(rows).toHaveLength(0);
+  });
+  test("owners may use every line and the legacy line, while enabled", async () => {
+    const owner = await user("owner");
+    expect(await mayUseLine({ id: owner }, line)).toBe(true);
+    expect(await mayUseLine({ id: owner }, legacyLine)).toBe(true);
+    expect(await lineRole({ id: owner }, line)).toBe("owner");
+    await db.query("UPDATE app_users SET enabled = false WHERE id = $1", [
+      owner,
+    ]);
+    expect(await mayUseLine({ id: owner }, line)).toBe(false);
+    expect(await mayUseLine({ id: owner }, legacyLine)).toBe(false);
+    // An id with no account at all.
+    expect(await mayUseLine({ id: uid() }, line)).toBe(false);
+  });
+
+  test("members may use only lines assigned to them in their workspace", async () => {
+    const member = await user("member", { member: true });
+    expect(await mayUseLine({ id: member }, line)).toBe(false);
+    await assign(member, 10);
+    expect(await mayUseLine({ id: member }, line)).toBe(true);
+    expect(await lineRole({ id: member }, line)).toBe("member");
+    // Never the legacy line.
+    expect(await mayUseLine({ id: member }, legacyLine)).toBe(false);
+    // Losing the workspace loses the line.
+    await db.query("DELETE FROM workspace_members WHERE user_id = $1", [
+      member,
+    ]);
+    expect(await mayUseLine({ id: member }, line)).toBe(false);
+    await db.query(
+      "INSERT INTO workspace_members (workspace_id, user_id) VALUES ($1, $2)",
+      [WORKSPACE, member],
+    );
+    // A disabled member keeps the row but not the line.
+    await db.query("UPDATE app_users SET enabled = false WHERE id = $1", [
+      member,
+    ]);
+    expect(await mayUseLine({ id: member }, line)).toBe(false);
+  });
+
+  describe("the lines a user may use", () => {
+    const SECOND = "00000000-0000-4000-8000-0000000000a5";
+    const TEXT_ONLY = "00000000-0000-4000-8000-0000000000a6";
+    beforeAll(async () => {
+      await db.query(
+        `INSERT INTO connection_numbers (id, connection_id, phone_number, voice_enabled, sms_enabled, label)
+         VALUES ($1, $3, '+12025550101', true, true, 'Second'),
+                ($2, $3, '+12025550102', false, true, 'Texts')`,
+        [SECOND, TEXT_ONLY, CONNECTION],
+      );
+      await db.query(
+        "UPDATE connection_numbers SET voice_enabled = true, sms_enabled = true, label = 'Main' WHERE id = $1",
+        [NUMBER],
+      );
+      await db.query(
+        "INSERT INTO workspace_active_numbers (workspace_id, connection_number_id) VALUES ($1, $2)",
+        [WORKSPACE, SECOND],
+      );
+    });
+    const entry = (numberId, phoneNumber, label) => ({
+      numberId,
+      phoneNumber,
+      label,
+      legacy: false,
+      connectionId: CONNECTION,
+    });
+
+    test("an owner gets every voice line, the active one first, then legacy", async () => {
+      const previous = process.env.TWILIO_CALLER_ID;
+      process.env.TWILIO_CALLER_ID = "+15550000001";
+      try {
+        const owner = await user("owner");
+        expect(
+          await usableLines({ id: owner, role: "owner" }, WORKSPACE),
+        ).toEqual([
+          entry(SECOND, "+12025550101", "Second"),
+          entry(NUMBER, "+12025550100", "Main"),
+          {
+            numberId: null,
+            phoneNumber: "+15550000001",
+            label: null,
+            legacy: true,
+            connectionId: null,
+          },
+        ]);
+        expect(
+          await usableLines({ id: owner, role: "owner" }, OTHER_WORKSPACE),
+        ).toEqual([]);
+      } finally {
+        if (previous === undefined) delete process.env.TWILIO_CALLER_ID;
+        else process.env.TWILIO_CALLER_ID = previous;
+      }
+    });
+
+    test("a member gets their assigned lines in assignment order, never legacy", async () => {
+      const previous = process.env.TWILIO_CALLER_ID;
+      process.env.TWILIO_CALLER_ID = "+15550000001";
+      try {
+        const member = await user("member", { member: true });
+        const someone = { id: member, role: "member" };
+        expect(await usableLines(someone, WORKSPACE)).toEqual([]);
+        await db.query(
+          `INSERT INTO number_assignees (number_id, user_id, created_at)
+           VALUES ($1, $4, now() - interval '30 seconds'),
+                  ($2, $4, now() - interval '20 seconds'),
+                  ($3, $4, now() - interval '10 seconds')`,
+          [TEXT_ONLY, NUMBER, SECOND, member],
+        );
+        expect(await usableLines(someone, WORKSPACE)).toEqual([
+          entry(NUMBER, "+12025550100", "Main"),
+          entry(SECOND, "+12025550101", "Second"),
+        ]);
+        // For texts, lines without voice count too.
+        expect(
+          (await usableLines(someone, WORKSPACE, { voiceOnly: false })).map(
+            (l) => l.numberId,
+          ),
+        ).toEqual([TEXT_ONLY, NUMBER, SECOND]);
+        // Without the workspace, nothing.
+        await db.query("DELETE FROM workspace_members WHERE user_id = $1", [
+          member,
+        ]);
+        expect(await usableLines(someone, WORKSPACE)).toEqual([]);
+      } finally {
+        if (previous === undefined) delete process.env.TWILIO_CALLER_ID;
+        else process.env.TWILIO_CALLER_ID = previous;
+      }
+    });
   });
 });

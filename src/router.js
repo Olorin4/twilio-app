@@ -6,7 +6,8 @@ the main index.js file to define the routes for the server. */
 const Router = require("express").Router;
 const { tokenGenerator, tokenFor } = require("./token");
 const { voiceResponse } = require("./callResponse");
-const { ringIdentities } = require("./ringing");
+const { ringIdentities, lineRole, usableLines } = require("./ringing");
+const { parseIdentity, isClientOf } = require("./identity");
 const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getMessageLogs } = require("./logManager");
 const { sendFax, getFaxStatus } = require("./sendFax");
@@ -22,6 +23,7 @@ const reconciliation = require("./reconciliation");
 const workspaceSettings = require("./workspaceSettings");
 const {
   IRON_WING_WORKSPACE_ID,
+  canOpenWorkspace,
   resolveWorkspace,
 } = require("./workspaceContext");
 const { authenticateConnectionWebhook } = require("./connectionWebhooks");
@@ -43,6 +45,15 @@ const {
 console.log("🔍 Checking tokenGenerator in router.js:", typeof tokenGenerator);
 
 const router = new Router();
+
+// Who is calling out, from the softphone identity Twilio signed into From.
+// Webhooks have no session, so this is the only source of the user.
+const callerOf = (from) => {
+  const parsed = parseIdentity(from);
+  return parsed.bootstrap
+    ? { id: null, bootstrap: true }
+    : { id: parsed.userId };
+};
 
 router.post(
   "/webhooks/:connectionId/sms",
@@ -74,18 +85,30 @@ router.post(
       const outgoing =
         typeof req.body.From === "string" &&
         req.body.From.startsWith("client:");
+      // A softphone of another line, or no softphone at all, is never
+      // treated as an owner.
+      if (outgoing && !isClientOf(req.body.From, req.providerConnection))
+        return res.sendStatus(403);
       const provider = await getProviderForWebhook(
         req.providerConnection,
         outgoing ? req.body.FromNumber : req.body.To,
       );
       if (!provider.voiceEnabled) return res.sendStatus(403);
       if (outgoing) {
-        const selected = await getProvider(req.providerConnection.workspaceId);
-        if (
-          selected.id !== provider.id ||
-          selected.numberId !== provider.numberId
-        )
-          return res.sendStatus(409);
+        const role = await lineRole(callerOf(req.body.From), provider);
+        if (!role) return res.sendStatus(403);
+        // Owners call from the workspace's active number, as before; a
+        // member calls from their own line.
+        if (role === "owner") {
+          const selected = await getProvider(
+            req.providerConnection.workspaceId,
+          );
+          if (
+            selected.id !== provider.id ||
+            selected.numberId !== provider.numberId
+          )
+            return res.sendStatus(409);
+        }
       }
       if (outgoing && req.body.AssistIntent)
         await bindCallIntent(req.body, provider);
@@ -208,6 +231,28 @@ router.get("/me", (req, res) => {
   });
 });
 
+// The lines the signed-in user may call and text from in a workspace.
+router.get("/me/lines", async (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: "Authentication required." });
+  const workspaceId = req.query?.workspace;
+  if (
+    typeof workspaceId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      workspaceId,
+    )
+  )
+    return res.status(400).json({ error: "Invalid workspace." });
+  if (!canOpenWorkspace(user, workspaceId))
+    return res.status(404).json({ error: "Workspace not found." });
+  try {
+    return res.json(await usableLines(user, workspaceId));
+  } catch (error) {
+    console.error("Lines lookup failed:", error.message);
+    return res.status(503).json({ error: "Could not load your lines." });
+  }
+});
+
 // Webhook for generating an Access Token
 router.get("/token", async (req, res) => {
   try {
@@ -248,6 +293,11 @@ router.post("/voice", validateWebhook, async (req, res) => {
     const outgoing =
       typeof req.body.From === "string" && req.body.From.startsWith("client:");
     if (outgoing) {
+      const line = { legacy: true, workspaceId: IRON_WING_WORKSPACE_ID };
+      if (!isClientOf(req.body.From, line)) return res.sendStatus(403);
+      // The legacy number is owners only.
+      if ((await lineRole(callerOf(req.body.From), line)) !== "owner")
+        return res.sendStatus(403);
       const selected = await getProvider(IRON_WING_WORKSPACE_ID);
       if (!selected.legacy) return res.sendStatus(409);
       if (req.body.AssistIntent) await bindCallIntent(req.body, selected);

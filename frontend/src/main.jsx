@@ -1659,6 +1659,26 @@ function App() {
                 : "Connect phone"}
             </button>
           )}
+          {voice.member && voice.lines.length > 1 && (
+            <div className="dial-field">
+              <label htmlFor="caller-id">CALL AND TEXT FROM</label>
+              <select
+                id="caller-id"
+                className="caller-id-select"
+                value={voice.lineId}
+                disabled={running || preparing || smsSending}
+                onChange={(event) => voice.chooseLine(event.target.value)}
+              >
+                {voice.lines.map((line) => (
+                  <option key={line.numberId} value={line.numberId}>
+                    {line.label
+                      ? `${line.label} · ${line.phoneNumber}`
+                      : line.phoneNumber}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="dial-field">
             <label htmlFor="dial-number">PHONE NUMBER</label>
             <div className="input-wrap">

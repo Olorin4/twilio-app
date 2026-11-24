@@ -53,6 +53,14 @@ export function useVoice(workspace) {
   const speakerRef = useRef("default");
   const ringtoneRef = useRef("default");
   const [levels, setLevels] = useState({ input: 0, output: 0 });
+  // A member calls and texts only from their own lines; owners keep the
+  // workspace's active number and never use these.
+  const [member, setMember] = useState(false);
+  const [lines, setLines] = useState([]);
+  const [lineId, setLineId] = useState("");
+  // null for owners: their caller ID is the workspace's active number.
+  const linesRef = useRef(null);
+  const lineIdRef = useRef("");
   workspaceRef.current = workspace;
 
   const updateOutputs = useCallback((device) => {
@@ -66,15 +74,21 @@ export function useVoice(workspace) {
   }, []);
   const refreshSelection = useCallback(() => {
     const current = workspaceRef.current;
-    const key =
-      current?.active_connection_id && current.active_voice_enabled === false
+    const memberLine = linesRef.current
+      ? linesRef.current.find((line) => line.numberId === lineIdRef.current) ||
+        linesRef.current[0]
+      : undefined;
+    const key = linesRef.current
+      ? memberLine?.connectionId || null
+      : current?.active_connection_id && current.active_voice_enabled === false
         ? null
         : current?.active_connection_id ||
           (current?.id === IRON_WING_WORKSPACE_ID ? "legacy" : null);
     const entry = key ? entries.current.get(key) : undefined;
     deviceRef.current = entry?.device || null;
-    phoneNumberRef.current =
-      current?.active_phone || entry?.target.phone_number || "";
+    phoneNumberRef.current = linesRef.current
+      ? memberLine?.phoneNumber || ""
+      : current?.active_phone || entry?.target.phone_number || "";
     setPhoneNumber(phoneNumberRef.current);
     setIdentity(entry?.identity || "");
     setTokenStatus(entry?.tokenStatus || emptyToken());
@@ -95,6 +109,62 @@ export function useVoice(workspace) {
     workspace?.active_phone,
     refreshSelection,
   ]);
+  // linesRef stays null for owners, so they keep today's behaviour.
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/me", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((me) => {
+        if (!cancelled && me?.role === "member") setMember(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (!member) return undefined;
+    let cancelled = false;
+    // Until the lines load, a member has no caller ID at all.
+    linesRef.current = [];
+    lineIdRef.current = "";
+    setLines([]);
+    setLineId("");
+    refreshSelection();
+    if (!workspace?.id) return undefined;
+    apiFetch(`/me/lines?workspace=${encodeURIComponent(workspace.id)}`, {
+      cache: "no-store",
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load your lines.");
+        return response.json();
+      })
+      .then((own) => {
+        if (cancelled) return;
+        const usable = Array.isArray(own) ? own : [];
+        linesRef.current = usable;
+        lineIdRef.current = usable[0]?.numberId || "";
+        setLines(usable);
+        setLineId(lineIdRef.current);
+        refreshSelection();
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || "Could not load your lines.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [member, workspace?.id, refreshSelection]);
+  const chooseLine = useCallback(
+    (numberId) => {
+      if (callRef.current || dialingRef.current) return;
+      if (!linesRef.current?.some((line) => line.numberId === numberId)) return;
+      lineIdRef.current = numberId;
+      setLineId(numberId);
+      refreshSelection();
+    },
+    [refreshSelection],
+  );
 
   const clearCall = useCallback((instance) => {
     if (callRef.current !== instance) return;
@@ -389,6 +459,10 @@ export function useVoice(workspace) {
     connection,
     identity,
     phoneNumber,
+    member,
+    lines,
+    lineId,
+    chooseLine,
     tokenStatus,
     call,
     error,
