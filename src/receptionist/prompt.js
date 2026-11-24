@@ -7,7 +7,7 @@ The system blocks are the cached prefix of every request, so for a given
 profile they must be byte-identical for every call. Anything that varies per
 call goes in callContext(), which becomes the first user message. */
 
-const { toolsFor, callbackPerson } = require("./kinds");
+const { callbackPerson } = require("./kinds");
 const { JACK } = require("./seed/jack");
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -49,7 +49,9 @@ const CACHE = { type: "ephemeral", ttl: "1h" };
 // The system blocks for one profile: the rules, then the knowledge document,
 // which carries the cache breakpoint. With no knowledge there is one block,
 // and it carries the breakpoint, so no empty block is ever sent.
-function buildSystem(profile = JACK) {
+// There is no default profile: a call whose profile could not be read must
+// never be answered as Jack.
+function buildSystem(profile) {
   const parts = [preamble(profile)];
   if (profile.kind !== "support") parts.push(fraudRules(profile));
   if (profile.instructions && profile.instructions.trim())
@@ -69,8 +71,10 @@ function clock(hour) {
 }
 
 // The per-call facts, sent as the first user message so the cached system
-// prompt never changes.
-function callContext({ fromKnown, open, hours, now = new Date() }) {
+// prompt never changes. `kind` names who calls back; a missing or unknown
+// kind reads as a receptionist's, which is what Jack has always said.
+function callContext({ fromKnown, open, hours, now = new Date(), kind }) {
+  const who = callbackPerson(kind);
   const zone =
     new Intl.DateTimeFormat("en-US", {
       timeZone: hours.timeZone,
@@ -95,10 +99,10 @@ function callContext({ fromKnown, open, hours, now = new Date() }) {
     `It is ${time} on ${today} (${zone}).`,
     `Calling hours are ${clock(hours.start)} to ${clock(hours.end)}, ${zone}, every day.`,
     open
-      ? "The office is open now: a dispatcher can call back in the next few minutes."
-      : "The office is closed now: a dispatcher will call back on the next day it is open, in a time window the caller chooses.",
+      ? `The office is open now: ${who.a} can call back in the next few minutes.`
+      : `The office is closed now: ${who.a} will call back on the next day it is open, in a time window the caller chooses.`,
     fromKnown
-      ? "The caller's phone number is known, so the dispatcher can call back on the number they are calling from."
+      ? `The caller's phone number is known, so ${who.the} can call back on the number they are calling from.`
       : "The caller's phone number is not known (caller ID is blocked), so ask for the best callback number.",
     "The caller has just heard your greeting. Their first words follow.",
     "</call_context>",
@@ -116,25 +120,26 @@ function fixedLines({ kind, companyName }) {
   };
 }
 
-// Compatibility aliases built from Jack, for callers not yet moved to
-// profiles. Later tasks (6 and 7) remove them.
-const TOOLS = toolsFor("receptionist");
+// Spoken when the call's profile could not be read, or belongs to another
+// workspace: the session cannot know whose business this is, so the lines
+// name none.
+const NO_PROFILE_LINES = {
+  fallback:
+    "I'm sorry, I'm having trouble on my end. Someone will call you back shortly. Thank you for calling.",
+  stillThere: "Are you still there?",
+  silentEnd: "I'll let you go for now. Call us back any time. Goodbye.",
+  wrapUp:
+    "I want to be respectful of your time, so I'll stop here. Someone will call you back to pick this up. Thank you for calling.",
+};
+
+// Compatibility alias built from Jack, for callers not yet moved to
+// profiles (the summary and Call Assist). Task 7 removes it.
 const loadKnowledge = () => JACK.knowledge;
-const {
-  fallback: FALLBACK_LINE,
-  stillThere: STILL_THERE_LINE,
-  silentEnd: SILENT_END_LINE,
-  wrapUp: WRAP_UP_LINE,
-} = fixedLines(JACK);
 
 module.exports = {
   buildSystem,
   fixedLines,
   callContext,
-  TOOLS,
+  NO_PROFILE_LINES,
   loadKnowledge,
-  FALLBACK_LINE,
-  STILL_THERE_LINE,
-  SILENT_END_LINE,
-  WRAP_UP_LINE,
 };

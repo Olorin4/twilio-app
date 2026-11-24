@@ -1,11 +1,6 @@
 const { getConfig } = require("../../src/receptionist/config");
-const { GREETING } = require("../../src/receptionist/twiml");
-const {
-  FALLBACK_LINE,
-  STILL_THERE_LINE,
-  SILENT_END_LINE,
-  WRAP_UP_LINE,
-} = require("../../src/receptionist/prompt");
+const { fixedLines } = require("../../src/receptionist/prompt");
+const { JACK } = require("../../src/receptionist/seed/jack");
 const { createSession, speakMs } = require("../../src/receptionist/session");
 
 const sid = `CA${"1".repeat(32)}`;
@@ -16,6 +11,13 @@ const context = {
   connectionId: null,
   from: "+15551230009",
 };
+const GREETING = JACK.greeting;
+const {
+  fallback: FALLBACK_LINE,
+  stillThere: STILL_THERE_LINE,
+  silentEnd: SILENT_END_LINE,
+  wrapUp: WRAP_UP_LINE,
+} = fixedLines(JACK);
 const prompt = (text) => ({ type: "prompt", voicePrompt: text, last: true });
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const text = (token) => ({ type: "text", token, last: false });
@@ -59,6 +61,7 @@ function start(overrides = {}) {
     agent,
     config,
     context,
+    profile: JACK,
     onFinished,
     now: () => new Date("2026-11-16T15:00:00Z").getTime(),
     ...overrides,
@@ -535,4 +538,88 @@ test("an interruption with nothing heard never removes the greeting", async () =
   expect(onFinished.mock.calls[0][0].transcript).toEqual([
     { role: "agent", text: GREETING },
   ]);
+});
+
+describe("the call's agent profile", () => {
+  const kelevo = {
+    ...JACK,
+    id: "00000000-0000-4000-8000-0000000000aa",
+    kind: "support",
+    name: "Kelevo support",
+    personaName: "Kai",
+    companyName: "KelevoTMS",
+    greeting: "Thanks for calling KelevoTMS support. This is Kai.",
+  };
+  const failing = async (history) => ({
+    history,
+    spoken: "",
+    end: null,
+    carrier: null,
+    failed: true,
+  });
+
+  test("the greeting comes from the profile", async () => {
+    const s = start({ profile: kelevo });
+    await s.handle(prompt("hello"));
+    const history = agent.runTurn.mock.calls[0][0];
+    expect(history[1]).toEqual({ role: "assistant", content: kelevo.greeting });
+    s.closed();
+    await flush();
+    expect(onFinished.mock.calls[0][0].transcript[0]).toEqual({
+      role: "agent",
+      text: kelevo.greeting,
+    });
+  });
+
+  test("fixed lines come from the profile", async () => {
+    const s = start({ profile: kelevo });
+    agent.runTurn.mockImplementation(failing);
+    await s.handle(prompt("hello"));
+    const line = fixedLines(kelevo).fallback;
+    expect(line).toContain("KelevoTMS");
+    expect(sent).toEqual([{ type: "text", token: line, last: true }]);
+  });
+
+  test("the call context names the profile's callback person", async () => {
+    const s = start({ profile: kelevo });
+    await s.handle(prompt("hello"));
+    const context = agent.runTurn.mock.calls[0][0][0].content;
+    expect(context).not.toMatch(/dispatcher/);
+    expect(context).toMatch(/someone from our team can call back/);
+  });
+
+  test("a dispatcher's silent end is recorded with a dispatcher outcome", async () => {
+    const s = start({ profile: { ...kelevo, kind: "dispatcher" } });
+    await s.handle(prompt("hello"));
+    const { stillThere, silentEnd } = fixedLines(kelevo);
+    await jest.advanceTimersByTimeAsync(speakMs("Sure.") + 12001);
+    await jest.advanceTimersByTimeAsync(speakMs(stillThere) + 12001);
+    expect(sent.at(-1)).toEqual({ type: "text", token: silentEnd, last: true });
+    await jest.advanceTimersByTimeAsync(speakMs(silentEnd) + 1);
+    expect(onFinished.mock.calls[0][0].outcome).toBe("message");
+  });
+
+  test("an edit during the call does not change it", async () => {
+    const profile = structuredClone(kelevo);
+    const s = start({ profile });
+    profile.greeting = "Edited greeting.";
+    profile.companyName = "Someone Else";
+    profile.kind = "receptionist";
+    await s.handle(prompt("hello"));
+    const history = agent.runTurn.mock.calls[0][0];
+    expect(history[1].content).toBe(kelevo.greeting);
+    expect(history[0].content).not.toMatch(/dispatcher/);
+    agent.runTurn.mockImplementation(failing);
+    await s.handle(prompt("are you there"));
+    expect(sent.at(-1).token).toBe(fixedLines(kelevo).fallback);
+  });
+
+  test("without a profile the fallback names no business", async () => {
+    const s = start({ profile: null });
+    agent.runTurn.mockImplementation(failing);
+    await s.handle(prompt("hello"));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].token).toMatch(/call you back/);
+    expect(sent[0].token).not.toMatch(/Iron Wing|KelevoTMS/);
+  });
 });

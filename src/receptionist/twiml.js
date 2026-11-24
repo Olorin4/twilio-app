@@ -8,10 +8,11 @@ const { getConfig, sayOptions } = require("./config");
 const { decideRoute, resolveProfile } = require("./routing");
 const store = require("./store");
 const tokens = require("./tokens");
+const { IRON_WING_WORKSPACE_ID } = require("../workspaceContext");
 
-// Jack's greeting. The relay now speaks the answering profile's greeting;
-// this stays for the session, which still opens its history with it until it
-// reads the profile itself.
+// Jack's greeting. The relay and the session use the answering profile's
+// greeting; this stays only for the simulator script until it moves to
+// profiles too.
 const GREETING =
   "Thanks for calling Iron Wing Dispatching. This is Jack. How can I help you today?";
 
@@ -136,10 +137,11 @@ async function endedHandler(req, res) {
     "Receptionist session failed:",
     req.body?.ErrorCode || "unknown error",
   );
+  let provider;
   try {
     // Required lazily: callResponse loads the Twilio credentials module.
     const { voiceResponse } = require("../callResponse");
-    const provider = req.providerConnection
+    provider = req.providerConnection
       ? await require("../providerContext").getProviderForWebhook(
           req.providerConnection,
           req.body.To,
@@ -148,10 +150,17 @@ async function endedHandler(req, res) {
     return res.send(voiceResponse(req.body, provider));
   } catch (error) {
     console.error("Receptionist fallback failed:", error.message);
+    // Only Iron Wing's own calls (the legacy route has no connection) may
+    // hear its name; any other business's caller hears a line naming none.
+    const workspaceId =
+      provider?.workspaceId ?? req.providerConnection?.workspaceId;
+    const ironWing = !workspaceId || workspaceId === IRON_WING_WORKSPACE_ID;
     const response = new VoiceResponse();
     response.say(
       sayOptions(),
-      "Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon.",
+      ironWing
+        ? "Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon."
+        : "Thank you for calling. Someone will call you back soon.",
     );
     response.hangup();
     return res.send(response.toString());

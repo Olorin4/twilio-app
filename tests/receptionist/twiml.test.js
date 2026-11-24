@@ -364,6 +364,63 @@ describe("endedHandler", () => {
     expect(res.send.mock.calls[0][0]).toContain("call you back");
   });
 
+  test("the ended fallback names no other business", async () => {
+    const other = "00000000-0000-4000-8000-0000000000ff";
+    getProviderForWebhook.mockRejectedValue(new Error("no number"));
+    const failed = { ...body, SessionStatus: "failed" };
+    let res = response();
+    await endedHandler(
+      { body: failed, providerConnection: { id, workspaceId: other } },
+      res,
+    );
+    let twiml = res.send.mock.calls[0][0];
+    expect(twiml).toContain(
+      "Thank you for calling. Someone will call you back soon.",
+    );
+    expect(twiml).not.toMatch(/Iron Wing/);
+
+    // The provider was found but the softphone TwiML itself failed.
+    getProviderForWebhook.mockResolvedValue({
+      id,
+      workspaceId: other,
+      phoneNumber: body.To,
+    });
+    const callResponse = require("../../src/callResponse");
+    const spy = jest
+      .spyOn(callResponse, "voiceResponse")
+      .mockImplementation(() => {
+        throw new Error("bad provider");
+      });
+    res = response();
+    await endedHandler(
+      { body: failed, providerConnection: { id, workspaceId: other } },
+      res,
+    );
+    twiml = res.send.mock.calls[0][0];
+    expect(twiml).toContain(
+      "Thank you for calling. Someone will call you back soon.",
+    );
+    expect(twiml).not.toMatch(/Iron Wing/);
+
+    // Iron Wing keeps today's line, on its connection and on the legacy path.
+    getProviderForWebhook.mockResolvedValue({
+      id,
+      workspaceId: ws,
+      phoneNumber: body.To,
+    });
+    for (const req of [
+      { body: failed, providerConnection: { id, workspaceId: ws } },
+      { body: failed },
+    ]) {
+      res = response();
+      await endedHandler(req, res);
+      expect(res.send.mock.calls[0][0]).toContain(
+        "Thank you for calling Iron Wing Dispatching. One of our representatives will call you back soon.",
+      );
+    }
+    spy.mockRestore();
+  });
+
   test.each(["ended", "completed"])("a session that %s hangs up", async (s) => {
     const res = response();
     await endedHandler({ body: { CallSid: sid, SessionStatus: s } }, res);

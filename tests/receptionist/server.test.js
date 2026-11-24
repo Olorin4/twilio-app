@@ -6,6 +6,11 @@ const twilio = require("twilio");
 const WebSocket = require("ws");
 const { loadConnectionAuth } = require("../../src/connectionWebhooks");
 const { attach, validateSignature } = require("../../src/receptionist/server");
+const {
+  createSession: realSession,
+} = require("../../src/receptionist/session");
+const { fixedLines } = require("../../src/receptionist/prompt");
+const { JACK } = require("../../src/receptionist/seed/jack");
 
 const sid = `CA${"1".repeat(32)}`;
 const id = "00000000-0000-4000-8000-000000000002";
@@ -14,6 +19,12 @@ const context = {
   workspaceId: "00000000-0000-4000-8000-000000000001",
   connectionId: null,
   from: "+15551230009",
+  agentProfileId: "00000000-0000-4000-8000-0000000000a1",
+};
+const profile = {
+  ...JACK,
+  id: context.agentProfileId,
+  workspaceId: context.workspaceId,
 };
 const setup = {
   type: "setup",
@@ -35,6 +46,7 @@ function makeDeps(overrides = {}) {
         token === "good" && callSid === sid ? context : null,
       ),
     },
+    getProfile: jest.fn().mockResolvedValue(profile),
     createClient: jest.fn(() => ({ fake: "client" })),
     createAgent: jest.fn(() => ({ fake: "agent" })),
     createSession: jest.fn((options) => {
@@ -154,9 +166,11 @@ test("setup with a valid token starts a session and forwards messages both ways"
   const session = sessions[0];
   expect(session.options.context).toEqual(context);
   expect(session.options.agent).toEqual({ fake: "agent" });
+  expect(deps.getProfile).toHaveBeenCalledWith(context.agentProfileId);
   expect(deps.createAgent).toHaveBeenCalledWith(
-    expect.objectContaining({ client: { fake: "client" } }),
+    expect.objectContaining({ client: { fake: "client" }, profile }),
   );
+  expect(session.options.profile).toBe(profile);
   expect(session.handle).toHaveBeenCalledWith(setup);
 
   ws.send("not json");
@@ -265,6 +279,107 @@ test("a missing API key does not crash: the session gets a failing agent", async
     failed: true,
   });
   ws.close();
+});
+
+describe("the call's agent profile", () => {
+  // Runs a real session: setup, then one caller turn, and returns the first
+  // text the caller is sent.
+  async function firstLine(overrides) {
+    await listen({ createSession: realSession, ...overrides });
+    const ws = connect();
+    await opened(ws);
+    const received = new Promise((resolve) =>
+      ws.once("message", (data) => resolve(JSON.parse(data.toString()))),
+    );
+    ws.send(JSON.stringify(setup));
+    ws.send(JSON.stringify({ type: "prompt", voicePrompt: "hi", last: true }));
+    const message = await received;
+    ws.close();
+    return message;
+  }
+
+  test("a missing profile gives the failing agent", async () => {
+    const message = await firstLine({
+      getProfile: jest.fn().mockResolvedValue(null),
+    });
+    expect(deps.createAgent).not.toHaveBeenCalled();
+    expect(message.type).toBe("text");
+    expect(message.last).toBe(true);
+    expect(message.token).toMatch(/having trouble on my end/);
+    expect(message.token).not.toMatch(/Iron Wing/);
+  });
+
+  test("a profile read that fails gives the failing agent", async () => {
+    const message = await firstLine({
+      getProfile: jest.fn().mockRejectedValue(new Error("db down")),
+    });
+    expect(deps.createAgent).not.toHaveBeenCalled();
+    expect(message.token).toMatch(/having trouble on my end/);
+  });
+
+  test("a profile from another workspace gives the failing agent", async () => {
+    const message = await firstLine({
+      getProfile: jest.fn().mockResolvedValue({
+        ...profile,
+        workspaceId: "00000000-0000-4000-8000-0000000000ff",
+      }),
+    });
+    expect(deps.createAgent).not.toHaveBeenCalled();
+    expect(message.token).toMatch(/having trouble on my end/);
+    expect(message.token).not.toMatch(/Iron Wing/);
+  });
+
+  test("a known profile whose agent cannot start speaks its own fallback", async () => {
+    const message = await firstLine({
+      createClient: jest.fn(() => {
+        throw new Error("no credentials");
+      }),
+    });
+    expect(message.token).toBe(fixedLines(profile).fallback);
+  });
+
+  test("messages that arrive while the profile loads are kept in order", async () => {
+    let resolve;
+    await listen({
+      getProfile: jest.fn(
+        () => new Promise((done) => (resolve = () => done(profile))),
+      ),
+    });
+    const ws = connect();
+    await opened(ws);
+    const prompt = { type: "prompt", voicePrompt: "hello", last: true };
+    ws.send(JSON.stringify(setup));
+    ws.send(JSON.stringify(prompt));
+    await until(() => deps.getProfile.mock.calls.length === 1);
+    await new Promise((done) => setTimeout(done, 20));
+    expect(deps.tokens.consume).toHaveBeenCalledTimes(1);
+    resolve();
+    await until(() => sessions[0]?.handle.mock.calls.length === 2);
+    expect(sessions[0].handle.mock.calls.map(([m]) => m)).toEqual([
+      setup,
+      prompt,
+    ]);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+});
+
+test("a socket that closes while the profile loads still finishes the call", async () => {
+  let resolve;
+  await listen({
+    getProfile: jest.fn(
+      () => new Promise((done) => (resolve = () => done(profile))),
+    ),
+  });
+  const ws = connect();
+  await opened(ws);
+  ws.send(JSON.stringify(setup));
+  await until(() => deps.getProfile.mock.calls.length === 1);
+  ws.close();
+  await closedWith(ws);
+  resolve();
+  await until(() => sessions[0]?.closed.mock.calls.length === 1);
+  expect(sessions[0].closed).toHaveBeenCalledTimes(1);
 });
 
 describe("validateSignature", () => {

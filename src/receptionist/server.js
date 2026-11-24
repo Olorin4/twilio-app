@@ -53,7 +53,9 @@ function attach(httpServer, deps = {}) {
     createAgent = require("./agent").createAgent,
     createClient = () => new (require("@anthropic-ai/sdk").default)(),
     finalize = (...args) => require("./finalize").finalize(...args),
+    getProfile = (id) => require("../agentProfiles").getProfile(id),
     setupTimeoutMs = 5000,
+    profileTimeoutMs = 3000,
   } = deps;
   const checkSignature = deps.validateSignature || validateSignature;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
@@ -66,30 +68,61 @@ function attach(httpServer, deps = {}) {
     return client;
   }
 
+  // The call's agent profile, read once when the call starts, or null when
+  // it is missing, unreadable, slow, or belongs to another workspace. Never
+  // throws: the caller then hears the fallback line instead of silence.
+  async function loadProfile(context) {
+    let timer;
+    try {
+      const profile = await Promise.race([
+        getProfile(context.agentProfileId),
+        new Promise((resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("timed out")),
+            profileTimeoutMs,
+          );
+        }),
+      ]);
+      if (!profile) {
+        console.error("Receptionist agent profile not found.");
+        return null;
+      }
+      if (profile.workspaceId !== context.workspaceId) {
+        console.error("Receptionist agent profile is in another workspace.");
+        return null;
+      }
+      return profile;
+    } catch (error) {
+      console.error("Receptionist agent profile unavailable:", error.message);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   function onConnection(ws) {
     let session = null;
+    // While the profile loads: the messages that arrive meanwhile, in order.
+    let pending = null;
+    let socketClosed = false;
     const refuse = () => ws.close(POLICY_VIOLATION, "unauthorized");
     const setupTimer = setTimeout(() => {
-      if (!session) refuse();
+      if (!session && !pending) refuse();
     }, setupTimeoutMs);
 
-    function begin(message) {
-      const context =
-        message.type === "setup"
-          ? tokens.consume(message.customParameters?.token, message.callSid)
-          : null;
-      if (!context) return refuse();
-      clearTimeout(setupTimer);
+    function startSession(context, profile) {
       const config = getConfig();
       let agent = failingAgent;
       let activeClient = null;
-      try {
-        activeClient = getClient();
-        agent = createAgent({ client: activeClient, config });
-      } catch (error) {
-        console.error("Receptionist agent unavailable:", error.message);
+      if (profile) {
+        try {
+          activeClient = getClient();
+          agent = createAgent({ client: activeClient, config, profile });
+        } catch (error) {
+          console.error("Receptionist agent unavailable:", error.message);
+        }
       }
-      session = createSession({
+      return createSession({
         send: (payload) => {
           if (ws.readyState === WebSocket.OPEN)
             ws.send(JSON.stringify(payload));
@@ -98,6 +131,7 @@ function attach(httpServer, deps = {}) {
         agent,
         config,
         context,
+        profile,
         onFinished: (result) => {
           Promise.resolve()
             .then(() => finalize(result, context, { client: activeClient }))
@@ -106,7 +140,52 @@ function attach(httpServer, deps = {}) {
             );
         },
       });
-      session.handle(message);
+    }
+
+    function forward(message) {
+      Promise.resolve(session.handle(message)).catch((error) =>
+        console.error("Receptionist message failed:", error.message),
+      );
+    }
+
+    function begin(message) {
+      const context =
+        message.type === "setup"
+          ? tokens.consume(message.customParameters?.token, message.callSid)
+          : null;
+      if (!context) return refuse();
+      clearTimeout(setupTimer);
+      pending = [message];
+      loadProfile(context).then((profile) => {
+        try {
+          session = startSession(context, profile);
+        } catch (error) {
+          console.error("Receptionist session failed:", error.message);
+          // A session that could not even start cannot serve the call;
+          // closing lets Twilio fall back to the usual path.
+          pending = null;
+          if (!socketClosed) ws.close(INTERNAL_ERROR, "session failed");
+          return;
+        }
+        const queued = pending;
+        pending = null;
+        for (const queuedMessage of queued) {
+          try {
+            forward(queuedMessage);
+          } catch (error) {
+            console.error("Receptionist message failed:", error.message);
+          }
+        }
+        if (socketClosed) closeSession();
+      });
+    }
+
+    function closeSession() {
+      try {
+        session?.closed();
+      } catch (error) {
+        console.error("Receptionist close failed:", error.message);
+      }
     }
 
     ws.on("message", (data) => {
@@ -120,24 +199,21 @@ function attach(httpServer, deps = {}) {
       // Nothing thrown here may escape: an uncaught exception in a socket
       // handler would take the whole app, and every other call, down.
       try {
+        if (pending) return void pending.push(message);
         if (!session) return begin(message);
-        Promise.resolve(session.handle(message)).catch((error) =>
-          console.error("Receptionist message failed:", error.message),
-        );
+        forward(message);
       } catch (error) {
         console.error("Receptionist message failed:", error.message);
         // A session that could not even start cannot serve the call; closing
         // lets Twilio fall back to the usual path.
-        if (!session) ws.close(INTERNAL_ERROR, "session failed");
+        if (!session && !pending) ws.close(INTERNAL_ERROR, "session failed");
       }
     });
     ws.on("close", () => {
       clearTimeout(setupTimer);
-      try {
-        session?.closed();
-      } catch (error) {
-        console.error("Receptionist close failed:", error.message);
-      }
+      socketClosed = true;
+      // A session still being started is closed once it exists.
+      if (!pending) closeSession();
     });
     ws.on("error", (error) =>
       console.error("Receptionist socket error:", error.message),

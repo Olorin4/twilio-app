@@ -1,13 +1,22 @@
 const {
   loadKnowledge,
-  buildSystem,
-  TOOLS,
+  buildSystem: buildFor,
   callContext,
-  FALLBACK_LINE,
-  STILL_THERE_LINE,
-  SILENT_END_LINE,
-  WRAP_UP_LINE,
+  fixedLines: linesFor,
+  NO_PROFILE_LINES,
 } = require("../../src/receptionist/prompt");
+const { toolsFor: toolsOf } = require("../../src/receptionist/kinds");
+const { JACK: jack } = require("../../src/receptionist/seed/jack");
+
+// Jack's prompt, tools and lines: what the receptionist line runs on.
+const buildSystem = (profile = jack) => buildFor(profile);
+const TOOLS = toolsOf("receptionist");
+const {
+  fallback: FALLBACK_LINE,
+  stillThere: STILL_THERE_LINE,
+  silentEnd: SILENT_END_LINE,
+  wrapUp: WRAP_UP_LINE,
+} = linesFor(jack);
 
 const hours = { start: 7, end: 18, timeZone: "America/New_York" };
 
@@ -262,10 +271,8 @@ describe("profile-driven prompt", () => {
     for (const n of want.values()) expect(n).toBe(1);
   });
 
-  test("buildSystem with no profile is Jack's", () => {
-    expect(JSON.stringify(buildSystem())).toBe(
-      JSON.stringify(buildSystem(JACK)),
-    );
+  test("buildSystem with no profile is never Jack's", () => {
+    expect(() => buildFor()).toThrow();
   });
 
   test("knowledge is the cached second block", () => {
@@ -373,16 +380,52 @@ describe("profile-driven prompt", () => {
       wrapUp:
         "I want to be respectful of your time, so I'll stop here. A dispatcher will call you back to pick this up. Thanks for calling Iron Wing Dispatching.",
     });
-    expect(FALLBACK_LINE).toBe(fixedLines(JACK).fallback);
-    expect(WRAP_UP_LINE).toBe(fixedLines(JACK).wrapUp);
-    expect(STILL_THERE_LINE).toBe(fixedLines(JACK).stillThere);
-    expect(SILENT_END_LINE).toBe(fixedLines(JACK).silentEnd);
   });
 
-  test("the compatibility exports are built from Jack", () => {
-    const { toolsFor } = require("../../src/receptionist/kinds");
-    expect(TOOLS).toEqual(toolsFor("receptionist"));
+  test("the compatibility export is built from Jack", () => {
     expect(loadKnowledge()).toBe(JACK.knowledge);
+  });
+
+  test("the lines for an unknown profile name no business", () => {
+    for (const line of Object.values(NO_PROFILE_LINES)) {
+      expect(line).not.toMatch(/Iron Wing|dispatcher|Jack/);
+    }
+    expect(NO_PROFILE_LINES.fallback).toMatch(/call you back/);
+  });
+
+  test("the call context names the kind's callback person", () => {
+    const at = {
+      hours,
+      now: new Date("2026-11-16T15:00:00Z"),
+    };
+    // Jack's wording is today's, word for word.
+    expect(
+      callContext({ ...at, fromKnown: true, open: true, kind: "receptionist" }),
+    ).toBe(
+      [
+        "<call_context>",
+        "It is 10:00 AM on Monday, November 16, 2026 (Eastern Time).",
+        "Calling hours are 7:00 AM to 6:00 PM, Eastern Time, every day.",
+        "The office is open now: a dispatcher can call back in the next few minutes.",
+        "The caller's phone number is known, so the dispatcher can call back on the number they are calling from.",
+        "The caller has just heard your greeting. Their first words follow.",
+        "</call_context>",
+      ].join("\n"),
+    );
+    for (const open of [true, false]) {
+      const support = callContext({
+        ...at,
+        fromKnown: true,
+        open,
+        kind: "support",
+      });
+      expect(support).not.toMatch(/dispatcher/);
+      expect(support).toMatch(/someone from our team/);
+      expect(support).toMatch(/so our team can call back/);
+      expect(callContext({ ...at, fromKnown: true, open })).toBe(
+        callContext({ ...at, fromKnown: true, open, kind: "receptionist" }),
+      );
+    }
   });
 
   test("Jack's seed carries only the fields of a seed", () => {

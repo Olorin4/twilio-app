@@ -16,6 +16,7 @@ require("dotenv").config({ quiet: true });
 const { getConfig } = require("../src/receptionist/config");
 const { callContext } = require("../src/receptionist/prompt");
 const { GREETING } = require("../src/receptionist/twiml");
+const { JACK } = require("../src/receptionist/seed/jack");
 
 const MAX_CALLER_TURNS = 12;
 const HANG_UP = "[hangs up]";
@@ -445,7 +446,7 @@ async function main(argv, deps = {}) {
       stats.lookups++;
       return cannedLookup(docket);
     };
-    const agent = createAgent({ client, config, lookup });
+    const agent = createAgent({ client, config, profile: JACK, lookup });
     const result = await runScenario(name, { client, agent, config, stats });
     console.log(`\n=== ${name} ===`);
     for (const turn of result.transcript)

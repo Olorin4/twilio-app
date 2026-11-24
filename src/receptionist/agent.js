@@ -10,7 +10,8 @@ Two things here exist because of how current Claude models behave:
   session trims history when a caller interrupts, so thinking blocks are kept
   only while a tool round is in flight and dropped from the history we keep. */
 
-const { buildSystem, TOOLS } = require("./prompt");
+const { buildSystem } = require("./prompt");
+const { toolsFor, outcomesFor } = require("./kinds");
 const { lookupCarrier, parseDocket, speakDigits } = require("./carrierLookup");
 const { addUsage } = require("./costs");
 
@@ -35,22 +36,23 @@ const MAX_REQUESTS_PER_TURN = 4;
 // line instead of dead air.
 const STREAM_QUIET_MS = 6000;
 const REQUEST_LIMIT_MS = 20_000;
-const OUTCOMES = ["lead", "not_a_lead", "spam"];
 const STALLED = Symbol("stalled");
 
 const isOpus = (model) => model.startsWith("claude-opus");
 const isSonnet = (model) => model.startsWith("claude-sonnet");
 const isHaiku = (model) => model.startsWith("claude-haiku");
 
-// The request fields that depend on the configured model.
-function requestParams(config) {
+// The request fields that depend on the configured model and the call's
+// agent profile. Without a profile this throws: no call is answered as a
+// default agent.
+function requestParams(config, profile) {
   const model = config.liveModel;
   const params = {
     model,
     max_tokens: 4096,
     output_config: { effort: config.liveEffort },
-    system: buildSystem(),
-    tools: TOOLS,
+    system: buildSystem(profile),
+    tools: toolsFor(profile.kind),
   };
   if (config.liveThinking === "off") {
     // Opus cannot run without thinking; lower effort is its only control.
@@ -92,8 +94,10 @@ const withoutThinking = (messages) =>
       (message) => !Array.isArray(message.content) || message.content.length,
     );
 
-function createAgent({ client, config, lookup = lookupCarrier }) {
-  const params = requestParams(config);
+function createAgent({ client, config, profile, lookup = lookupCarrier }) {
+  // Built once, from the profile as it was read when the call started.
+  const params = requestParams(config, profile);
+  const outcomes = outcomesFor(profile.kind);
   const surface = params.betas ? client.beta.messages : client.messages;
   // Tokens used by every request this agent makes, for the cost of the call.
   const usage = [];
@@ -186,8 +190,8 @@ function createAgent({ client, config, lookup = lookupCarrier }) {
     }
     if (tool.name === "end_call") {
       const { outcome, callback_promise, goodbye } = tool.input || {};
-      if (!OUTCOMES.includes(outcome))
-        return { error: `outcome must be one of ${OUTCOMES.join(", ")}` };
+      if (!outcomes.includes(outcome))
+        return { error: `outcome must be one of ${outcomes.join(", ")}` };
       if (
         typeof goodbye === "string" &&
         goodbye.trim() &&

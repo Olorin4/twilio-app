@@ -8,14 +8,8 @@ hanging up at any moment. Whatever happens, onFinished is called exactly once
 with the record of the call. */
 
 const { isOpen } = require("./config");
-const { GREETING } = require("./twiml");
-const {
-  callContext,
-  FALLBACK_LINE,
-  STILL_THERE_LINE,
-  SILENT_END_LINE,
-  WRAP_UP_LINE,
-} = require("./prompt");
+const { callContext, fixedLines, NO_PROFILE_LINES } = require("./prompt");
+const { outcomesFor, KINDS } = require("./kinds");
 const { callableNumber } = require("./phone");
 
 const SILENCE_MS = 12_000;
@@ -40,17 +34,39 @@ function heardPart(text, heard) {
   return heard;
 }
 
+// What the session needs from the call's agent profile, copied when the
+// call starts, so an edit saved during the call does not change it. With no
+// profile (it could not be read) the lines name no business and there is no
+// greeting to record: the relay spoke whatever greeting it was given.
+function fromProfile(profile) {
+  const kind = KINDS.includes(profile?.kind) ? profile.kind : null;
+  return {
+    kind,
+    greeting: (profile && profile.greeting) || "",
+    lines: Object.freeze({
+      ...(kind ? fixedLines(profile) : NO_PROFILE_LINES),
+    }),
+    // A caller who spoke and then went quiet, or ran out of time, is
+    // recorded as a genuine caller of this kind: lead, message or
+    // support_request.
+    spokeOutcome: outcomesFor(kind || "receptionist")[0],
+  };
+}
+
 function createSession({
   send,
   close,
   agent,
   config,
   context,
+  profile,
   onFinished,
   now = Date.now,
 }) {
+  const { kind, greeting, lines, spokeOutcome } = fromProfile(profile);
   let history = null; // null until setup
   const transcript = [];
+  let greetingEntry = null;
   let carrier = null;
   let callerSpoke = false;
   let finished = false;
@@ -143,12 +159,12 @@ function createSession({
     if (finished || pendingEnd || current) return;
     if (silenceStage === 0) {
       silenceStage = 1;
-      sayFixed(STILL_THERE_LINE);
-      startSilenceTimer(STILL_THERE_LINE);
+      sayFixed(lines.stillThere);
+      startSilenceTimer(lines.stillThere);
       return;
     }
-    sayFixed(SILENT_END_LINE);
-    scheduleEnd(callerSpoke ? "lead" : "abandoned", SILENT_END_LINE);
+    sayFixed(lines.silentEnd);
+    scheduleEnd(callerSpoke ? spokeOutcome : "abandoned", lines.silentEnd);
   }
 
   async function callerTurn(text) {
@@ -171,8 +187,8 @@ function createSession({
     transcript.push({ role: "caller", text });
 
     if (wrapUp) {
-      sayFixed(WRAP_UP_LINE);
-      scheduleEnd("lead", WRAP_UP_LINE);
+      sayFixed(lines.wrapUp);
+      scheduleEnd(spokeOutcome, lines.wrapUp);
       return;
     }
 
@@ -200,8 +216,8 @@ function createSession({
 
     if (result.failed) {
       if (streamed) safeSend({ type: "text", token: " ", last: false });
-      sayFixed(FALLBACK_LINE);
-      scheduleEnd("failed", FALLBACK_LINE);
+      sayFixed(lines.fallback);
+      scheduleEnd("failed", lines.fallback);
       return;
     }
     safeSend({ type: "text", token: "", last: true });
@@ -219,7 +235,7 @@ function createSession({
     if (finished || !history) return;
     const lastSpoken = transcript.findLast((entry) => entry.role === "agent");
     // The greeting cannot be interrupted, so it is never the line cut short.
-    if (lastSpoken && lastSpoken !== transcript[0]) {
+    if (lastSpoken && lastSpoken !== greetingEntry) {
       // A reply the caller heard none of was never part of the call: drop it
       // rather than keep a blank line.
       if (heard) lastSpoken.text = heard;
@@ -288,15 +304,19 @@ function createSession({
           open: isOpen(at, config.hours),
           hours: config.hours,
           now: at,
+          kind,
         }),
       },
-      { role: "assistant", content: GREETING },
     ];
-    transcript.push({ role: "agent", text: GREETING });
+    if (greeting) {
+      history.push({ role: "assistant", content: greeting });
+      greetingEntry = { role: "agent", text: greeting };
+      transcript.push(greetingEntry);
+    }
     Promise.resolve()
       .then(() => agent.prewarm())
       .catch(() => {});
-    startSilenceTimer(GREETING);
+    startSilenceTimer(greeting);
     maxTimer = setTimeout(() => {
       wrapUp = true;
     }, config.maxCallSeconds * 1000);
@@ -353,7 +373,7 @@ function createSession({
       clearTimeout(timer);
     return enqueue(() =>
       finish(
-        pendingEnd?.outcome || (callerSpoke ? "lead" : "abandoned"),
+        pendingEnd?.outcome || (callerSpoke ? spokeOutcome : "abandoned"),
         pendingEnd?.callbackPromise,
       ),
     );
