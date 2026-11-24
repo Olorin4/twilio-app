@@ -53,6 +53,7 @@ import {
   IRON_WING_WORKSPACE_ID,
 } from "./api";
 import WorkspaceSettings from "./WorkspaceSettings";
+import Users from "./Users";
 import "./styles.css";
 
 const keypad = [
@@ -265,6 +266,14 @@ function App() {
     { id: IRON_WING_WORKSPACE_ID, name: "Iron Wing" },
   ]);
   const [workspaceUnread, setWorkspaceUnread] = useState({});
+  const [me, setMe] = useState(null);
+  useEffect(() => {
+    apiFetch("/me", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then(setMe)
+      .catch(() => {});
+  }, []);
+  const isOwner = me?.role !== "member";
   const voice = useVoice(
     workspaces.find((workspace) => workspace.id === workspaceId),
   );
@@ -902,18 +911,34 @@ function App() {
             <span>Contacts</span>
             {view === "contacts" && <span className="nav-active" />}
           </button>
-          <button
-            className={view === "settings" ? "nav-link selected" : "nav-link"}
-            onClick={() => {
-              setView("settings");
-              setSearch("");
-              setPage(1);
-            }}
-          >
-            <Settings2 size={18} />
-            <span>Settings</span>
-            {view === "settings" && <span className="nav-active" />}
-          </button>
+          {isOwner && (
+            <button
+              className={view === "users" ? "nav-link selected" : "nav-link"}
+              onClick={() => {
+                setView("users");
+                setSearch("");
+                setPage(1);
+              }}
+            >
+              <UserRound size={18} />
+              <span>Users</span>
+              {view === "users" && <span className="nav-active" />}
+            </button>
+          )}
+          {isOwner && (
+            <button
+              className={view === "settings" ? "nav-link selected" : "nav-link"}
+              onClick={() => {
+                setView("settings");
+                setSearch("");
+                setPage(1);
+              }}
+            >
+              <Settings2 size={18} />
+              <span>Settings</span>
+              {view === "settings" && <span className="nav-active" />}
+            </button>
+          )}
         </nav>
         <div className="sidebar-bottom">
           <div className="side-help">
@@ -933,6 +958,11 @@ function App() {
       <main className="main">
         <header className="topbar">
           <div className="topbar-right">
+            {me?.displayName && (
+              <span className="current-user" title={me.username}>
+                {me.displayName}
+              </span>
+            )}
             <TimeClock zone={timeZone} onZoneChange={setTimeZone} />
             <div className="status-control" ref={statusRef}>
               <button
@@ -1139,15 +1169,17 @@ function App() {
               )}
             </button>
             <p>
-              {view === "settings"
-                ? "Manage workspaces and Twilio connections."
-                : view === "calls"
-                  ? "Your calls and conversations, all in one place."
-                  : view === "messages"
-                    ? "Send and receive messages from your number."
-                    : view === "leads"
-                      ? "Callers the AI receptionist spoke to, ready for your callback."
-                      : "Your people, one call away."}
+              {view === "users"
+                ? "Manage who can sign in and which workspaces they can open."
+                : view === "settings"
+                  ? "Manage workspaces and Twilio connections."
+                  : view === "calls"
+                    ? "Your calls and conversations, all in one place."
+                    : view === "messages"
+                      ? "Send and receive messages from your number."
+                      : view === "leads"
+                        ? "Callers the AI receptionist spoke to, ready for your callback."
+                        : "Your people, one call away."}
             </p>
           </div>
           {voice.error && !phoneOpen && (
@@ -1161,7 +1193,9 @@ function App() {
               </button>
             </div>
           )}
-          {view === "settings" ? (
+          {view === "users" ? (
+            <Users workspaces={workspaces} me={me} />
+          ) : view === "settings" ? (
             <WorkspaceSettings
               workspaceId={workspaceId}
               busy={

@@ -1,6 +1,7 @@
 jest.mock("../src/db", () => ({ query: jest.fn() }));
 jest.mock("../src/workspaceConnections", () => ({
   updateNumberSettings: jest.fn(),
+  setNumberAssignees: jest.fn(),
   listWorkspaces: jest.fn(),
   listVoiceTargets: jest.fn(),
 }));
@@ -16,11 +17,18 @@ jest.mock("../src/agentProfiles", () => ({
   listRevisions: jest.fn(),
   restoreRevision: jest.fn(),
 }));
+jest.mock("../src/users", () => ({
+  listUsers: jest.fn(),
+  createUser: jest.fn(),
+  updateUser: jest.fn(),
+  setPassword: jest.fn(),
+}));
 jest.mock("../src/twilioConnectionValidation", () => ({}));
 const router = require("../src/workspaceSettings");
 const { requireSettingsWrite } = router;
 const profiles = require("../src/agentProfiles");
 const connections = require("../src/workspaceConnections");
+const users = require("../src/users");
 const assistantSettings = require("../src/assistantSettings");
 const pool = require("../src/db");
 const express = require("express");
@@ -142,7 +150,7 @@ test.each(ROUTES)(
     console.error.mockRestore();
   },
 );
-test("agent writes pass savedBy operator and number settings pass the body", async () => {
+test("agent writes pass savedBy and number settings pass the body", async () => {
   profiles.createProfile.mockResolvedValueOnce({ id: "a" });
   let res = response();
   await handlerFor("post", "/workspaces/:workspaceId/agents")(
@@ -156,7 +164,7 @@ test("agent writes pass savedBy operator and number settings pass the body", asy
   expect(profiles.createProfile).toHaveBeenCalledWith(
     WS,
     { name: "x", kind: "support" },
-    "operator",
+    "olive",
   );
   expect(res.status).toHaveBeenCalledWith(201);
   connections.updateNumberSettings.mockResolvedValueOnce({ id: "n" });
@@ -174,7 +182,195 @@ test("agent writes pass savedBy operator and number settings pass the body", asy
     agentProfileId: "a",
     label: "Sales",
     observeHours: undefined,
+    personal: undefined,
   });
+});
+
+test("agent profile saves record the username, or operator for bootstrap", async () => {
+  const BOOT = {
+    id: null,
+    username: "operator",
+    role: "owner",
+    bootstrap: true,
+  };
+  const cases = [
+    ["post", "/workspaces/:workspaceId/agents", profiles.createProfile, {}, 2],
+    [
+      "put",
+      "/workspaces/:workspaceId/agents/:agentId",
+      profiles.updateProfile,
+      { agentId: "a" },
+      3,
+    ],
+    [
+      "post",
+      "/workspaces/:workspaceId/agents/:agentId/revisions/:revisionId/restore",
+      profiles.restoreRevision,
+      { agentId: "a", revisionId: "1" },
+      3,
+    ],
+  ];
+  for (const [method, path, store, extra, index] of cases) {
+    for (const [user, expected] of [
+      [OWNER, "olive"],
+      [BOOT, "operator"],
+    ]) {
+      store.mockClear();
+      store.mockResolvedValueOnce({});
+      await handlerFor(method, path)(
+        { user, params: { workspaceId: WS, ...extra }, body: {} },
+        response(),
+      );
+      expect(store.mock.calls[0][index]).toBe(expected);
+    }
+  }
+});
+
+test("number settings pass personal through", async () => {
+  connections.updateNumberSettings.mockResolvedValueOnce({ id: "n" });
+  await handlerFor("patch", "/workspaces/:workspaceId/numbers/:numberId")(
+    {
+      user: OWNER,
+      params: { workspaceId: WS, numberId: "n" },
+      body: { personal: true },
+    },
+    response(),
+  );
+  expect(connections.updateNumberSettings.mock.calls.at(-1)[2].personal).toBe(
+    true,
+  );
+});
+
+const USER_ROUTES = [
+  ["get", "/users", users.listUsers, {}],
+  ["post", "/users", users.createUser, {}],
+  ["patch", "/users/:userId", users.updateUser, { userId: "u" }],
+  ["post", "/users/:userId/password", users.setPassword, { userId: "u" }],
+  [
+    "put",
+    "/workspaces/:workspaceId/numbers/:numberId/assignees",
+    connections.setNumberAssignees,
+    { numberId: "n" },
+  ],
+];
+test.each(USER_ROUTES)(
+  "user routes map store errors to 400 and others to 500: %s %s",
+  async (method, path, store, extra) => {
+    const handler = handlerFor(method, path);
+    const known = [
+      "Enter a username of 3 to 40 letters, numbers, dots, dashes or underscores.",
+      "Enter a password of 12 to 200 characters.",
+      "That username is taken.",
+      "User does not exist.",
+      "Keep at least one enabled owner.",
+      "Choose a role of owner or member.",
+      "Enter a display name of 1 to 80 characters.",
+      "Choose valid workspaces.",
+      "Enabled must be true or false.",
+      "Choose people who can open this workspace.",
+    ];
+    for (const message of known) {
+      store.mockRejectedValueOnce(new Error(message));
+      const res = response();
+      await handler(
+        { user: OWNER, params: { workspaceId: WS, ...extra }, body: {} },
+        res,
+      );
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: message });
+    }
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    store.mockRejectedValueOnce(new Error("connection refused 10.0.0.1"));
+    const res = response();
+    await handler(
+      { user: OWNER, params: { workspaceId: WS, ...extra }, body: {} },
+      res,
+    );
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith({
+      error: "Could not update workspace settings.",
+    });
+    console.error.mockRestore();
+  },
+);
+
+test("user routes pass the right arguments and respond with the right status", async () => {
+  const body = {
+    username: "dana",
+    displayName: "Dana",
+    password: "correct horse battery",
+    role: "member",
+    workspaceIds: [WS],
+    extra: "ignored",
+  };
+  users.createUser.mockResolvedValueOnce({ id: "u", username: "dana" });
+  let res = response();
+  await handlerFor("post", "/users")({ user: OWNER, params: {}, body }, res);
+  expect(users.createUser).toHaveBeenCalledWith({
+    username: "dana",
+    displayName: "Dana",
+    password: "correct horse battery",
+    role: "member",
+    workspaceIds: [WS],
+  });
+  expect(res.status).toHaveBeenCalledWith(201);
+  expect(JSON.stringify(res.json.mock.calls)).not.toContain("correct horse");
+
+  users.updateUser.mockResolvedValueOnce({ id: "u" });
+  await handlerFor("patch", "/users/:userId")(
+    {
+      user: OWNER,
+      params: { userId: "u" },
+      body: { enabled: false, password: "sneaky sneaky sneaky" },
+    },
+    response(),
+  );
+  expect(users.updateUser).toHaveBeenCalledWith("u", {
+    displayName: undefined,
+    role: undefined,
+    enabled: false,
+    workspaceIds: undefined,
+  });
+
+  connections.setNumberAssignees.mockResolvedValueOnce({
+    numberId: "n",
+    userIds: ["u"],
+  });
+  await handlerFor(
+    "put",
+    "/workspaces/:workspaceId/numbers/:numberId/assignees",
+  )(
+    {
+      user: OWNER,
+      params: { workspaceId: WS, numberId: "n" },
+      body: { userIds: ["u"] },
+    },
+    response(),
+  );
+  expect(connections.setNumberAssignees).toHaveBeenCalledWith(WS, "n", ["u"]);
+});
+
+test("password routes never echo the password", async () => {
+  const password = "correct horse battery";
+  users.setPassword.mockResolvedValueOnce();
+  const res = { ...response(), end: jest.fn(), sendStatus: jest.fn() };
+  res.status = jest.fn().mockReturnValue(res);
+  await handlerFor("post", "/users/:userId/password")(
+    { user: OWNER, params: { userId: "u" }, body: { password } },
+    res,
+  );
+  expect(users.setPassword).toHaveBeenCalledWith("u", password);
+  expect(res.status).toHaveBeenCalledWith(204);
+  expect(res.json).not.toHaveBeenCalled();
+  users.setPassword.mockRejectedValueOnce(
+    new Error("Enter a password of 12 to 200 characters."),
+  );
+  const bad = response();
+  await handlerFor("post", "/users/:userId/password")(
+    { user: OWNER, params: { userId: "u" }, body: { password: "short" } },
+    bad,
+  );
+  expect(JSON.stringify(bad.json.mock.calls)).not.toContain("short");
 });
 
 // Every /settings route is owner-only except three reads members need.

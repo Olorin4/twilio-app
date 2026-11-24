@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Device } from "@twilio/voice-sdk";
 import { apiFetch, IRON_WING_WORKSPACE_ID } from "./api";
 
+const NO_LINE_MESSAGE = "No line is assigned to you in this workspace.";
 async function getToken(target) {
   const headers = { "X-Workspace-Id": target.workspace_id };
   if (target.connection_id === "legacy")
     headers["X-Legacy-Connection"] = "true";
   else headers["X-Connection-Number-Id"] = target.number_id;
   const response = await apiFetch("/token", { cache: "no-store", headers });
+  if (response.status === 403) throw new Error(NO_LINE_MESSAGE);
   if (!response.ok) throw new Error("Could not connect to the phone service.");
   const data = await response.json();
   if (!data.token) throw new Error("The phone service did not return a token.");
@@ -310,7 +312,12 @@ export function useVoice(workspace) {
         }),
       );
       if (generation !== deviceGenerationRef.current) return;
-      if (results.some((result) => result.status === "rejected"))
+      const rejected = results.filter((result) => result.status === "rejected");
+      const noLineAssigned = rejected.find(
+        (result) => result.reason?.message === NO_LINE_MESSAGE,
+      );
+      if (noLineAssigned) setError(NO_LINE_MESSAGE);
+      else if (rejected.length)
         setError(
           "One or more workspace phone connections could not connect. Check Settings.",
         );

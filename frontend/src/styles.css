@@ -2205,3 +2205,7 @@ html {
   padding: 8px;
   white-space: nowrap;
 }
+.settings-rings { display: grid; gap: 6px; border: 0; padding: 0; margin: 0; }
+.settings-rings legend { font-size: 12px; color: #617467; padding: 0; }
+.settings-rings label { display: flex; align-items: center; gap: 8px; }
+.current-user { font-size: 12px; font-weight: 600; color: #36493c; }
