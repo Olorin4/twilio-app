@@ -1581,10 +1581,19 @@ function App() {
                   : "Connecting"}
             </div>
             <strong>{voice.call.number}</strong>
-            {voice.call.workspaceName && (
+            {[
+              voice.call.workspaceName,
+              voice.call.lineLabel,
+              voice.call.localNumber,
+            ].some(Boolean) && (
               <span>
-                {voice.call.workspaceName}
-                {voice.call.localNumber ? ` · ${voice.call.localNumber}` : ""}
+                {[
+                  voice.call.workspaceName,
+                  voice.call.lineLabel,
+                  voice.call.localNumber,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             )}
           </div>
