@@ -40,6 +40,7 @@ export default function WorkspaceSettings({
   onNumberChanged,
 }) {
   const [connections, setConnections] = useState([]);
+  const [allConnections, setAllConnections] = useState([]);
   const [webhookBase, setWebhookBase] = useState("");
   const [legacy, setLegacy] = useState(null);
   const [workspaceName, setWorkspaceName] = useState("");
@@ -59,6 +60,7 @@ export default function WorkspaceSettings({
       setConnections(
         await request(`/settings/workspaces/${workspaceId}/connections`),
       );
+      setAllConnections(await request("/settings/connections"));
       setError("");
     } catch (err) {
       setError(err.message);
@@ -229,6 +231,47 @@ export default function WorkspaceSettings({
       },
       "Number selected.",
     );
+  const release = (number) => {
+    if (
+      !window.confirm(
+        `Release ${number.phone_number} from this workspace? Its history is kept and the number stays in Twilio. Add it to a workspace again from the connection's numbers.`,
+      )
+    )
+      return;
+    return withPhonePaused(
+      "Finish the current call before releasing a number.",
+      async () => {
+        await request(
+          `/settings/workspaces/${workspaceId}/numbers/${number.id}/release`,
+          json({}),
+        );
+        await onNumberChanged();
+        await load();
+      },
+      "Number released.",
+    );
+  };
+  const moveNumber = (number, target) => {
+    if (
+      !target ||
+      !window.confirm(
+        `Move ${number.phone_number} to ${target.workspace_name} (${target.name})? Update its Twilio webhooks to that connection afterwards, or calls and texts will not arrive there.`,
+      )
+    )
+      return;
+    return withPhonePaused(
+      "Finish the current call before moving a number.",
+      async () => {
+        await request(
+          `/settings/workspaces/${workspaceId}/numbers/${number.id}/move`,
+          json({ connectionId: target.id }),
+        );
+        await onNumberChanged();
+        await load();
+      },
+      `Number moved to ${target.workspace_name}. Update its Twilio webhooks.`,
+    );
+  };
   const activateLegacy = () =>
     withPhonePaused(
       "Finish the current call before changing the number.",
@@ -402,6 +445,40 @@ export default function WorkspaceSettings({
                   >
                     {number.active ? "Selected" : "Select"}
                   </button>
+                  <button
+                    type="button"
+                    className="button button-light"
+                    disabled={working || busy}
+                    onClick={() => release(number)}
+                  >
+                    Release
+                  </button>
+                  <select
+                    aria-label={`Move ${number.phone_number} to another workspace`}
+                    value=""
+                    disabled={working || busy}
+                    onChange={(event) =>
+                      moveNumber(
+                        number,
+                        allConnections.find(
+                          (target) => target.id === event.target.value,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">Move to…</option>
+                    {allConnections
+                      .filter(
+                        (target) =>
+                          target.workspace_id !== workspaceId &&
+                          target.account_sid === connection.account_sid,
+                      )
+                      .map((target) => (
+                        <option key={target.id} value={target.id}>
+                          {target.workspace_name} — {target.name}
+                        </option>
+                      ))}
+                  </select>
                 </div>
               ))}
               {numberManager?.connection.id === connection.id && (

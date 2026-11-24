@@ -83,13 +83,122 @@ async function archiveWorkspace(id) {
   workspaceId(id);
   if (id.toLowerCase() === IRON_WING_WORKSPACE_ID)
     throw new Error("The Iron Wing workspace cannot be archived.");
+  // One statement, so an archived workspace never keeps its numbers. The
+  // numbers stay on the Twilio account and can be added to another workspace.
   const result = await pool.query(
-    `UPDATE workspaces SET archived_at = now()
-     WHERE id = $1 AND archived_at IS NULL RETURNING id`,
+    `WITH archived AS (
+       UPDATE workspaces SET archived_at = now()
+       WHERE id = $1 AND archived_at IS NULL RETURNING id
+     ), cleared AS (
+       DELETE FROM workspace_active_numbers
+       WHERE workspace_id IN (SELECT id FROM archived)
+     ), freed AS (
+       DELETE FROM connection_numbers WHERE connection_id IN (
+         SELECT id FROM provider_connections
+         WHERE workspace_id IN (SELECT id FROM archived))
+     )
+     SELECT id FROM archived`,
     [id],
   );
   if (!result.rows.length) throw new Error("Workspace does not exist.");
   return { id: result.rows[0].id, archived: true };
+}
+
+async function listAllConnections() {
+  const result = await pool.query(
+    `SELECT c.id, c.name, c.account_sid, c.workspace_id, w.name AS workspace_name
+     FROM provider_connections c JOIN workspaces w ON w.id = c.workspace_id
+     WHERE w.archived_at IS NULL
+     ORDER BY lower(w.name), lower(c.name), c.id`,
+  );
+  return result.rows;
+}
+
+async function inTransaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// Removes a number from the app only. History is untouched and the number
+// stays in the Twilio account, so it can be added to any workspace afterwards.
+async function releaseNumber(workspaceId, numberId) {
+  if (!uuidPattern.test(workspaceId || "") || !uuidPattern.test(numberId || ""))
+    throw new Error("Invalid workspace or number.");
+  return inTransaction(async (client) => {
+    await client.query(
+      "DELETE FROM workspace_active_numbers WHERE connection_number_id = $1 AND workspace_id = $2",
+      [numberId, workspaceId],
+    );
+    const result = await client.query(
+      `DELETE FROM connection_numbers n USING provider_connections c
+       WHERE n.id = $1 AND c.id = n.connection_id AND c.workspace_id = $2
+       RETURNING n.phone_number`,
+      [numberId, workspaceId],
+    );
+    if (!result.rows.length)
+      throw new Error("Number does not belong to this workspace.");
+    return { released: true, phone_number: result.rows[0].phone_number };
+  });
+}
+
+// Re-points a number to another connection on the same Twilio account. Twilio's
+// own webhook URLs for the number are not changed here.
+async function moveNumber(workspaceId, numberId, targetConnectionId) {
+  if (
+    !uuidPattern.test(workspaceId || "") ||
+    !uuidPattern.test(numberId || "") ||
+    !uuidPattern.test(targetConnectionId || "")
+  )
+    throw new Error("Invalid workspace or number.");
+  return inTransaction(async (client) => {
+    const source = await client.query(
+      `SELECT n.id, n.phone_number, n.connection_id, c.account_sid
+       FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
+       WHERE n.id = $1 AND c.workspace_id = $2 FOR UPDATE OF n`,
+      [numberId, workspaceId],
+    );
+    if (!source.rows.length)
+      throw new Error("Number does not belong to this workspace.");
+    const number = source.rows[0];
+    if (number.connection_id === targetConnectionId)
+      throw new Error("Choose a different connection.");
+    const target = await client.query(
+      `SELECT c.id, c.workspace_id, c.account_sid
+       FROM provider_connections c JOIN workspaces w ON w.id = c.workspace_id
+       WHERE c.id = $1 AND w.archived_at IS NULL`,
+      [targetConnectionId],
+    );
+    if (!target.rows.length) throw new Error("Connection does not exist.");
+    if (target.rows[0].account_sid !== number.account_sid)
+      throw new Error(
+        "To move a number to another Twilio account, transfer it in Twilio first, then add it to a connection on that account.",
+      );
+    await client.query(
+      "DELETE FROM workspace_active_numbers WHERE connection_number_id = $1",
+      [numberId],
+    );
+    await client.query(
+      "UPDATE connection_numbers SET connection_id = $2 WHERE id = $1 RETURNING id",
+      [numberId, targetConnectionId],
+    );
+    return {
+      moved: true,
+      id: numberId,
+      phone_number: number.phone_number,
+      workspace_id: target.rows[0].workspace_id,
+      connection_id: targetConnectionId,
+    };
+  });
 }
 
 async function listConnections(workspaceId) {
@@ -481,6 +590,9 @@ module.exports = {
   createWorkspace,
   renameWorkspace,
   archiveWorkspace,
+  releaseNumber,
+  moveNumber,
+  listAllConnections,
   listConnections,
   createConnection,
   selectNumber,

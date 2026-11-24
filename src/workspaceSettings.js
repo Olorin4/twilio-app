@@ -5,6 +5,9 @@ const {
   createWorkspace,
   renameWorkspace,
   archiveWorkspace,
+  releaseNumber,
+  moveNumber,
+  listAllConnections,
   listConnections,
   createConnection,
   selectNumber,
@@ -72,6 +75,9 @@ function publicError(res, error) {
       "Invalid workspace.",
       "Workspace does not exist.",
       "The Iron Wing workspace cannot be archived.",
+      "Choose a different connection.",
+      "Connection does not exist.",
+      "To move a number to another Twilio account",
       "Enter a workspace name",
       "Enter a connection name",
       "Enter valid Twilio credentials.",
@@ -209,6 +215,43 @@ router.get("/workspaces/:workspaceId/connections", async (req, res) => {
     return publicError(res, error);
   }
 });
+router.get("/connections", async (req, res) => {
+  try {
+    return res.json(await listAllConnections());
+  } catch (error) {
+    return publicError(res, error);
+  }
+});
+router.post(
+  "/workspaces/:workspaceId/numbers/:numberId/release",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res.json(
+        await releaseNumber(req.params.workspaceId, req.params.numberId),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.post(
+  "/workspaces/:workspaceId/numbers/:numberId/move",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res.json(
+        await moveNumber(
+          req.params.workspaceId,
+          req.params.numberId,
+          req.body?.connectionId,
+        ),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
 router.post("/connections/validate", requireSettingsWrite, async (req, res) => {
   try {
     return res.json(await validateTwilioConnection(req.body));
