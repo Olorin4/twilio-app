@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiFetch, IRON_WING_WORKSPACE_ID } from "./api";
+import AgentProfiles from "./AgentProfiles";
 
 const blank = {
   accountSid: "",
@@ -27,6 +28,99 @@ const json = (body, method = "POST") => ({
   body: JSON.stringify(body),
 });
 
+// Label, handler and hours settings for one number. Keeps its own draft until
+// Save so typing does not touch the phone.
+function NumberSettings({ number, profiles, showHours, disabled, onSave }) {
+  const stored = {
+    handler: number.handler || "softphone",
+    agentProfileId: number.agent_profile_id || "",
+    label: number.label || "",
+    observeHours: number.observe_hours !== false,
+  };
+  const [draft, setDraft] = useState(stored);
+  useEffect(() => {
+    setDraft(stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    number.handler,
+    number.agent_profile_id,
+    number.label,
+    number.observe_hours,
+  ]);
+  const set = (patch) => setDraft({ ...draft, ...patch });
+  const aiWithoutAgent = draft.handler === "ai_agent" && !draft.agentProfileId;
+  return (
+    <div className="settings-number-options">
+      <label>
+        Label
+        <input
+          value={draft.label}
+          maxLength={60}
+          placeholder="e.g. Sales line"
+          disabled={disabled}
+          onChange={(e) => set({ label: e.target.value })}
+        />
+      </label>
+      <label>
+        Answered by
+        <select
+          value={draft.handler}
+          disabled={disabled}
+          onChange={(e) => set({ handler: e.target.value })}
+        >
+          <option value="softphone">Softphone</option>
+          <option value="ai_agent">AI agent</option>
+        </select>
+      </label>
+      {draft.handler === "ai_agent" && (
+        <label>
+          AI agent
+          <select
+            value={draft.agentProfileId}
+            disabled={disabled}
+            onChange={(e) => set({ agentProfileId: e.target.value })}
+          >
+            <option value="">Choose an agent…</option>
+            {profiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+                {profile.enabled ? "" : " (off)"}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {showHours && (
+        <label>
+          <input
+            type="checkbox"
+            checked={draft.observeHours}
+            disabled={disabled}
+            onChange={(e) => set({ observeHours: e.target.checked })}
+          />
+          Observe business hours
+        </label>
+      )}
+      <button
+        type="button"
+        className="button button-light"
+        disabled={disabled || aiWithoutAgent}
+        onClick={() =>
+          onSave({
+            handler: draft.handler,
+            agentProfileId:
+              draft.handler === "ai_agent" ? draft.agentProfileId : null,
+            label: draft.label.trim() || null,
+            ...(showHours ? { observeHours: draft.observeHours } : {}),
+          })
+        }
+      >
+        Save line settings
+      </button>
+    </div>
+  );
+}
+
 export default function WorkspaceSettings({
   workspaceId,
   workspaceName: currentName,
@@ -40,6 +134,7 @@ export default function WorkspaceSettings({
   onNumberChanged,
 }) {
   const [connections, setConnections] = useState([]);
+  const [agents, setAgents] = useState([]);
   const [allConnections, setAllConnections] = useState([]);
   const [webhookBase, setWebhookBase] = useState("");
   const [legacy, setLegacy] = useState(null);
@@ -66,6 +161,17 @@ export default function WorkspaceSettings({
       setError(err.message);
     }
   }, [workspaceId]);
+  const loadAgents = useCallback(async () => {
+    try {
+      setAgents(await request(`/settings/workspaces/${workspaceId}/agents`));
+    } catch (err) {
+      setAgents([]);
+      setError(err.message);
+    }
+  }, [workspaceId]);
+  useEffect(() => {
+    loadAgents();
+  }, [loadAgents]);
   useEffect(() => {
     setCredentials({ ...blank });
     setEditingConnection(null);
@@ -272,6 +378,18 @@ export default function WorkspaceSettings({
       `Number moved to ${target.workspace_name}. Update its Twilio webhooks.`,
     );
   };
+  const saveNumberSettings = (number, settings) =>
+    withPhonePaused(
+      "Finish the current call before changing line settings.",
+      async () => {
+        await request(
+          `/settings/workspaces/${workspaceId}/numbers/${number.id}`,
+          json(settings, "PATCH"),
+        );
+        await load();
+      },
+      "Line settings saved.",
+    );
   const activateLegacy = () =>
     withPhonePaused(
       "Finish the current call before changing the number.",
@@ -479,6 +597,13 @@ export default function WorkspaceSettings({
                         </option>
                       ))}
                   </select>
+                  <NumberSettings
+                    number={number}
+                    profiles={agents}
+                    showHours={workspaceId === IRON_WING_WORKSPACE_ID}
+                    disabled={working || busy}
+                    onSave={(settings) => saveNumberSettings(number, settings)}
+                  />
                 </div>
               ))}
               {numberManager?.connection.id === connection.id && (
@@ -556,6 +681,11 @@ export default function WorkspaceSettings({
           ))
         )}
       </div>
+      <AgentProfiles
+        workspaceId={workspaceId}
+        profiles={agents}
+        onChanged={loadAgents}
+      />
       <form onSubmit={validate} className="settings-block">
         <h3>
           {editingConnection

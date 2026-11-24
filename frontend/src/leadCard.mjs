@@ -13,12 +13,23 @@ const WITHHELD = [
 ];
 const callable = (value) =>
   E164.test(value || "") && !WITHHELD.includes(value) ? value : null;
-const OWED = ["lead", "not_a_lead", "failed"];
+export const OWED = [
+  "lead",
+  "not_a_lead",
+  "message",
+  "urgent",
+  "support_request",
+  "failed",
+];
 const BADGES = {
   lead: "NEW LEAD",
   not_a_lead: "MESSAGE",
   failed: "AGENT FAILED",
   abandoned: "ABANDONED",
+  message: "MESSAGE",
+  urgent: "URGENT",
+  support_request: "SUPPORT",
+  not_support: "NOT SUPPORT",
   spam: "SPAM",
 };
 

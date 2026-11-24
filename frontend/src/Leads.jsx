@@ -19,16 +19,17 @@ export function Script({ lead, fallback = false }) {
     script.next_step ||
     script.points?.length ||
     script.objections?.length;
-  if (!hasScript && !unanswered.length && !fallback) return null;
+  const placeholder = fallback && lead.outcome === "lead";
+  if (!hasScript && !unanswered.length && !placeholder) return null;
   return (
     <div className="lead-section">
       <h3>Suggested script</h3>
       <ol className="lead-script">
-        {!script.opener && fallback && (
+        {!script.opener && placeholder && (
           <li>
-            {lead.outcome === "lead"
-              ? "Hi, this is [your name] from Iron Wing. Jack said you called about dispatch. Is now a good time? What are you running, and what would you like help with first?"
-              : "Hi, this is [your name] from Iron Wing, returning your call. Is there a deadline I should know about? Let me confirm the next step before we hang up."}
+            Hi, this is [your name] from Iron Wing. Jack said you called about
+            dispatch. Is now a good time? What are you running, and what would
+            you like help with first?
           </li>
         )}
         {script.opener && (
@@ -64,6 +65,7 @@ function LeadCard({ lead, timeZone, canCall, onCall, onStatus }) {
   const [open, setOpen] = useState(false);
   const target = callbackTarget(lead);
   const title = leadTitle(lead);
+  const speaker = lead.agentPersonaName || "Jack";
   const turns = Array.isArray(lead.transcript) ? lead.transcript : [];
   return (
     <article
@@ -111,7 +113,9 @@ function LeadCard({ lead, timeZone, canCall, onCall, onStatus }) {
             <ol className="lead-transcript">
               {turns.map((turn, index) => (
                 <li key={index}>
-                  <strong>{turn.role === "caller" ? "Caller" : "Jack"}:</strong>{" "}
+                  <strong>
+                    {turn.role === "caller" ? "Caller" : speaker}:
+                  </strong>{" "}
                   {turn.text}
                 </li>
               ))}
@@ -177,12 +181,12 @@ export default function Leads({
     <section className="activity-card card">
       <div className="activity-heading">
         <div>
-          <div className="card-kicker">AI RECEPTIONIST</div>
+          <div className="card-kicker">AI AGENTS</div>
           <h2>Leads</h2>
           <p>
             {waiting > 0
               ? `${waiting} waiting for your callback.`
-              : "Callers Jack spoke to, newest first."}
+              : "Calls your AI agents answered, newest first."}
           </p>
         </div>
       </div>
@@ -201,7 +205,8 @@ export default function Leads({
             </div>
             <strong>No calls from the receptionist yet</strong>
             <span>
-              When Jack answers a call, the summary and script appear here.
+              When an AI agent answers a call, the summary and script appear
+              here.
             </span>
           </div>
         )

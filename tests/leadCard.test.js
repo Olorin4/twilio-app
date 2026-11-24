@@ -12,8 +12,9 @@ const {
   callerIdNote,
   promiseLine,
   unread,
+  OWED,
 } = vm.runInNewContext(
-  `${source}\n({ leadTitle, carrierLine, badge, callbackTarget, callerIdNote, promiseLine, unread })`,
+  `${source}\n({ leadTitle, carrierLine, badge, callbackTarget, callerIdNote, promiseLine, unread, OWED })`,
 );
 
 test.each([
@@ -113,4 +114,17 @@ test("the caller ID is shown beside a different number the caller gave", () => {
   expect(
     callerIdNote({ from: "anonymous", callbackNumber: "+15551230009" }),
   ).toBeNull();
+});
+
+test("new outcomes have labels", () => {
+  expect(badge({ outcome: "urgent" })).toBe("URGENT");
+  expect(badge({ outcome: "message" })).toBe("MESSAGE");
+  expect(badge({ outcome: "support_request" })).toBe("SUPPORT");
+  expect(badge({ outcome: "not_support" })).toBe("NOT SUPPORT");
+});
+test("urgent is owed a callback", () => {
+  expect(OWED).toEqual(
+    expect.arrayContaining(["message", "urgent", "support_request"]),
+  );
+  expect(unread({ status: "new", outcome: "urgent" })).toBe(true);
 });
