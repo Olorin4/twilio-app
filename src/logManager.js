@@ -7,6 +7,7 @@ const { accountSid, authToken } = require("./token");
 const pool = require("./db");
 const { publish } = require("./messageEvents");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const { lineScope, lineCondition } = require("./visibility");
 
 const client = twilio(accountSid, authToken);
 
@@ -137,6 +138,14 @@ exports.getCallLogs = async (req, res) => {
     return res.status(400).json({ error: "Invalid page or page size." });
   try {
     console.log("📥 [DEBUG] Fetching call log from postgreSQL...");
+    const workspaceId = req.workspace?.id || IRON_WING_WORKSPACE_ID;
+    // The call's line: its from_number when outbound, else its to_number.
+    const visible = lineCondition(
+      await lineScope(req.user, workspaceId),
+      "CASE WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number ELSE cl.to_number END",
+      "cl.from_number",
+      6,
+    );
 
     const callResult = `(SELECT CASE WHEN s.summary_state = 'ready' THEN 'summary'
                 WHEN s.summary_state = 'pending' THEN 'processing'
@@ -198,6 +207,7 @@ exports.getCallLogs = async (req, res) => {
         )
         AND ($2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0))
+        AND ${visible.sql}
     `;
     const grouped = req.query?.grouped === "true";
     const query = grouped
@@ -227,7 +237,8 @@ exports.getCallLogs = async (req, res) => {
       params.search,
       params.offset,
       params.pageSize + 1,
-      req.workspace?.id || IRON_WING_WORKSPACE_ID,
+      workspaceId,
+      ...visible.params,
     ];
 
     let result;
@@ -259,6 +270,15 @@ exports.getMessageLogs = async (req, res) => {
     return res.status(400).json({ error: "Invalid page or page size." });
   try {
     console.log("📥 [DEBUG] Fetching message log from postgreSQL...");
+    const workspaceId = req.workspace?.id || IRON_WING_WORKSPACE_ID;
+    const scope = await lineScope(req.user, workspaceId);
+    // The message's line: from_number when one of the lines sent it.
+    const visible = lineCondition(
+      scope,
+      "CASE WHEN m.from_number = ANY($6::text[]) THEN m.from_number ELSE m.to_number END",
+      "m.from_number",
+      7,
+    );
 
     const result = await pool.query(
       `
@@ -276,6 +296,7 @@ exports.getMessageLogs = async (req, res) => {
       LEFT JOIN company c ON d.company_id = c.id
       WHERE m.workspace_id = $5 AND ($2 = '' OR position($2 in lower(concat_ws(' ', m.from_number, m.to_number, m.body, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (m.from_number, m.to_number) AND position($2 in lower(pc.name)) > 0))
+        AND ${visible.sql}
       ORDER BY m.timestamp DESC NULLS LAST, m.id DESC
       LIMIT $4 OFFSET $3;
     `,
@@ -284,7 +305,9 @@ exports.getMessageLogs = async (req, res) => {
         params.search,
         params.offset,
         params.pageSize + 1,
-        req.workspace?.id || IRON_WING_WORKSPACE_ID,
+        workspaceId,
+        scope.numbers,
+        ...visible.params,
       ],
     );
 

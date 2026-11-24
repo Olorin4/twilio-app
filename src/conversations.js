@@ -1,6 +1,7 @@
 const pool = require("./db");
 const { publish } = require("./messageEvents");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const { lineScope, lineCondition, canSee } = require("./visibility");
 const ranks = {
   accepted: 1,
   scheduled: 1,
@@ -58,6 +59,8 @@ function numbers() {
     .map((n) => (n || "").trim())
     .filter((n) => /^\+[1-9]\d{1,14}$/.test(n));
 }
+// Every line of a workspace. History reads use lineScope(...).numbers instead,
+// which leaves out the lines the signed-in person may not see.
 async function numbersFor(workspaceId) {
   const result = await pool.query(
     `SELECT n.phone_number FROM connection_numbers n
@@ -71,10 +74,15 @@ async function numbersFor(workspaceId) {
     ]),
   ];
 }
+// A message's line: its from_number when one of the lines ($1) sent it.
+const messageLine =
+  "CASE WHEN m.from_number = ANY($1::text[]) THEN m.from_number ELSE m.to_number END";
 async function list(req, res) {
   try {
     const workspaceId = req.workspace?.id || IRON_WING_WORKSPACE_ID;
-    const workspaceNumbers = await numbersFor(workspaceId);
+    const scope = await lineScope(req.user, workspaceId);
+    const workspaceNumbers = scope.numbers;
+    const visible = lineCondition(scope, messageLine, "m.from_number", 3);
     const result = await pool.query(
       `WITH messages AS (
       SELECT m.id, m.body, m.timestamp, CASE WHEN m.from_number = ANY($1::text[]) THEN m.to_number ELSE m.from_number END AS phone,
@@ -83,9 +91,10 @@ async function list(req, res) {
        AND m.timestamp >= (SELECT tracking_started_at FROM activity_view_settings WHERE id = true)
        AND NOT EXISTS (SELECT 1 FROM activity_views v WHERE v.kind = 'message' AND v.item_id = m.id)) AS unviewed
       FROM message_logs m WHERE m.workspace_id = $2 AND (m.from_number = ANY($1::text[]) OR m.to_number = ANY($1::text[]))
+      AND ${visible.sql}
     ) SELECT DISTINCT ON (phone, local_number) phone, local_number, body, timestamp, count(*) FILTER (WHERE unviewed) OVER (PARTITION BY phone, local_number) AS unviewed_count FROM messages WHERE phone IS NOT NULL
       ORDER BY phone, local_number, timestamp DESC NULLS LAST, id DESC`,
-      [workspaceNumbers, workspaceId],
+      [workspaceNumbers, workspaceId, ...visible.params],
     );
     return res.json(
       result.rows.sort(
@@ -112,14 +121,21 @@ async function thread(req, res) {
     return res.status(400).json({ error: "Invalid conversation request." });
   try {
     const workspaceId = req.workspace?.id || IRON_WING_WORKSPACE_ID;
-    const workspaceNumbers = await numbersFor(workspaceId);
-    if (localNumber && !workspaceNumbers.includes(localNumber))
+    const scope = await lineScope(req.user, workspaceId);
+    const workspaceNumbers = scope.numbers;
+    // A line the person may not see answers like one that never existed.
+    if (
+      localNumber &&
+      (!workspaceNumbers.includes(localNumber) || !canSee(scope, localNumber))
+    )
       return res.status(404).json({ error: "Conversation not found." });
+    const visible = lineCondition(scope, messageLine, "m.from_number", 6);
     const result = await pool.query(
       `SELECT m.id, m.message_sid, m.body, m.timestamp, (m.from_number = ANY($1::text[])) AS outgoing, d.status, d.error_code
       FROM message_logs m LEFT JOIN message_delivery d ON d.message_sid = m.message_sid AND d.workspace_id = m.workspace_id AND d.provider_connection_id IS NOT DISTINCT FROM m.provider_connection_id
       WHERE m.workspace_id = $4 AND ((m.from_number = ANY($1::text[]) AND m.to_number = $2) OR (m.to_number = ANY($1::text[]) AND m.from_number = $2))
       AND ($5::text IS NULL OR m.from_number = $5 OR m.to_number = $5)
+      AND ${visible.sql}
       AND ($3::bigint IS NULL OR (COALESCE(m.timestamp, 'epoch'::timestamp), m.id) < (SELECT COALESCE(cursor.timestamp, 'epoch'::timestamp), cursor.id FROM message_logs cursor WHERE cursor.id = $3::bigint AND cursor.workspace_id = $4))
       ORDER BY m.timestamp DESC NULLS LAST, m.id DESC LIMIT 51`,
       [
@@ -128,6 +144,7 @@ async function thread(req, res) {
         before || null,
         workspaceId,
         localNumber || null,
+        ...visible.params,
       ],
     );
     res.json({

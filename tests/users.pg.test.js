@@ -4,6 +4,12 @@ jest.mock("../src/db", () => {
   return new Pool({ connectionString: process.env.TEST_DB_URL });
 });
 jest.mock("../src/twilioConnectionValidation", () => ({}));
+jest.mock("twilio", () => jest.fn(() => ({ calls: {}, messages: {} })));
+jest.mock("../src/token", () => ({
+  accountSid: "ACtest",
+  authToken: "test",
+  getIdentity: () => "operator",
+}));
 const fs = require("fs");
 const path = require("path");
 const { Pool } = require("pg");
@@ -145,5 +151,240 @@ suite("Users schema and store against PostgreSQL", () => {
     ]);
     const { rows } = await pool.query("SELECT 1 FROM number_assignees");
     expect(rows).toHaveLength(0);
+  });
+  /* The history filter (src/visibility.js) runs against real tables: the
+  call history and conversation list queries are EXPLAINed and run for an
+  owner and a member. Its own schema, so its minimal call_logs and legs
+  tables can't collide with the other PostgreSQL suites. */
+  describe("history visibility", () => {
+    const schema = "history_visibility_pg_test";
+    const W = "00000000-0000-4000-8000-0000000000e1";
+    const C = "00000000-0000-4000-8000-0000000000e2";
+    const OWNER = "00000000-0000-4000-8000-0000000000e3";
+    const MEMBER = "00000000-0000-4000-8000-0000000000e4";
+    const SHARED = "+12025550100";
+    const PERSONAL = "+12025550199";
+    const RELEASED = "+12025550777";
+    const EXTERNAL = "+12025550123";
+    const hex = (id) => id.replace(/-/g, "");
+    let db;
+    let spy;
+    const saved = {};
+
+    beforeAll(async () => {
+      for (const key of ["TWILIO_CALLER_ID", "TWILIO_PREVIOUS_NUMBERS"])
+        saved[key] = process.env[key];
+      // Not Iron Wing, so the legacy numbers play no part.
+      process.env.TWILIO_CALLER_ID = "+12025550000";
+      process.env.TWILIO_PREVIOUS_NUMBERS = "";
+      await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await pool.query(`CREATE SCHEMA ${schema}`);
+      db = new Pool({
+        connectionString: url,
+        options: `-c search_path=${schema}`,
+      });
+      await db.query(`
+        CREATE TABLE workspaces (id uuid PRIMARY KEY, name text);
+        CREATE TABLE provider_connections (id uuid PRIMARY KEY, workspace_id uuid);
+        CREATE TABLE connection_numbers (
+          id uuid PRIMARY KEY, connection_id uuid, phone_number text,
+          handler text NOT NULL DEFAULT 'softphone');
+        CREATE TABLE call_logs (
+          id bigserial PRIMARY KEY, call_sid text, timestamp timestamp,
+          from_number text, to_number text, status text, duration int,
+          direction text, workspace_id uuid, provider_connection_id uuid,
+          driver_id int, price numeric, price_unit text);
+        CREATE TABLE message_logs (
+          id bigserial PRIMARY KEY, message_sid text, from_number text,
+          to_number text, body text, timestamp timestamp, workspace_id uuid,
+          provider_connection_id uuid, driver_id int);
+        CREATE TABLE twilio_call_legs (
+          call_sid text, parent_call_sid text, workspace_id uuid,
+          provider_connection_id uuid, status text, answered boolean,
+          duration int, updated_at timestamptz);
+        CREATE TABLE phone_call_sessions (
+          id uuid, call_sid text, workspace_id uuid, provider_connection_id uuid,
+          from_number text, summary_state text, notes text, outcome text,
+          created_at timestamptz DEFAULT now());
+        CREATE TABLE call_announcements (
+          call_sid text, workspace_id uuid, provider_connection_id uuid,
+          kind text, initiated_at timestamptz, completed_at timestamptz);
+        CREATE TABLE receptionist_calls (
+          call_sid text, claude_cost numeric, relay_cost numeric,
+          ended_at timestamptz);
+        CREATE TABLE driver (
+          id int, first_name text, last_name text, company_id int);
+        CREATE TABLE company (id int, name text);
+        CREATE TABLE phone_contacts (workspace_id uuid, phone text, name text);
+        CREATE TABLE activity_view_settings (
+          id boolean PRIMARY KEY, tracking_started_at timestamp);
+        CREATE TABLE activity_views (kind text, item_id bigint);
+      `);
+      await db.query(
+        fs.readFileSync(
+          path.join(__dirname, "../migrations/014_users.sql"),
+          "utf8",
+        ),
+      );
+      await db.query(`
+        INSERT INTO workspaces VALUES ('${W}', 'w');
+        INSERT INTO provider_connections VALUES ('${C}', '${W}');
+        INSERT INTO connection_numbers (id, connection_id, phone_number, personal) VALUES
+          (gen_random_uuid(), '${C}', '${SHARED}', false),
+          (gen_random_uuid(), '${C}', '${PERSONAL}', true);
+        INSERT INTO app_users (id, username, display_name, password_hash, role) VALUES
+          ('${OWNER}', 'owner.v', 'O', 'x', 'owner'),
+          ('${MEMBER}', 'member.v', 'M', 'x', 'member');
+        INSERT INTO workspace_members VALUES ('${W}', '${MEMBER}');
+        INSERT INTO number_assignees (number_id, user_id)
+          SELECT id, '${MEMBER}'::uuid FROM connection_numbers WHERE phone_number = '${SHARED}'
+          UNION ALL
+          SELECT id, '${OWNER}'::uuid FROM connection_numbers WHERE phone_number = '${PERSONAL}';
+        INSERT INTO activity_view_settings VALUES (true, now() - interval '1 day');
+        INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, direction, workspace_id) VALUES
+          (1, 'CA1', now(), '${EXTERNAL}', '${SHARED}', 'inbound', '${W}'),
+          (2, 'CA2', now(), '${EXTERNAL}', '${PERSONAL}', 'inbound', '${W}'),
+          (3, 'CA3', now(), '${EXTERNAL}', '${RELEASED}', 'inbound', '${W}'),
+          (4, 'CA4', now(), 'client:u${hex(OWNER)}_c${hex(C)}', '${EXTERNAL}', 'inbound', '${W}'),
+          (5, 'CA5', now(), 'client:u${hex(MEMBER)}_c${hex(C)}', '${EXTERNAL}', 'inbound', '${W}'),
+          (6, 'CA6', now(), '${PERSONAL}', '${EXTERNAL}', 'outbound-api', '${W}');
+        INSERT INTO message_logs (id, message_sid, from_number, to_number, body, timestamp, workspace_id) VALUES
+          (1, 'SM1', '${EXTERNAL}', '${SHARED}', 'a', now(), '${W}'),
+          (2, 'SM2', '${EXTERNAL}', '${PERSONAL}', 'b', now(), '${W}'),
+          (3, 'SM3', '${PERSONAL}', '${EXTERNAL}', 'c', now(), '${W}');
+      `);
+      const dbPool = require("../src/db");
+      spy = jest
+        .spyOn(dbPool, "query")
+        .mockImplementation((...args) => db.query(...args));
+    });
+
+    afterAll(async () => {
+      if (spy) spy.mockRestore();
+      if (db) await db.end();
+      await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      for (const [key, value] of Object.entries(saved))
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    });
+
+    const owner = { id: OWNER, role: "owner" };
+    const member = { id: MEMBER, role: "member", workspaceIds: [W] };
+    const run = async (handler, user, query = {}) => {
+      const res = {
+        set: jest.fn(),
+        json: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+      };
+      spy.mockClear();
+      await handler({ user, workspace: { id: W }, query }, res);
+      expect(res.status).not.toHaveBeenCalled();
+      const [sql, params] = spy.mock.calls[spy.mock.calls.length - 1];
+      return { rows: res.json.mock.calls[0][0], sql, params };
+    };
+
+    test("the filtered call history parses, and a member sees only their lines", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      const forMember = await run(getCallLogs, member);
+      await expect(
+        db.query(`EXPLAIN ${forMember.sql}`, forMember.params),
+      ).resolves.toBeTruthy();
+      expect(forMember.rows.map((row) => row.id).sort()).toEqual(["1", "5"]);
+      const forOwner = await run(getCallLogs, owner);
+      await expect(
+        db.query(`EXPLAIN ${forOwner.sql}`, forOwner.params),
+      ).resolves.toBeTruthy();
+      expect(forOwner.rows.map((row) => row.id).sort()).toEqual([
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+      ]);
+      const searched = await run(getCallLogs, member, {
+        search: PERSONAL.slice(1),
+      });
+      expect(searched.rows).toEqual([]);
+    });
+
+    test("history on a released number is visible to owners only", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      expect((await run(getCallLogs, owner)).rows.map((r) => r.id)).toContain(
+        "3",
+      );
+      expect(
+        (await run(getCallLogs, member)).rows.map((r) => r.id),
+      ).not.toContain("3");
+    });
+
+    test("another owner does not see a personal line or calls placed from it", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      const other = "00000000-0000-4000-8000-0000000000e5";
+      await db.query(
+        `INSERT INTO app_users (id, username, display_name, password_hash, role)
+         VALUES ($1, 'owner.two', 'P', 'x', 'owner')`,
+        [other],
+      );
+      const { rows } = await run(getCallLogs, { id: other, role: "owner" });
+      expect(rows.map((row) => row.id).sort()).toEqual(["1", "3", "5"]);
+    });
+
+    test("the filtered conversation list parses, and a member sees only their lines", async () => {
+      const { list } = require("../src/conversations");
+      const forMember = await run(list, member);
+      await expect(
+        db.query(`EXPLAIN ${forMember.sql}`, forMember.params),
+      ).resolves.toBeTruthy();
+      expect(forMember.rows.map((row) => row.local_number)).toEqual([SHARED]);
+      const forOwner = await run(list, owner);
+      expect(forOwner.rows.map((row) => row.local_number).sort()).toEqual([
+        SHARED,
+        PERSONAL,
+      ]);
+    });
+
+    test("a Live Assist session on the personal line is not found by a member", async () => {
+      const router = require("../src/callAssist/routes");
+      const layer = router.stack.find(
+        (l) => l.route && l.route.path === "/sessions/:sessionId",
+      );
+      const handle = layer.route.stack[layer.route.stack.length - 1].handle;
+      const session = "00000000-0000-4000-8000-0000000000e6";
+      await db.query(
+        `INSERT INTO phone_call_sessions (id, workspace_id, from_number)
+         VALUES ($1, $2, $3)`,
+        [session, W, PERSONAL],
+      );
+      const res = { sendStatus: jest.fn(), json: jest.fn() };
+      spy.mockClear();
+      await handle(
+        { user: member, workspace: { id: W }, params: { sessionId: session } },
+        res,
+      );
+      expect(res.sendStatus).toHaveBeenCalledWith(404);
+      const [sql, params] = spy.mock.calls[spy.mock.calls.length - 1];
+      await expect(db.query(`EXPLAIN ${sql}`, params)).resolves.toBeTruthy();
+      // The owner, whose line it is, gets it.
+      const shown = { sendStatus: jest.fn(), json: jest.fn() };
+      await handle(
+        { user: owner, workspace: { id: W }, params: { sessionId: session } },
+        shown,
+      );
+      expect(shown.sendStatus).not.toHaveBeenCalled();
+      expect(shown.json.mock.calls[0][0]).toMatchObject({ id: session });
+    });
+
+    test("unread counts count only the member's lines", async () => {
+      const { counts } = require("../src/activityViews");
+      expect((await run(counts, member)).rows).toEqual({
+        calls: 1,
+        messages: 1,
+      });
+      expect((await run(counts, owner)).rows).toEqual({
+        calls: 3,
+        messages: 2,
+      });
+    });
   });
 });

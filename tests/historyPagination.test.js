@@ -1,6 +1,19 @@
 jest.mock("twilio", () => jest.fn(() => ({ calls: {}, messages: {} })));
 jest.mock("../src/token", () => ({ accountSid: "ACtest", authToken: "test" }));
 jest.mock("../src/db", () => ({ query: jest.fn() }));
+// History reads are filtered by lineScope (tests/historyVisibility.test.js);
+// here an owner sees every line.
+jest.mock("../src/visibility", () => ({
+  ...jest.requireActual("../src/visibility"),
+  lineScope: jest.fn(async () => ({
+    all: true,
+    hidden: [],
+    hiddenClients: [],
+    visible: [],
+    numbers: ["+15551234567"],
+    clientPrefix: null,
+  })),
+}));
 const pool = require("../src/db");
 const { getCallLogs, getMessageLogs } = require("../src/logManager");
 
@@ -40,7 +53,7 @@ test.each([getCallLogs, getMessageLogs])(
       status: jest.fn().mockReturnThis(),
     };
     await handler({ query: { page: "2", search: " Alex " } }, res);
-    expect(pool.query.mock.calls[0][1]).toEqual([
+    expect(pool.query.mock.calls[0][1].slice(0, 5)).toEqual([
       process.env.TWILIO_CALLER_ID,
       "alex",
       10,
@@ -74,7 +87,7 @@ test.each([getCallLogs, getMessageLogs])(
       status: jest.fn().mockReturnThis(),
     };
     await handler({ query: { page: "3", pageSize: "20" } }, res);
-    expect(pool.query.mock.calls[0][1]).toEqual([
+    expect(pool.query.mock.calls[0][1].slice(0, 5)).toEqual([
       process.env.TWILIO_CALLER_ID,
       "",
       40,
