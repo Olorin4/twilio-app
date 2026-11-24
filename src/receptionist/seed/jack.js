@@ -7,8 +7,7 @@ database supplies id, workspace, voice and the rest. */
 const fs = require("fs");
 const path = require("path");
 
-// Must equal GREETING in twiml.js (pinned by twiml.test.js). Not imported,
-// because twiml.js loads the twilio package.
+// Pinned word for word by twiml.test.js.
 const greeting =
   "Thanks for calling Iron Wing Dispatching. This is Jack. How can I help you today?";
 

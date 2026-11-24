@@ -1,4 +1,6 @@
 BEGIN;
+-- Fail fast instead of queueing behind live traffic; rerun if it times out.
+SET LOCAL lock_timeout = '5s';
 
 CREATE TABLE IF NOT EXISTS agent_profiles (
   id uuid PRIMARY KEY,

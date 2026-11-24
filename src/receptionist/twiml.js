@@ -10,12 +10,6 @@ const store = require("./store");
 const tokens = require("./tokens");
 const { IRON_WING_WORKSPACE_ID } = require("../workspaceContext");
 
-// Jack's greeting. The relay and the session use the answering profile's
-// greeting; this stays only for the simulator script until it moves to
-// profiles too.
-const GREETING =
-  "Thanks for calling Iron Wing Dispatching. This is Jack. How can I help you today?";
-
 const callSidPattern = /^CA[0-9a-f]{32}$/i;
 // Twilio is waiting for TwiML while the routing decision reads the database.
 // Past this, the call follows today's path instead of waiting on a slow one.
@@ -167,4 +161,4 @@ async function endedHandler(req, res) {
   }
 }
 
-module.exports = { GREETING, relayTwiml, agentTwiml, endedHandler };
+module.exports = { relayTwiml, agentTwiml, endedHandler };

@@ -298,36 +298,43 @@ describe("the call's agent profile", () => {
     return message;
   }
 
-  test("a missing profile gives the failing agent", async () => {
-    const message = await firstLine({
-      getProfile: jest.fn().mockResolvedValue(null),
-    });
-    expect(deps.createAgent).not.toHaveBeenCalled();
-    expect(message.type).toBe("text");
-    expect(message.last).toBe(true);
-    expect(message.token).toMatch(/having trouble on my end/);
-    expect(message.token).not.toMatch(/Iron Wing/);
-  });
+  // Runs a real session whose profile cannot be used, and returns the close
+  // code and every message the caller was sent. A 1011 close makes Twilio's
+  // <Connect action> call endedHandler, which rings the softphone.
+  async function refusedWith(getProfile) {
+    await listen({ createSession: jest.fn(realSession), getProfile });
+    const ws = connect();
+    await opened(ws);
+    const messages = [];
+    ws.on("message", (data) => messages.push(JSON.parse(data.toString())));
+    const closed = closedWith(ws);
+    ws.send(JSON.stringify(setup));
+    ws.send(JSON.stringify({ type: "prompt", voicePrompt: "hi", last: true }));
+    return { code: await closed, messages };
+  }
 
-  test("a profile read that fails gives the failing agent", async () => {
-    const message = await firstLine({
-      getProfile: jest.fn().mockRejectedValue(new Error("db down")),
-    });
-    expect(deps.createAgent).not.toHaveBeenCalled();
-    expect(message.token).toMatch(/having trouble on my end/);
-  });
-
-  test("a profile from another workspace gives the failing agent", async () => {
-    const message = await firstLine({
-      getProfile: jest.fn().mockResolvedValue({
-        ...profile,
-        workspaceId: "00000000-0000-4000-8000-0000000000ff",
-      }),
-    });
-    expect(deps.createAgent).not.toHaveBeenCalled();
-    expect(message.token).toMatch(/having trouble on my end/);
-    expect(message.token).not.toMatch(/Iron Wing/);
-  });
+  test.each([
+    ["missing", () => jest.fn().mockResolvedValue(null)],
+    ["unreadable", () => jest.fn().mockRejectedValue(new Error("db down"))],
+    [
+      "in another workspace",
+      () =>
+        jest.fn().mockResolvedValue({
+          ...profile,
+          workspaceId: "00000000-0000-4000-8000-0000000000ff",
+        }),
+    ],
+  ])(
+    "a profile that is %s closes with 1011 and plays no fallback line",
+    async (_, makeGetProfile) => {
+      const { code, messages } = await refusedWith(makeGetProfile());
+      expect(code).toBe(1011);
+      expect(messages).toEqual([]);
+      expect(deps.createSession).not.toHaveBeenCalled();
+      expect(deps.createAgent).not.toHaveBeenCalled();
+      expect(deps.finalize).not.toHaveBeenCalled();
+    },
+  );
 
   test("a known profile whose agent cannot start speaks its own fallback", async () => {
     const message = await firstLine({

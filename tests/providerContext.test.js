@@ -95,3 +95,37 @@ test("the legacy provider reports the legacy handler", async () => {
     observeHours: true,
   });
 });
+
+describe("checkNumberSchema", () => {
+  const { checkNumberSchema } = require("../src/providerContext");
+  let error;
+  beforeEach(() => {
+    error = jest.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => error.mockRestore());
+
+  test("logs loudly when connection_numbers.handler is missing (migration 013 not run)", async () => {
+    pool.query.mockResolvedValueOnce({ rows: [] });
+    await expect(checkNumberSchema()).resolves.toBe(false);
+    expect(pool.query.mock.calls[0][0]).toMatch(/information_schema\.columns/);
+    expect(pool.query.mock.calls[0][1]).toEqual([
+      "connection_numbers",
+      "handler",
+    ]);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringMatching(/migrate:agent-profiles/),
+    );
+  });
+
+  test("stays quiet when the column exists", async () => {
+    pool.query.mockResolvedValueOnce({ rows: [{ "?column?": 1 }] });
+    await expect(checkNumberSchema()).resolves.toBe(true);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  test("never throws when the database is unreachable", async () => {
+    pool.query.mockRejectedValueOnce(new Error("connection refused"));
+    await expect(checkNumberSchema()).resolves.toBeNull();
+    expect(error).toHaveBeenCalled();
+  });
+});

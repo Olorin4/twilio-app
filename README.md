@@ -347,12 +347,22 @@ name, so another business's emails carry that sender name.
 Production steps need the owner's go-ahead. Do not run them without it.
 
 1. `npm run migrate:agent-profiles` against production, **before** the new code
-   is deployed. It is additive and safe to rerun.
-2. `npm run seed:agent-profiles` right after the migration. It imports Jack as
-   Iron Wing's default profile.
+   is deployed. It is additive and safe to rerun. It waits at most 5 seconds
+   for a table lock; if it times out, simply rerun it. Deploying before step 1
+   breaks inbound calls on connection numbers, outgoing calls and softphone
+   tokens in every workspace (the app logs `DATABASE NOT MIGRATED` at startup
+   when this happens).
+2. `npm run seed:agent-profiles` right after the migration, run with
+   production's `RECEPTIONIST_DAILY_LIMIT`
+   (`RECEPTIONIST_DAILY_LIMIT=<prod value> npm run seed:agent-profiles`). It
+   imports Jack as Iron Wing's default profile and takes his daily limit from
+   the machine running the seed; a local `.env` without the variable gives 3,
+   and the value then sticks.
 3. Deploy the code.
 4. Place a test-caller call to the legacy number and check it still reaches
-   Jack (greeting, a saved row in `receptionist_calls`, and the email).
+   Jack (greeting, a saved row in `receptionist_calls`, and the email). In
+   Settings, confirm Jack's daily limit matches production's, his voice is
+   empty and his alert email is empty.
 
 #### Testing against Postgres
 

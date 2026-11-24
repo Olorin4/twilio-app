@@ -11,6 +11,10 @@ import {
   unread,
 } from "./leadCard.mjs";
 
+// Old rows (agentKind null) are all Iron Wing receptionist calls.
+const isReceptionist = (lead) =>
+  !lead.agentKind || lead.agentKind === "receptionist";
+
 export function Script({ lead, fallback = false }) {
   const script = lead.script || {};
   const unanswered = lead.details?.unanswered || [];
@@ -21,15 +25,16 @@ export function Script({ lead, fallback = false }) {
     script.objections?.length;
   const placeholder = fallback && lead.outcome === "lead";
   if (!hasScript && !unanswered.length && !placeholder) return null;
+  const receptionist = isReceptionist(lead);
+  const persona = lead.agentPersonaName || "our assistant";
   return (
     <div className="lead-section">
-      <h3>Suggested script</h3>
+      <h3>{receptionist ? "Suggested script" : "To do"}</h3>
       <ol className="lead-script">
         {!script.opener && placeholder && (
           <li>
-            Hi, this is [your name] from Iron Wing. Jack said you called about
-            dispatch. Is now a good time? What are you running, and what would
-            you like help with first?
+            Hi, this is [your name]. {persona} said you called. Is now a good
+            time? What would you like help with first?
           </li>
         )}
         {script.opener && (
@@ -65,7 +70,9 @@ function LeadCard({ lead, timeZone, canCall, onCall, onStatus }) {
   const [open, setOpen] = useState(false);
   const target = callbackTarget(lead);
   const title = leadTitle(lead);
-  const speaker = lead.agentPersonaName || "Jack";
+  // Only old Iron Wing rows (no kind recorded) were all answered by Jack.
+  const speaker = lead.agentPersonaName || (lead.agentKind ? "Agent" : "Jack");
+  const receptionist = isReceptionist(lead);
   const turns = Array.isArray(lead.transcript) ? lead.transcript : [];
   return (
     <article
@@ -86,9 +93,10 @@ function LeadCard({ lead, timeZone, canCall, onCall, onStatus }) {
         <p className="lead-carrier">{callerIdNote(lead)}</p>
       )}
       {/* "No authority yet" only means something for a prospective carrier. */}
-      {(lead.outcome === "lead" || lead.mcNumber || lead.usdot) && (
-        <p className="lead-carrier">{carrierLine(lead)}</p>
-      )}
+      {receptionist &&
+        (lead.outcome === "lead" || lead.mcNumber || lead.usdot) && (
+          <p className="lead-carrier">{carrierLine(lead)}</p>
+        )}
       {lead.summary && (
         <div className="lead-section">
           <h3>Summary</h3>
@@ -203,7 +211,7 @@ export default function Leads({
             <div className="empty-icon">
               <UserPlus size={23} />
             </div>
-            <strong>No calls from the receptionist yet</strong>
+            <strong>No calls from your AI agents yet</strong>
             <span>
               When an AI agent answers a call, the summary and script appear
               here.

@@ -23,12 +23,8 @@ const {
 const { getProviderForWebhook } = require("../../src/providerContext");
 const { getConfig } = require("../../src/receptionist/config");
 const tokens = require("../../src/receptionist/tokens");
-const {
-  GREETING,
-  relayTwiml,
-  agentTwiml,
-  endedHandler,
-} = require("../../src/receptionist/twiml");
+const twimlModule = require("../../src/receptionist/twiml");
+const { relayTwiml, agentTwiml, endedHandler } = twimlModule;
 const { voiceResponse } = require("../../src/callResponse");
 const { isTwilioWebhook } = require("../../src/security");
 
@@ -108,15 +104,14 @@ describe("relayTwiml", () => {
 
   test("the greeting names Jack and says nothing about AI or transcription", () => {
     // The owner's decision: Jack says he is an AI when a caller asks, not in
-    // the welcome message.
+    // the welcome message. The relay speaks the profile's greeting; there is
+    // no hard-coded copy left in twiml.js.
+    const GREETING = JACK.greeting;
+    expect(twimlModule.GREETING).toBeUndefined();
     expect(GREETING).toBe(
       "Thanks for calling Iron Wing Dispatching. This is Jack. How can I help you today?",
     );
     expect(GREETING).not.toMatch(/\bAI\b|assistant|transcribed|recorded/i);
-    // Jack's seed profile opens with the same words.
-    expect(require("../../src/receptionist/seed/jack").JACK.greeting).toBe(
-      GREETING,
-    );
     // The line takes every kind of business call, so the opener is general.
     expect(GREETING).toMatch(/How can I help you today\?$/);
     expect(GREETING).not.toContain("for your truck");

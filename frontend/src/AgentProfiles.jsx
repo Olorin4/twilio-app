@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { apiFetch } from "./api";
+import { apiFetch, IRON_WING_WORKSPACE_ID } from "./api";
 
 const KINDS = [
   ["receptionist", "Receptionist (screens new leads)"],
@@ -149,11 +149,22 @@ export default function AgentProfiles({ workspaceId, profiles, onChanged }) {
       }
     }, "Agent saved.");
   };
-  const makeDefault = (profile) =>
-    run(async () => {
+  // In Iron Wing the default agent answers the customer line, switched on
+  // and off by the "AI assistant (Jack)" setting.
+  const ironWing = workspaceId === IRON_WING_WORKSPACE_ID;
+  const makeDefault = (profile) => {
+    if (
+      ironWing &&
+      !window.confirm(
+        `Make ${profile.name} the default agent? In Iron Wing the default agent answers the customer line, so ${profile.name} will answer it instead of the current default whenever the "AI assistant (Jack)" setting is on.`,
+      )
+    )
+      return;
+    return run(async () => {
       await request(`${base}/${profile.id}/default`, json({}));
       await onChanged();
     }, `${profile.name} is now the default agent.`);
+  };
   const restore = (revision) => {
     if (
       !window.confirm(
@@ -204,6 +215,14 @@ export default function AgentProfiles({ workspaceId, profiles, onChanged }) {
               >
                 Make default
               </button>
+            )}
+            {!profile.isDefault && ironWing && (
+              <p>
+                <small>
+                  The default agent answers Iron Wing&apos;s customer line when
+                  the AI assistant (Jack) setting is on.
+                </small>
+              </p>
             )}
           </article>
         ))

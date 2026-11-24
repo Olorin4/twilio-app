@@ -25,6 +25,8 @@ const server = http.createServer(app);
 require("./src/receptionist/server").attach(server);
 const port = process.env.PORT || 3001;
 server.listen(port, () => console.log("Express server running on *:" + port));
+// Logs loudly (never crashes) when migration 013 has not been run.
+require("./src/providerContext").checkNumberSchema();
 
 // Schedule Automatic Sync and Cleanup:
 if (!global.cleanupScheduled) {

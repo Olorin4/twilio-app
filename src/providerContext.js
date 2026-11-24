@@ -92,4 +92,31 @@ async function getProviderForWebhook(connection, phoneNumber) {
     throw new Error("Connection does not own this number.");
   return provider;
 }
-module.exports = { getProvider, getProviderForWebhook, legacyProvider };
+// Run once at startup. getProvider reads the columns migration 013 adds, so
+// code deployed before that migration breaks inbound calls on connection
+// numbers, outgoing calls and softphone tokens in every workspace. Logs
+// loudly and never throws: true when the column exists, false when it is
+// missing, null when the check itself could not run.
+async function checkNumberSchema() {
+  try {
+    const result = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`,
+      ["connection_numbers", "handler"],
+    );
+    if (result.rows.length) return true;
+    console.error(
+      "DATABASE NOT MIGRATED: connection_numbers.handler is missing. Inbound calls on connection numbers, outgoing calls and softphone tokens will fail in every workspace until `npm run migrate:agent-profiles` (migration 013) is run.",
+    );
+    return false;
+  } catch (error) {
+    console.error("Startup schema check failed:", error.message);
+    return null;
+  }
+}
+module.exports = {
+  getProvider,
+  getProviderForWebhook,
+  legacyProvider,
+  checkNumberSchema,
+};

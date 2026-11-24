@@ -70,7 +70,7 @@ function attach(httpServer, deps = {}) {
 
   // The call's agent profile, read once when the call starts, or null when
   // it is missing, unreadable, slow, or belongs to another workspace. Never
-  // throws: the caller then hears the fallback line instead of silence.
+  // throws: on null the socket is closed so the caller gets the softphone.
   async function loadProfile(context) {
     let timer;
     try {
@@ -110,17 +110,18 @@ function attach(httpServer, deps = {}) {
       if (!session && !pending) refuse();
     }, setupTimeoutMs);
 
+    // Only called with a usable profile. If its agent cannot start, the
+    // session still runs with the failing agent and speaks the profile's
+    // own fallback line.
     function startSession(context, profile) {
       const config = getConfig();
       let agent = failingAgent;
       let activeClient = null;
-      if (profile) {
-        try {
-          activeClient = getClient();
-          agent = createAgent({ client: activeClient, config, profile });
-        } catch (error) {
-          console.error("Receptionist agent unavailable:", error.message);
-        }
+      try {
+        activeClient = getClient();
+        agent = createAgent({ client: activeClient, config, profile });
+      } catch (error) {
+        console.error("Receptionist agent unavailable:", error.message);
       }
       return createSession({
         send: (payload) => {
@@ -157,6 +158,13 @@ function attach(httpServer, deps = {}) {
       clearTimeout(setupTimer);
       pending = [message];
       loadProfile(context).then((profile) => {
+        if (!profile) {
+          // No agent to answer: closing with an error makes Twilio's
+          // <Connect action> call endedHandler, which rings the softphone.
+          pending = null;
+          if (!socketClosed) ws.close(INTERNAL_ERROR, "profile unavailable");
+          return;
+        }
         try {
           session = startSession(context, profile);
         } catch (error) {
