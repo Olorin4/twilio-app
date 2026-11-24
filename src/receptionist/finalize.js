@@ -1,10 +1,15 @@
-/* What happens once a call with the AI receptionist is over: save it, tell
-the softphone, summarise it, and email the owner.
+/* What happens once a call with an AI agent is over: save it, tell the
+softphone, summarise it, and email the owner.
 
 The call is saved first, with its transcript, because everything after that
 depends on a model request that can be slow or fail - and the one thing that
 must not happen is a lead being lost. Each later step is allowed to fail
-without taking the others down. */
+without taking the others down.
+
+The summary and the email are written for the call's agent profile. When it
+cannot be loaded (deleted, unreadable, or now in another workspace) the call
+is still saved, but with no AI summary, and the email - only to the global
+alert address - names no agent: nothing of Jack's stands in for it. */
 
 const store = require("./store");
 const { getConfig } = require("./config");
@@ -12,7 +17,45 @@ const { addUsage, claudeCost, relayCost } = require("./costs");
 const { publish } = require("../messageEvents");
 
 const { NO_SUMMARY } = require("./noSummary");
-const EMAILED_AFTER_SUMMARY = ["lead", "not_a_lead"];
+const { EMAILED_OUTCOMES } = require("./kinds");
+
+const PROFILE_TIMEOUT_MS = 3000;
+
+// The call's agent profile, or null when it is missing, unreadable, slow, or
+// belongs to another workspace. Never throws.
+async function loadProfile(getProfile, context) {
+  let timer;
+  try {
+    const profile = await Promise.race([
+      getProfile(context?.agentProfileId),
+      new Promise((resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("timed out")),
+          PROFILE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (!profile) {
+      console.error("Receptionist summary: agent profile not found.");
+      return null;
+    }
+    if (profile.workspaceId !== context.workspaceId) {
+      console.error(
+        "Receptionist summary: agent profile in another workspace.",
+      );
+      return null;
+    }
+    return profile;
+  } catch (error) {
+    console.error(
+      "Receptionist summary: agent profile unavailable:",
+      error.message,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // The shape the lead email reads, for when no saved row is available.
 const asRow = (callSid, context, fields, transcript) => ({
@@ -37,7 +80,8 @@ async function finalize(result, context, deps = {}) {
     client,
     config = getConfig(),
     summarize = require("./summary").summarize,
-    sendLeadEmail = require("./alertEmail").sendLeadEmail,
+    sendCallEmail = require("./alertEmail").sendCallEmail,
+    getProfile = (id) => require("../agentProfiles").getProfile(id),
   } = deps;
   const { callSid, transcript } = result;
   // The live call's token counts; the summary request adds its own below.
@@ -59,11 +103,15 @@ async function finalize(result, context, deps = {}) {
       console.error("Receptionist cost save failed:", error.message);
     }
   };
+  // Set once the profile is loaded, below; null when it could not be.
+  let profile = null;
   const email = async (row) => {
+    // Without a profile only the global alert address may be told.
+    if (!profile && !config.alertEmail) return;
     try {
-      await sendLeadEmail(row, config);
+      await sendCallEmail(row, config, profile);
     } catch (error) {
-      console.error("Lead email failed:", error.message);
+      console.error("Call email failed:", error.message);
     }
   };
 
@@ -83,6 +131,9 @@ async function finalize(result, context, deps = {}) {
     return;
   }
 
+  // Read while the call is saved; nothing below the save waits on it alone.
+  const profileLoad = loadProfile(getProfile, context);
+
   // 1. Save what is already known.
   const carrier = result.carrier?.found ? result.carrier : null;
   const known = {
@@ -101,7 +152,10 @@ async function finalize(result, context, deps = {}) {
   try {
     row = await store.finishCall(callSid, known);
     // No row means the call was already closed, and already dealt with.
-    if (!row) return;
+    if (!row) {
+      await profileLoad;
+      return;
+    }
     closed = row;
     saved = true;
     publish();
@@ -114,12 +168,13 @@ async function finalize(result, context, deps = {}) {
   // The caller of a failed call was told a dispatcher would call back
   // shortly, and the model that just failed may fail the summary too: tell
   // the owner now.
+  profile = await profileLoad;
   const failed = result.outcome === "failed";
   if (failed) await email(row);
 
-  // 2. Summarise.
+  // 2. Summarise, for the call's own agent only.
   let summary = null;
-  if (client) {
+  if (client && profile) {
     try {
       summary = await summarize({
         client,
@@ -127,6 +182,7 @@ async function finalize(result, context, deps = {}) {
         transcript,
         carrier: result.carrier,
         context,
+        profile,
         onUsage: (message) => addUsage(usage, message),
       });
     } catch (error) {
@@ -177,7 +233,7 @@ async function finalize(result, context, deps = {}) {
   }
 
   // 4. Email the owner (a failed call was emailed above).
-  if (EMAILED_AFTER_SUMMARY.includes(fields.outcome)) await email(row);
+  if (EMAILED_OUTCOMES.includes(fields.outcome)) await email(row);
 
   // 5. Record what the call cost, last: nothing above waits on it.
   if (closed) await recordCosts(closed);

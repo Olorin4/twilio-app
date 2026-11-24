@@ -31,6 +31,9 @@ const toLead = (row) => ({
   summary: row.summary,
   script: row.script,
   transcript: row.transcript,
+  // The agent that took the call; null for calls from before agent profiles.
+  agentKind: row.agent_kind,
+  agentPersonaName: row.agent_persona_name,
 });
 
 router.get("/", async (req, res) => {

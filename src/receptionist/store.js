@@ -5,7 +5,18 @@ once, by the after-call step. */
 const pool = require("../db");
 const outbox = require("../outreachIntake/outbox");
 
-const OUTCOMES = ["lead", "not_a_lead", "spam", "abandoned", "failed"];
+// Every kind's outcomes (kinds.js), plus the two the app records itself.
+const OUTCOMES = [
+  "lead",
+  "not_a_lead",
+  "message",
+  "urgent",
+  "support_request",
+  "not_support",
+  "spam",
+  "abandoned",
+  "failed",
+];
 const STATUSES = ["new", "called", "dismissed"];
 
 const json = (value) => (value == null ? null : JSON.stringify(value));
@@ -108,17 +119,22 @@ async function countAgentCalls(from, agentProfileId, hours = 24) {
 
 // A call the agent is still on is hidden. One that was never closed (the
 // process died, or the session never started) shows as failed after 15
-// minutes, so nothing is silently lost.
+// minutes, so nothing is silently lost. Each row names the agent that took
+// the call; a call from before agent profiles has nulls there.
 async function listCalls(workspaceId, limit = 50) {
   const result = await pool.query(
-    `SELECT call_sid, from_number, started_at, ended_at,
-       COALESCE(outcome, 'failed') AS outcome, status, caller_name, company,
-       mc_number, usdot, mc_verified, callback_number, callback_promise,
-       carrier, details, summary, script, transcript
-     FROM receptionist_calls
-     WHERE workspace_id = $1
-       AND (ended_at IS NOT NULL OR started_at < now() - interval '15 minutes')
-     ORDER BY started_at DESC
+    `SELECT c.call_sid, c.from_number, c.started_at, c.ended_at,
+       COALESCE(c.outcome, 'failed') AS outcome, c.status, c.caller_name,
+       c.company, c.mc_number, c.usdot, c.mc_verified, c.callback_number,
+       c.callback_promise, c.carrier, c.details, c.summary, c.script,
+       c.transcript, p.kind AS agent_kind,
+       p.persona_name AS agent_persona_name
+     FROM receptionist_calls c
+     LEFT JOIN agent_profiles p
+       ON p.id = c.agent_profile_id AND p.workspace_id = c.workspace_id
+     WHERE c.workspace_id = $1
+       AND (c.ended_at IS NOT NULL OR c.started_at < now() - interval '15 minutes')
+     ORDER BY c.started_at DESC
      LIMIT $2`,
     [workspaceId, limit],
   );
@@ -136,14 +152,15 @@ async function setStatus(workspaceId, callSid, status) {
   return result.rowCount > 0;
 }
 
-// Cards that still need the owner: a lead, a message, or a call the agent
-// failed on - including one that was never closed, which the list shows as
-// failed.
+// Cards that still need the owner: the outcomes that are emailed (a lead or
+// a message of any kind), or a call the agent failed on - including one that
+// was never closed, which the list shows as failed.
 async function countNew(workspaceId) {
   const result = await pool.query(
     `SELECT count(*) FROM receptionist_calls
      WHERE workspace_id = $1 AND status = 'new'
-       AND (outcome IN ('lead', 'not_a_lead', 'failed')
+       AND (outcome IN ('lead', 'not_a_lead', 'message', 'urgent',
+                        'support_request', 'failed')
          OR (outcome IS NULL AND started_at < now() - interval '15 minutes'))`,
     [workspaceId],
   );

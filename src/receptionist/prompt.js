@@ -132,8 +132,8 @@ const NO_PROFILE_LINES = {
     "I want to be respectful of your time, so I'll stop here. Someone will call you back to pick this up. Thank you for calling.",
 };
 
-// Compatibility alias built from Jack, for callers not yet moved to
-// profiles (the summary and Call Assist). Task 7 removes it.
+// Jack's knowledge document, for Call Assist (Live Assist), which is not
+// per profile yet. Nothing on an AI agent's call uses it.
 const loadKnowledge = () => JACK.knowledge;
 
 module.exports = {

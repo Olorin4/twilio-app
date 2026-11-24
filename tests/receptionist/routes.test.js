@@ -151,3 +151,13 @@ test("status change returns 404 for another workspace's call", async () => {
   ).toBe(404);
   expect(publish).not.toHaveBeenCalled();
 });
+
+test("GET /leads names the agent that took the call, null for old calls", async () => {
+  store.listCalls.mockResolvedValue([
+    { call_sid: sid, agent_kind: "support", agent_persona_name: "Ava" },
+    { call_sid: sid, agent_kind: null, agent_persona_name: null },
+  ]);
+  const [ava, old] = await (await fetch(`${origin}/leads`)).json();
+  expect(ava).toMatchObject({ agentKind: "support", agentPersonaName: "Ava" });
+  expect(old).toMatchObject({ agentKind: null, agentPersonaName: null });
+});

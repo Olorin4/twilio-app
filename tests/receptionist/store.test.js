@@ -94,8 +94,8 @@ test("listCalls hides calls still in progress and reports stale ones as failed",
   pool.query.mockResolvedValue({ rows: [{ call_sid: sid }] });
   expect(await store.listCalls(ws)).toEqual([{ call_sid: sid }]);
   const [sql, params] = pool.query.mock.calls[0];
-  expect(sql).toMatch(/ended_at IS NOT NULL OR started_at < now\(\) - /);
-  expect(sql).toMatch(/COALESCE\(outcome, 'failed'\) AS outcome/);
+  expect(sql).toMatch(/ended_at IS NOT NULL OR (c\.)?started_at < now\(\) - /);
+  expect(sql).toMatch(/COALESCE\((c\.)?outcome, 'failed'\) AS outcome/);
   expect(params).toEqual([ws, 50]);
 });
 
@@ -104,7 +104,8 @@ test("countNew counts unhandled calls that are owed a callback", async () => {
   expect(await store.countNew(ws)).toBe(4);
   const sql = pool.query.mock.calls[0][0];
   expect(sql).toMatch(/status = 'new'/);
-  expect(sql).toMatch(/outcome IN \('lead', 'not_a_lead', 'failed'\)/);
+  for (const outcome of ["lead", "not_a_lead", "failed"])
+    expect(sql).toMatch(new RegExp(`outcome IN \\([^)]*'${outcome}'`));
 });
 
 test("countNew also counts a call that was never closed, as the list shows it", async () => {
@@ -158,4 +159,43 @@ test("saveCosts stores unknown costs as null", async () => {
   pool.query.mockResolvedValue({ rowCount: 1 });
   await store.saveCosts(sid, { usage: [], claudeCost: null, relayCost: null });
   expect(pool.query.mock.calls[0][1]).toEqual([sid, "[]", null, null]);
+});
+
+test("new outcomes are accepted", async () => {
+  pool.query.mockResolvedValue({ rows: [{ call_sid: sid }], rowCount: 1 });
+  for (const outcome of [
+    "message",
+    "urgent",
+    "support_request",
+    "not_support",
+  ]) {
+    expect(store.OUTCOMES).toContain(outcome);
+    await expect(store.finishCall(sid, { outcome })).resolves.toEqual({
+      call_sid: sid,
+    });
+    await expect(store.updateSummary(sid, { outcome })).resolves.toEqual({
+      call_sid: sid,
+    });
+  }
+});
+
+test("listCalls returns the agent's persona", async () => {
+  pool.query.mockResolvedValue({ rows: [] });
+  await store.listCalls(ws);
+  const [sql] = pool.query.mock.calls[0];
+  // A left join, so calls from before agent profiles still list.
+  expect(sql).toMatch(/LEFT JOIN agent_profiles/);
+  expect(sql).toMatch(/\.kind AS agent_kind/);
+  expect(sql).toMatch(/\.persona_name AS agent_persona_name/);
+  // Only a profile from the call's own workspace names the agent.
+  expect(sql).toMatch(/\.workspace_id = c\.workspace_id/);
+});
+
+test("countNew counts the new kinds' messages too", async () => {
+  pool.query.mockResolvedValue({ rows: [{ count: "0" }] });
+  await store.countNew(ws);
+  const sql = pool.query.mock.calls[0][0];
+  for (const outcome of ["message", "urgent", "support_request"])
+    expect(sql).toContain(`'${outcome}'`);
+  expect(sql).not.toContain("'not_support'");
 });
