@@ -179,15 +179,25 @@ async function withVerifySlot(work) {
 const lowerId = (id) =>
   uuidPattern.test(String(id)) ? String(id).toLowerCase() : null;
 
-async function authenticate(username, password) {
-  let name;
+// True when authenticate would look this login up at all: a valid username
+// and a password of 1 to 200 characters. Anything else is refused before any
+// database read or hashing, so the sign-in limiter does not count it.
+function plausibleLogin(username, password) {
   try {
-    name = normalizeUsername(username);
+    normalizeUsername(username);
   } catch {
-    return null;
+    return false;
   }
-  if (typeof password !== "string" || !password || password.length > 200)
-    return null;
+  return (
+    typeof password === "string" &&
+    password.length > 0 &&
+    password.length <= 200
+  );
+}
+
+async function authenticate(username, password) {
+  if (!plausibleLogin(username, password)) return null;
+  const name = normalizeUsername(username);
   const key = cacheKey(name, password);
   const hit = cache.get(key);
   if (hit && hit.expires > Date.now()) {
@@ -405,6 +415,7 @@ module.exports = {
   verifyPassword,
   normalizeUsername,
   authenticate,
+  plausibleLogin,
   isCachedLogin,
   hasEnabledOwner,
   MAX_VERIFYING,

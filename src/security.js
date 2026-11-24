@@ -1,7 +1,12 @@
 const crypto = require("crypto");
 const express = require("express");
 const twilio = require("twilio");
-const { authenticate, hasEnabledOwner, isCachedLogin } = require("./users");
+const {
+  authenticate,
+  hasEnabledOwner,
+  isCachedLogin,
+  plausibleLogin,
+} = require("./users");
 const { createLoginLimiter } = require("./loginLimiter");
 
 function equalSecret(a, b) {
@@ -66,7 +71,14 @@ out elsewhere, but guessing one account from many addresses is still bounded.
 Successful logins don't count. The 429 carries no WWW-Authenticate, so the
 browser does not re-prompt in a loop. A login that is a live cache hit (no
 hashing) still passes, so signed-in people keep working while a key is
-limited. Usernames go into keys as a sha256, so key size is bounded.
+limited. Usernames go into keys as a sha256, so key size is bounded. Only
+plausible logins count (a valid username and a 1 to 200 character password):
+anything else is refused before any lookup or hashing, and counting it would
+let junk requests fill the limiter's memory for free.
+
+The operator sees attacks in the log: a line when a key first reaches its
+limit, and a line while logins are refused as busy, each at most once a
+minute per kind so a flood cannot flood the log.
 
 req.ip is only the client's address when Express trusts the edge nginx's
 X-Forwarded-For (TRUST_PROXY, applied in index.js). Without it every client
@@ -79,6 +91,48 @@ const loginLimiter = createLoginLimiter({
   maxKeys: 10000,
 });
 const LIMITED = "Too many sign-in attempts. Try again in a minute.";
+
+// At most one console.warn a minute per topic.
+const WARN_EVERY_MS = 60000;
+const lastWarned = new Map();
+const suppressed = new Map();
+function warnOnce(topic, message) {
+  const now = Date.now();
+  const last = lastWarned.get(topic);
+  if (last !== undefined && now - last < WARN_EVERY_MS) {
+    suppressed.set(topic, (suppressed.get(topic) || 0) + 1);
+    return;
+  }
+  const skipped = suppressed.get(topic) || 0;
+  lastWarned.set(topic, now);
+  suppressed.delete(topic);
+  console.warn(
+    skipped ? `${message} (${skipped} more since the last line)` : message,
+  );
+}
+
+const LIMIT_NAMES = {
+  ip: "30 failures a minute from one address",
+  ipuser: "10 failures a minute from one address for one username",
+  user: "100 failures a minute for one username",
+};
+// Logs keys that just reached their limit. `name` is the normalised username
+// (plausible logins only reach the limiter), cut to 40 characters.
+function warnLimited(reached, req, name) {
+  const ip = req.ip || req.socket?.remoteAddress || "unknown";
+  for (const key of reached) {
+    const prefix = key.slice(0, key.indexOf(":"));
+    const who = {
+      ip: `address ${ip}`,
+      ipuser: `address ${ip}, username "${name}"`,
+      user: `username "${name}"`,
+    }[prefix];
+    warnOnce(
+      `limit:${prefix}`,
+      `Sign-in limit reached (${prefix}: ${LIMIT_NAMES[prefix] || "limit"}) for ${who}; new sign-ins are refused with 429 until it rolls off.`,
+    );
+  }
+}
 function limitKeys(req, username) {
   const name = crypto
     .createHash("sha256")
@@ -137,14 +191,25 @@ async function requireLogin(req, res, next) {
   try {
     user = await loginFor(credentials);
   } catch (error) {
-    if (error.code === "LOGIN_BUSY")
+    if (error.code === "LOGIN_BUSY") {
+      warnOnce(
+        "busy",
+        "App login is busy: password checks are at capacity, so sign-ins are refused with 503.",
+      );
       return res.status(503).send("App login is busy. Try again.");
+    }
     console.error("Login check failed:", error.message);
     return res.status(503).send("App login is unavailable.");
   }
   if (typeof user === "string") return res.status(503).send(user);
   if (!user) {
-    loginLimiter.fail(keys);
+    if (plausibleLogin(credentials.username, credentials.password)) {
+      const name = String(credentials.username)
+        .trim()
+        .toLowerCase()
+        .slice(0, 40);
+      warnLimited(loginLimiter.fail(keys), req, name);
+    }
     return challenge(res);
   }
   req.user = user;
@@ -186,7 +251,12 @@ function isTwilioWebhook(req) {
 
 module.exports = {
   requireLogin,
-  resetLoginLimits: () => loginLimiter.clear(),
+  resetLoginLimits: () => {
+    loginLimiter.clear();
+    lastWarned.clear();
+    suppressed.clear();
+  },
+  loginLimitSize: () => loginLimiter.size(),
   trustProxySetting,
   applyTrustProxy,
   limitKeys,

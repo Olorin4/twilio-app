@@ -2,6 +2,7 @@ jest.mock("../src/users", () => ({
   authenticate: jest.fn(),
   hasEnabledOwner: jest.fn(),
   isCachedLogin: jest.fn(),
+  plausibleLogin: jest.requireActual("../src/users").plausibleLogin,
 }));
 const twilio = require("twilio");
 const users = require("../src/users");
@@ -14,6 +15,7 @@ const {
   trustProxySetting,
   applyTrustProxy,
   limitKeys,
+  loginLimitSize,
 } = require("../src/security");
 const express = require("express");
 
@@ -529,12 +531,203 @@ describe("failed-login limits", () => {
     expect(limiter.blocked(["ipuser:a|y"])).toBe(false);
   });
 
-  test("memory stays bounded: the oldest address is dropped past the cap", () => {
+  test("memory stays bounded when every key is saturated: the new key is not recorded", () => {
     const { createLoginLimiter } = require("../src/loginLimiter");
     const limiter = createLoginLimiter({ limits: { ip: 1 }, maxKeys: 3 });
     for (const key of ["ip:a", "ip:b", "ip:c", "ip:d"]) limiter.fail([key]);
     expect(limiter.size()).toBe(3);
-    expect(limiter.blocked(["ip:a"])).toBe(false);
-    expect(limiter.blocked(["ip:d"])).toBe(true);
+    // Saturated keys are protected; the newcomer is the one left out.
+    expect(limiter.blocked(["ip:a"])).toBe(true);
+    expect(limiter.blocked(["ip:d"])).toBe(false);
+  });
+
+  test("past the cap, the least-loaded of the oldest keys is evicted, never a saturated one", () => {
+    const { createLoginLimiter } = require("../src/loginLimiter");
+    const limiter = createLoginLimiter({ limits: { ip: 3 }, maxKeys: 3 });
+    limiter.fail(["ip:a"]);
+    limiter.fail(["ip:a"]);
+    limiter.fail(["ip:a"]); // a is saturated
+    limiter.fail(["ip:b"]);
+    limiter.fail(["ip:b"]); // b has 2 of 3
+    limiter.fail(["ip:c"]); // c has 1 of 3
+    limiter.fail(["ip:d"]);
+    expect(limiter.size()).toBe(3);
+    expect(limiter.blocked(["ip:a"])).toBe(true);
+    limiter.fail(["ip:b"]);
+    expect(limiter.blocked(["ip:b"])).toBe(true); // b kept its two failures
+    limiter.fail(["ip:c"]);
+    limiter.fail(["ip:c"]);
+    expect(limiter.blocked(["ip:c"])).toBe(false); // c was evicted
+  });
+
+  test("eviction looks at no more than 32 of the oldest keys", () => {
+    const { createLoginLimiter } = require("../src/loginLimiter");
+    const limiter = createLoginLimiter({
+      limits: { ip: 1, user: 5 },
+      maxKeys: 40,
+    });
+    for (let i = 0; i < 32; i += 1) limiter.fail([`ip:s${i}`]); // saturated
+    for (let i = 0; i < 8; i += 1) limiter.fail([`user:u${i}`]); // 1 of 5
+    limiter.fail(["user:new"]);
+    expect(limiter.size()).toBe(40);
+    expect(limiter.blocked(["ip:s0"])).toBe(true);
+    // The unsaturated keys sit past the 32 scanned, so the newcomer is dropped.
+    for (let i = 0; i < 4; i += 1) limiter.fail(["user:new"]);
+    expect(limiter.blocked(["user:new"])).toBe(false);
+  });
+
+  test("a saturated username stays blocked through a 10,000-key flood of plausible junk", async () => {
+    await fail(100, "nick:wrong-password-1", "10.0.0.2", false);
+    for (let i = 0; i < 10000; i += 1)
+      await fail(1, `junk${i}:wrong-password-1`, "10.0.0.2", false);
+    expect(loginLimitSize()).toBeLessThanOrEqual(10000);
+    const { res } = await attempt("nick:the-right-password", "10.0.0.2", false);
+    expect(res.status).toHaveBeenCalledWith(429);
+  });
+
+  test("implausible logins answer 401 but never add limiter keys", async () => {
+    const junk = [
+      "x:wrong-password-1",
+      "bad name!:wrong-password-1",
+      `${"a".repeat(41)}:wrong-password-1`,
+      "nick:",
+      `nick:${"p".repeat(201)}`,
+    ];
+    for (let i = 0; i < 50; i += 1)
+      for (const credentials of junk) {
+        const { res } = await attempt(credentials, `10.9.0.${i}`);
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.set).toHaveBeenCalledWith("WWW-Authenticate", REALM);
+      }
+    expect(loginLimitSize()).toBe(0);
+  });
+});
+
+describe("sign-in warnings for the operator", () => {
+  const attempt = async (credentials, ip, trust = 1) => {
+    const res = response();
+    await requireLogin(request(basic(credentials), ip, trust), res, jest.fn());
+    return res;
+  };
+  let warn;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+    jest.useRealTimers();
+  });
+
+  test("a key reaching its limit is logged once a minute per prefix", async () => {
+    for (let i = 0; i < 10; i += 1)
+      await attempt("dana:wrong-password-1", "198.51.100.7");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/ipuser/);
+    expect(warn.mock.calls[0][0]).toContain("dana");
+    // A second address and username reaching the same limit within the minute is quiet.
+    for (let i = 0; i < 10; i += 1)
+      await attempt("erin:wrong-password-1", "198.51.100.8");
+    expect(warn).toHaveBeenCalledTimes(1);
+    // A minute later it is logged again.
+    jest.advanceTimersByTime(61 * 1000);
+    for (let i = 0; i < 10; i += 1)
+      await attempt("finn:wrong-password-1", "198.51.100.9");
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  test("a username reaching the per-username cap is named, truncated to 40 characters", async () => {
+    const long = `N${"x".repeat(39)}`;
+    for (let i = 0; i < 100; i += 1)
+      await attempt(
+        `${long}:wrong-password-1`,
+        `10.1.${i >> 8}.${i & 255}`,
+        false,
+      );
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/user/);
+    expect(warn.mock.calls[0][0]).toContain(long.toLowerCase());
+  });
+
+  test("busy rejections log at most one line a minute", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    users.authenticate.mockRejectedValue(
+      Object.assign(new Error("App login is busy. Try again."), {
+        code: "LOGIN_BUSY",
+      }),
+    );
+    for (let i = 0; i < 20; i += 1)
+      expect(
+        (await attempt("dana:wrong-password-1", "198.51.100.7")).status,
+      ).toHaveBeenCalledWith(503);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/busy/i);
+    jest.advanceTimersByTime(61 * 1000);
+    await attempt("dana:wrong-password-1", "198.51.100.7");
+    expect(warn).toHaveBeenCalledTimes(2);
+    console.error.mockRestore();
+  });
+});
+
+describe("TRUST_PROXY end to end over HTTP", () => {
+  const http = require("http");
+  const serve = async (value) => {
+    const app = express();
+    applyTrustProxy(app, value);
+    app.get("/who", (req, res) =>
+      res.json({ ip: req.ip, keys: limitKeys(req, "Nick") }),
+    );
+    const server = await new Promise((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+    const get = (forwarded) =>
+      new Promise((resolve, reject) => {
+        http
+          .get(
+            {
+              host: "127.0.0.1",
+              port: server.address().port,
+              path: "/who",
+              headers: { "X-Forwarded-For": forwarded },
+            },
+            (res) => {
+              let body = "";
+              res.on("data", (chunk) => (body += chunk));
+              res.on("end", () => resolve(JSON.parse(body)));
+            },
+          )
+          .on("error", reject);
+      });
+    return { get, close: () => new Promise((r) => server.close(r)) };
+  };
+  const hash = require("crypto")
+    .createHash("sha256")
+    .update("nick")
+    .digest("hex");
+
+  test("with one trusted hop, req.ip and the keys use the right-most forwarded address", async () => {
+    const { get, close } = await serve("1");
+    try {
+      const body = await get("198.51.100.66, 203.0.113.9");
+      expect(body.ip).toBe("203.0.113.9");
+      expect(body.keys).toEqual([
+        "ip:203.0.113.9",
+        `ipuser:203.0.113.9|${hash}`,
+        `user:${hash}`,
+      ]);
+    } finally {
+      await close();
+    }
+  });
+
+  test("with trust proxy off, the header is ignored and only the user key applies", async () => {
+    const { get, close } = await serve("");
+    try {
+      const body = await get("203.0.113.9");
+      expect(body.ip).toMatch(/127\.0\.0\.1$/);
+      expect(body.keys).toEqual([`user:${hash}`]);
+    } finally {
+      await close();
+    }
   });
 });
