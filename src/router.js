@@ -4,7 +4,7 @@ The router.js file exports an instance of the Express Router that is used in
 the main index.js file to define the routes for the server. */
 
 const Router = require("express").Router;
-const { tokenGenerator, tokenForProvider } = require("./token");
+const { tokenGenerator, tokenFor } = require("./token");
 const { voiceResponse } = require("./callResponse");
 const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getMessageLogs } = require("./logManager");
@@ -214,7 +214,13 @@ router.get("/token", async (req, res) => {
             req.workspace.id,
             req.get("X-Connection-Number-Id"),
           );
-    const token = tokenForProvider(provider);
+    // The legacy line is owners only, however it was reached.
+    if (provider.legacy && req.user?.role !== "owner")
+      return res
+        .status(403)
+        .json({ error: "Only an owner can use this line." });
+    // The identity is always req.user's own; the client can't choose it.
+    const token = tokenFor(req.user, provider);
     console.log("Token generated successfully");
     res.json({
       ...token,

@@ -153,6 +153,22 @@ suite("Call assist against PostgreSQL", () => {
     expect((await read()).call_sid).toBe(callSid);
   });
 
+  it("binds an intent placed from a user's softphone identity", async () => {
+    const { body, provider } = binding();
+    await bindIntent(
+      {
+        ...body,
+        From:
+          "client:u" +
+          "aaaaaaaa111141118111111111111111" +
+          "_c" +
+          connection.replace(/-/g, ""),
+      },
+      provider,
+    );
+    expect((await read()).call_sid).toBe(callSid);
+  });
+
   it("defaults both switches on and saves independent workspace preferences", async () => {
     expect(await getAssistantSettings(workspace)).toEqual({
       jack: true,

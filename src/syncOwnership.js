@@ -1,3 +1,4 @@
+const { isClientOf } = require("./identity");
 function ownsMessage(message, numbers) {
   if (message.direction === "inbound") return numbers.includes(message.to);
   if (
@@ -7,9 +8,11 @@ function ownsMessage(message, numbers) {
     return numbers.includes(message.from);
   return false;
 }
-function ownsRootCall(call, numbers, identity) {
+// `provider` is the line being synchronized; any softphone identity of it
+// (src/identity.js) owns the calls it places.
+function ownsRootCall(call, numbers, provider) {
   if (call.parentCallSid) return false;
-  if (identity && call.from === `client:${identity}`) return true;
+  if (isClientOf(call.from, provider)) return true;
   if (call.direction === "inbound") return numbers.includes(call.to);
   if (
     typeof call.direction === "string" &&

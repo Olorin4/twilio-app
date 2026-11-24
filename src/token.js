@@ -8,6 +8,7 @@ const twilio = require("twilio");
 const AccessToken = require("twilio").jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
 const nameGenerator = require("../name_generator");
+const { identityFor } = require("./identity");
 
 // Load Twilio credentials from .env
 // console.log("🔍 Debugging ENV Variables:");
@@ -67,24 +68,42 @@ function tokenGenerator() {
   };
 }
 
-function tokenForProvider(provider) {
-  if (provider.legacy) return tokenGenerator();
-  if (!provider.voiceEnabled)
-    throw new Error("This number does not support voice calls.");
-  const providerIdentity = `connection_${provider.id.replace(/-/g, "")}`;
+function mint(credentials, tokenIdentity) {
   const accessToken = new AccessToken(
-    provider.accountSid,
-    provider.apiKeySid,
-    provider.apiKeySecret,
-    { identity: providerIdentity },
+    credentials.accountSid,
+    credentials.apiKeySid,
+    credentials.apiKeySecret,
+    { identity: tokenIdentity },
   );
   accessToken.addGrant(
     new VoiceGrant({
-      outgoingApplicationSid: provider.twimlAppSid,
+      outgoingApplicationSid: credentials.twimlAppSid,
       incomingAllow: true,
     }),
   );
-  return { identity: providerIdentity, token: accessToken.toJwt() };
+  return { identity: tokenIdentity, token: accessToken.toJwt() };
+}
+
+// A softphone token for `user` on `provider`'s line, always under the user's
+// own identity (src/identity.js). The bootstrap login on the legacy line
+// keeps tokenGenerator(); a real user on it gets the legacy credentials under
+// their own identity.
+function tokenFor(user, provider) {
+  if (provider.legacy) {
+    if (user && user.bootstrap === true) return tokenGenerator();
+    return mint(
+      {
+        accountSid,
+        apiKeySid: apiKey,
+        apiKeySecret: apiSecret,
+        twimlAppSid: appSid,
+      },
+      identityFor(user, provider),
+    );
+  }
+  if (!provider.voiceEnabled)
+    throw new Error("This number does not support voice calls.");
+  return mint(provider, identityFor(user, provider));
 }
 
 // Export credentials and tokenGenerator
@@ -97,6 +116,6 @@ module.exports = {
   callerId,
   client,
   tokenGenerator,
-  tokenForProvider,
+  tokenFor,
   getIdentity: () => identity || process.env.TWILIO_IDENTITY,
 };

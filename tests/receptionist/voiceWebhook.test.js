@@ -9,7 +9,7 @@ jest.mock("../../src/token", () => ({
   callerId: "+15550000001",
   client: {},
   tokenGenerator: jest.fn(),
-  tokenForProvider: jest.fn(),
+  tokenFor: jest.fn(),
   getIdentity: () => "operator",
 }));
 jest.mock("../../src/db", () => ({ query: jest.fn() }));
