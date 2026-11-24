@@ -10,8 +10,9 @@ const uuidPattern =
 async function loadConnectionAuth(connectionId) {
   if (!uuidPattern.test(connectionId || "")) return null;
   const result = await pool.query(
-    `SELECT id, workspace_id, account_sid, encrypted_credentials
-      FROM provider_connections WHERE id = $1 AND provider = 'twilio'`,
+    `SELECT c.id, c.workspace_id, c.account_sid, c.encrypted_credentials
+      FROM provider_connections c JOIN workspaces w ON w.id = c.workspace_id
+      WHERE c.id = $1 AND c.provider = 'twilio' AND w.archived_at IS NULL`,
     [connectionId],
   );
   if (!result.rows.length) return null;

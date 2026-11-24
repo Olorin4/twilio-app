@@ -293,7 +293,9 @@ async function reconcileWorkspace(workspaceId) {
   return results.length;
 }
 async function reconcileAll() {
-  const result = await pool.query("SELECT id FROM workspaces ORDER BY id");
+  const result = await pool.query(
+    "SELECT id FROM workspaces WHERE archived_at IS NULL ORDER BY id",
+  );
   const results = await Promise.allSettled(
     result.rows.map((row) => reconcileWorkspace(row.id)),
   );

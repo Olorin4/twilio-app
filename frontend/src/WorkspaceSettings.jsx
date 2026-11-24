@@ -29,8 +29,12 @@ const json = (body, method = "POST") => ({
 
 export default function WorkspaceSettings({
   workspaceId,
+  workspaceName: currentName,
   busy,
+  canArchive,
   onWorkspaceCreated,
+  onWorkspaceRenamed,
+  onWorkspaceArchived,
   onNumberChangeStart,
   onNumberChangeEnd,
   onNumberChanged,
@@ -39,6 +43,7 @@ export default function WorkspaceSettings({
   const [webhookBase, setWebhookBase] = useState("");
   const [legacy, setLegacy] = useState(null);
   const [workspaceName, setWorkspaceName] = useState("");
+  const [renameValue, setRenameValue] = useState(currentName || "");
   const [connectionName, setConnectionName] = useState("");
   const [editingConnection, setEditingConnection] = useState(null);
   const [numberManager, setNumberManager] = useState(null);
@@ -92,6 +97,46 @@ export default function WorkspaceSettings({
       setWorkspaceName("");
       await onWorkspaceCreated(workspace);
       setNotice("Workspace created.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setWorking(false);
+    }
+  };
+  useEffect(() => {
+    setRenameValue(currentName || "");
+  }, [currentName, workspaceId]);
+  const rename = async (event) => {
+    event.preventDefault();
+    setWorking(true);
+    setError("");
+    setNotice("");
+    try {
+      await request(
+        `/settings/workspaces/${workspaceId}`,
+        json({ name: renameValue }, "PATCH"),
+      );
+      await onWorkspaceRenamed();
+      setNotice("Workspace renamed.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setWorking(false);
+    }
+  };
+  const archive = async () => {
+    if (
+      !window.confirm(
+        `Archive "${currentName}"? It will be hidden and stop receiving calls and messages. Its history is kept.`,
+      )
+    )
+      return;
+    setWorking(true);
+    setError("");
+    setNotice("");
+    try {
+      await request(`/settings/workspaces/${workspaceId}`, json({}, "DELETE"));
+      await onWorkspaceArchived();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -248,6 +293,36 @@ export default function WorkspaceSettings({
         <button className="button button-green" disabled={working}>
           Create workspace
         </button>
+      </form>
+      <form onSubmit={rename} className="settings-block">
+        <h3>This workspace</h3>
+        <label>
+          Workspace name
+          <input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            maxLength={120}
+            required
+          />
+        </label>
+        <button
+          className="button button-light"
+          disabled={
+            working || !renameValue.trim() || renameValue.trim() === currentName
+          }
+        >
+          Rename workspace
+        </button>
+        {workspaceId !== IRON_WING_WORKSPACE_ID && (
+          <button
+            type="button"
+            className="button button-light"
+            disabled={working || busy || !canArchive}
+            onClick={archive}
+          >
+            Archive workspace
+          </button>
+        )}
       </form>
       <div className="settings-block">
         <h3>Twilio connections</h3>

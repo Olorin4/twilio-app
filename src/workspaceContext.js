@@ -13,7 +13,7 @@ async function resolveWorkspace(req, res, next) {
     return res.status(400).json({ error: "Invalid workspace." });
   try {
     const result = await pool.query(
-      "SELECT id, name FROM workspaces WHERE id = $1",
+      "SELECT id, name FROM workspaces WHERE id = $1 AND archived_at IS NULL",
       [id],
     );
     if (!result.rows.length)

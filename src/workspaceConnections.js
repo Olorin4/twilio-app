@@ -18,6 +18,7 @@ async function listWorkspaces() {
      FROM workspaces w LEFT JOIN workspace_active_numbers a ON a.workspace_id = w.id
      LEFT JOIN connection_numbers n ON n.id = a.connection_number_id
      LEFT JOIN provider_connections c ON c.id = n.connection_id AND c.workspace_id = w.id
+     WHERE w.archived_at IS NULL
      ORDER BY lower(w.name), w.id`,
     [IRON_WING_WORKSPACE_ID, process.env.TWILIO_CALLER_ID || null],
   );
@@ -30,7 +31,7 @@ async function listVoiceTargets() {
     FROM provider_connections c JOIN workspaces w ON w.id = c.workspace_id
     JOIN connection_numbers n ON n.connection_id = c.id
     LEFT JOIN workspace_active_numbers a ON a.workspace_id = w.id
-    WHERE n.voice_enabled = true
+    WHERE n.voice_enabled = true AND w.archived_at IS NULL
     ORDER BY c.id, (a.connection_number_id = n.id) DESC NULLS LAST, n.id`);
   const targets = result.rows;
   if (process.env.TWILIO_CALLER_ID) {
@@ -50,13 +51,45 @@ async function listVoiceTargets() {
 }
 
 async function createWorkspace(name) {
-  if (typeof name !== "string" || !name.trim() || name.trim().length > 120)
-    throw new Error("Enter a workspace name of up to 120 characters.");
+  const clean = workspaceName(name);
   const result = await pool.query(
     "INSERT INTO workspaces (id, name) VALUES ($1, $2) RETURNING id, name, created_at",
-    [randomUUID(), name.trim()],
+    [randomUUID(), clean],
   );
   return result.rows[0];
+}
+
+function workspaceName(name) {
+  if (typeof name !== "string" || !name.trim() || name.trim().length > 120)
+    throw new Error("Enter a workspace name of up to 120 characters.");
+  return name.trim();
+}
+function workspaceId(id) {
+  if (!uuidPattern.test(id || "")) throw new Error("Invalid workspace.");
+  return id;
+}
+async function renameWorkspace(id, name) {
+  const clean = workspaceName(name);
+  workspaceId(id);
+  const result = await pool.query(
+    `UPDATE workspaces SET name = $2 WHERE id = $1 AND archived_at IS NULL
+     RETURNING id, name, created_at`,
+    [id, clean],
+  );
+  if (!result.rows.length) throw new Error("Workspace does not exist.");
+  return result.rows[0];
+}
+async function archiveWorkspace(id) {
+  workspaceId(id);
+  if (id.toLowerCase() === IRON_WING_WORKSPACE_ID)
+    throw new Error("The Iron Wing workspace cannot be archived.");
+  const result = await pool.query(
+    `UPDATE workspaces SET archived_at = now()
+     WHERE id = $1 AND archived_at IS NULL RETURNING id`,
+    [id],
+  );
+  if (!result.rows.length) throw new Error("Workspace does not exist.");
+  return { id: result.rows[0].id, archived: true };
 }
 
 async function listConnections(workspaceId) {
@@ -446,6 +479,8 @@ module.exports = {
   listWorkspaces,
   listVoiceTargets,
   createWorkspace,
+  renameWorkspace,
+  archiveWorkspace,
   listConnections,
   createConnection,
   selectNumber,

@@ -1169,7 +1169,16 @@ function App() {
                 smsSending ||
                 syncing
               }
+              workspaceName={
+                workspaces.find((item) => item.id === workspaceId)?.name
+              }
+              canArchive={voice.canSwitch()}
               onWorkspaceCreated={loadWorkspaces}
+              onWorkspaceRenamed={loadWorkspaces}
+              onWorkspaceArchived={async () => {
+                await loadWorkspaces();
+                switchWorkspace(IRON_WING_WORKSPACE_ID);
+              }}
               onNumberChangeStart={voice.stop}
               onNumberChangeEnd={voice.resume}
               onNumberChanged={async () => {

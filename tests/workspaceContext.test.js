@@ -38,3 +38,14 @@ test("rejects malformed and unknown workspaces rather than defaulting to Iron Wi
   expect(res.status).toHaveBeenCalledWith(404);
   expect(next).not.toHaveBeenCalled();
 });
+test("only active workspaces resolve", async () => {
+  pool.query.mockResolvedValueOnce({ rows: [] });
+  const res = response();
+  await resolveWorkspace(
+    { get: () => "00000000-0000-4000-8000-000000000002" },
+    res,
+    jest.fn(),
+  );
+  expect(pool.query.mock.calls[0][0]).toContain("archived_at IS NULL");
+  expect(res.status).toHaveBeenCalledWith(404);
+});

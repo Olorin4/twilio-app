@@ -1,10 +1,15 @@
 jest.mock("../src/db", () => ({ query: jest.fn(), connect: jest.fn() }));
+jest.mock("../src/twilioConnectionValidation", () => ({}));
 const crypto = require("crypto");
 const pool = require("../src/db");
 const {
   createConnection,
   listConnections,
   updateConnectionCredentials,
+  listWorkspaces,
+  listVoiceTargets,
+  renameWorkspace,
+  archiveWorkspace,
 } = require("../src/workspaceConnections");
 const { encryptCredentials } = require("../src/credentialEncryption");
 const workspaceId = "00000000-0000-4000-8000-000000000001";
@@ -160,4 +165,62 @@ test("credential rotation preserves assigned numbers and returns no secrets", as
   expect(result).toEqual({ id: connectionId, updated: true });
   expect(JSON.stringify(result)).not.toContain("private-");
   expect(query).toHaveBeenLastCalledWith("COMMIT");
+});
+
+const otherId = "00000000-0000-4000-8000-000000000002";
+test("renaming trims the name and only touches an active workspace", async () => {
+  pool.query.mockResolvedValueOnce({
+    rows: [{ id: otherId, name: "Dispatch East" }],
+  });
+  const result = await renameWorkspace(otherId, "  Dispatch East ");
+  expect(result.name).toBe("Dispatch East");
+  const [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toContain("UPDATE workspaces SET name");
+  expect(sql).toContain("archived_at IS NULL");
+  expect(params).toEqual([otherId, "Dispatch East"]);
+});
+test("renaming rejects bad names, bad ids and missing workspaces", async () => {
+  await expect(renameWorkspace(otherId, "   ")).rejects.toThrow(
+    "Enter a workspace name",
+  );
+  await expect(renameWorkspace(otherId, "x".repeat(121))).rejects.toThrow(
+    "Enter a workspace name",
+  );
+  await expect(renameWorkspace("nope", "Name")).rejects.toThrow(
+    "Invalid workspace.",
+  );
+  expect(pool.query).not.toHaveBeenCalled();
+  pool.query.mockResolvedValueOnce({ rows: [] });
+  await expect(renameWorkspace(otherId, "Name")).rejects.toThrow(
+    "Workspace does not exist.",
+  );
+});
+test("archiving soft-deletes by timestamp and never deletes rows", async () => {
+  pool.query.mockResolvedValueOnce({ rows: [{ id: otherId }] });
+  await archiveWorkspace(otherId);
+  const [sql, params] = pool.query.mock.calls[0];
+  expect(sql).toContain("SET archived_at = now()");
+  expect(sql).toContain("archived_at IS NULL");
+  expect(sql).not.toContain("DELETE");
+  expect(params).toEqual([otherId]);
+});
+test("the Iron Wing workspace cannot be archived", async () => {
+  await expect(archiveWorkspace(workspaceId)).rejects.toThrow(
+    "The Iron Wing workspace cannot be archived.",
+  );
+  expect(pool.query).not.toHaveBeenCalled();
+});
+test("archiving rejects bad ids and missing or already archived workspaces", async () => {
+  await expect(archiveWorkspace("nope")).rejects.toThrow("Invalid workspace.");
+  pool.query.mockResolvedValueOnce({ rows: [] });
+  await expect(archiveWorkspace(otherId)).rejects.toThrow(
+    "Workspace does not exist.",
+  );
+});
+test("archived workspaces are left out of lists and voice targets", async () => {
+  pool.query.mockResolvedValue({ rows: [] });
+  await listWorkspaces();
+  await listVoiceTargets();
+  expect(pool.query.mock.calls[0][0]).toContain("w.archived_at IS NULL");
+  expect(pool.query.mock.calls[1][0]).toContain("w.archived_at IS NULL");
 });

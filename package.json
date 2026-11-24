@@ -24,7 +24,8 @@
     "outreach-intake:backfill": "node scripts/outreach-intake-backfill.js",
     "receptionist:sim": "node scripts/receptionist-sim.js",
     "migrate:call-assist": "node scripts/migrate-call-assist.js",
-    "migrate:assistant-settings": "node scripts/migrate-assistant-settings.js"
+    "migrate:assistant-settings": "node scripts/migrate-assistant-settings.js",
+    "migrate:workspace-archive": "node scripts/migrate-workspace-archive.js"
   },
   "repository": {
     "type": "git",

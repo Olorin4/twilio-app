@@ -3,6 +3,8 @@ const {
   listWorkspaces,
   listVoiceTargets,
   createWorkspace,
+  renameWorkspace,
+  archiveWorkspace,
   listConnections,
   createConnection,
   selectNumber,
@@ -69,6 +71,7 @@ function publicError(res, error) {
     [
       "Invalid workspace.",
       "Workspace does not exist.",
+      "The Iron Wing workspace cannot be archived.",
       "Enter a workspace name",
       "Enter a connection name",
       "Enter valid Twilio credentials.",
@@ -175,6 +178,30 @@ router.post("/workspaces", requireSettingsWrite, async (req, res) => {
     return publicError(res, error);
   }
 });
+router.patch(
+  "/workspaces/:workspaceId",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res.json(
+        await renameWorkspace(req.params.workspaceId, req.body?.name),
+      );
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
+router.delete(
+  "/workspaces/:workspaceId",
+  requireSettingsWrite,
+  async (req, res) => {
+    try {
+      return res.json(await archiveWorkspace(req.params.workspaceId));
+    } catch (error) {
+      return publicError(res, error);
+    }
+  },
+);
 router.get("/workspaces/:workspaceId/connections", async (req, res) => {
   try {
     return res.json(await listConnections(req.params.workspaceId));
