@@ -6,6 +6,7 @@ const {
 } = require("./credentialEncryption");
 const { validateTwilioConnection } = require("./twilioConnectionValidation");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const { legacyMoved } = require("./legacyLine");
 
 const PERSONAL_AGENT_ERROR =
   "A personal line can't be answered by an AI agent.";
@@ -23,7 +24,11 @@ function listScope(user) {
 
 async function listWorkspaces(user) {
   const memberId = listScope(user);
-  const params = [IRON_WING_WORKSPACE_ID, process.env.TWILIO_CALLER_ID || null];
+  // Once moved into the connection, the main number is an ordinary line.
+  const legacyPhone = (await legacyMoved())
+    ? null
+    : process.env.TWILIO_CALLER_ID || null;
+  const params = [IRON_WING_WORKSPACE_ID, legacyPhone];
   if (memberId) params.push(memberId);
   const result = await pool.query(
     `SELECT w.id, w.name, w.created_at, n.id AS active_number_id,
@@ -62,7 +67,8 @@ async function listVoiceTargets(user) {
     memberId ? [memberId] : [],
   );
   const targets = result.rows;
-  // The legacy number is owners only.
+  // The legacy number is owners only. Its Device stays registered even once
+  // the number is moved, so pointing Twilio back at /voice rings at once.
   if (!memberId && process.env.TWILIO_CALLER_ID) {
     const iron = await pool.query("SELECT name FROM workspaces WHERE id = $1", [
       IRON_WING_WORKSPACE_ID,
@@ -419,6 +425,8 @@ async function selectLegacy(workspaceId) {
     throw new Error(
       "The environment connection is only available to Iron Wing.",
     );
+  if (await legacyMoved())
+    throw new Error("The main number now belongs to the Iron Wing connection.");
   await pool.query(
     "DELETE FROM workspace_active_numbers WHERE workspace_id = $1",
     [workspaceId],

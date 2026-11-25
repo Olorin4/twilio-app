@@ -1,3 +1,7 @@
+jest.mock("../src/legacyLine", () => ({
+  legacyMoved: jest.fn(async () => false),
+  movedLegacyNumbers: jest.fn(async () => []),
+}));
 jest.mock("../src/db", () => ({ query: jest.fn() }));
 jest.mock("../src/workspaceConnections", () => ({
   updateNumberSettings: jest.fn(),
@@ -485,5 +489,34 @@ describe("over HTTP", () => {
       });
       expect(res.status).toBe(403);
     }
+  });
+});
+
+describe("GET /config and the main number", () => {
+  const { legacyMoved } = require("../src/legacyLine");
+  const saved = process.env.TWILIO_CALLER_ID;
+  beforeEach(() => (process.env.TWILIO_CALLER_ID = "+15550000001"));
+  afterEach(() => {
+    legacyMoved.mockResolvedValue(false);
+    if (saved === undefined) delete process.env.TWILIO_CALLER_ID;
+    else process.env.TWILIO_CALLER_ID = saved;
+  });
+  const config = async () => {
+    const res = { json: jest.fn(), status: jest.fn().mockReturnThis() };
+    await handlerFor("get", "/config")({}, res);
+    return res.json.mock.calls[0][0];
+  };
+  test("once moved, the legacy number is not offered", async () => {
+    legacyMoved.mockResolvedValue(true);
+    expect(await config()).toMatchObject({
+      legacyPhoneNumber: "",
+      legacyMoved: true,
+    });
+  });
+  test("before the move, the legacy number is offered", async () => {
+    expect(await config()).toMatchObject({
+      legacyPhoneNumber: "+15550000001",
+      legacyMoved: false,
+    });
   });
 });

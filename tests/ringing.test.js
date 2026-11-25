@@ -1,3 +1,7 @@
+jest.mock("../src/legacyLine", () => ({
+  legacyMoved: jest.fn(async () => false),
+  movedLegacyNumbers: jest.fn(async () => []),
+}));
 /* Who a call rings. The ring list is one SQL query, so its rules (enabled
 users, workspace access, order, the cap and the owner fallback) run against a throwaway PostgreSQL database when RINGING_PG_TEST=1. The
 failure paths run everywhere. */
@@ -448,5 +452,32 @@ suite("ring list against PostgreSQL", () => {
         else process.env.TWILIO_CALLER_ID = previous;
       }
     });
+  });
+});
+
+describe("owner lines once the main number is moved", () => {
+  const { legacyMoved } = require("../src/legacyLine");
+  const saved = process.env.TWILIO_CALLER_ID;
+  beforeEach(() => {
+    process.env.TWILIO_CALLER_ID = "+15550000001";
+    pool.query.mockResolvedValue({ rows: [] });
+  });
+  afterEach(() => {
+    legacyMoved.mockResolvedValue(false);
+    if (saved === undefined) delete process.env.TWILIO_CALLER_ID;
+    else process.env.TWILIO_CALLER_ID = saved;
+  });
+  test("no legacy line is offered", async () => {
+    legacyMoved.mockResolvedValue(true);
+    expect(await usableLines({ id: "o", role: "owner" }, WORKSPACE)).toEqual(
+      [],
+    );
+  });
+  test("before the move the legacy line is offered", async () => {
+    expect(
+      (await usableLines({ id: "o", role: "owner" }, WORKSPACE)).map(
+        (l) => l.legacy,
+      ),
+    ).toEqual([true]);
   });
 });

@@ -9,6 +9,7 @@ caller never hears silence because of it. */
 
 const pool = require("./db");
 const { identityFor } = require("./identity");
+const { legacyMoved } = require("./legacyLine");
 
 const RING_DEADLINE_MS = 1500;
 // Twilio's <Dial> takes at most 10 <Client> nouns.
@@ -159,7 +160,8 @@ async function usableLines(user, workspaceId, { voiceOnly = true } = {}) {
   if (
     owner &&
     workspaceId.toLowerCase() === IRON_WING_WORKSPACE_ID &&
-    process.env.TWILIO_CALLER_ID
+    process.env.TWILIO_CALLER_ID &&
+    !(await legacyMoved())
   )
     lines.push({
       numberId: null,

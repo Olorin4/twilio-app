@@ -28,6 +28,7 @@ const {
   restoreRevision,
 } = require("./agentProfiles");
 const { validateTwilioConnection } = require("./twilioConnectionValidation");
+const { legacyMoved } = require("./legacyLine");
 const {
   resolveWorkspace,
   IRON_WING_WORKSPACE_ID,
@@ -57,16 +58,25 @@ router.use((req, res, next) =>
     : requireOwner(req, res, next),
 );
 
-router.get("/config", (req, res) =>
+// Once the main number is moved into the connection, the legacy number is not
+// offered: the Settings card and the caller-ID picker hide an empty number.
+router.get("/config", async (req, res) => {
+  let moved = false;
+  try {
+    moved = await legacyMoved();
+  } catch (error) {
+    console.error("Could not check the main number:", error.message);
+  }
   res.json({
     webhookBaseUrl: (process.env.TWILIO_WEBHOOK_BASE_URL || "").replace(
       /\/$/,
       "",
     ),
-    legacyPhoneNumber: process.env.TWILIO_CALLER_ID || "",
+    legacyPhoneNumber: moved ? "" : process.env.TWILIO_CALLER_ID || "",
     legacyAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
-  }),
-);
+    legacyMoved: moved,
+  });
+});
 
 function requireSettingsWrite(req, res, next) {
   if (!req.is("application/json"))

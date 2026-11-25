@@ -1,3 +1,7 @@
+jest.mock("../src/legacyLine", () => ({
+  legacyMoved: jest.fn(async () => false),
+  movedLegacyNumbers: jest.fn(async () => []),
+}));
 jest.mock("../src/db", () => ({ query: jest.fn(), connect: jest.fn() }));
 jest.mock("../src/twilioConnectionValidation", () => ({}));
 const crypto = require("crypto");
@@ -16,6 +20,7 @@ const {
   listAllConnections,
   setNumberAssignees,
   addConnectionNumbers,
+  selectLegacy,
 } = require("../src/workspaceConnections");
 const { encryptCredentials } = require("../src/credentialEncryption");
 const workspaceId = "00000000-0000-4000-8000-000000000001";
@@ -820,5 +825,43 @@ test("listConnections numbers carry their assignees and personal", async () => {
   expect(connection.numbers[1]).toMatchObject({
     personal: false,
     assignees: [],
+  });
+});
+
+describe("once the main number is moved into the connection", () => {
+  const { legacyMoved } = require("../src/legacyLine");
+  afterEach(() => {
+    legacyMoved.mockResolvedValue(false);
+    pool.query.mockReset();
+  });
+  test("choosing the legacy number is refused and the active line is kept", async () => {
+    legacyMoved.mockResolvedValue(true);
+    await expect(selectLegacy(workspaceId)).rejects.toThrow(
+      "The main number now belongs to the Iron Wing connection.",
+    );
+    expect(pool.query).not.toHaveBeenCalled();
+  });
+  test("before the move, choosing the legacy number clears the active line", async () => {
+    pool.query.mockResolvedValue({ rows: [] });
+    await expect(selectLegacy(workspaceId)).resolves.toEqual({
+      workspace_id: workspaceId,
+      legacy: true,
+    });
+    expect(pool.query.mock.calls[0][0]).toContain(
+      "DELETE FROM workspace_active_numbers",
+    );
+  });
+  test("the workspace list has no legacy active-phone fallback", async () => {
+    legacyMoved.mockResolvedValue(true);
+    process.env.TWILIO_CALLER_ID = "+15550009999";
+    pool.query.mockResolvedValue({ rows: [] });
+    await listWorkspaces(listOwner);
+    expect(pool.query.mock.calls[0][1][1]).toBeNull();
+  });
+  test("before the move, the legacy number is the active-phone fallback", async () => {
+    process.env.TWILIO_CALLER_ID = "+15550009999";
+    pool.query.mockResolvedValue({ rows: [] });
+    await listWorkspaces(listOwner);
+    expect(pool.query.mock.calls[0][1][1]).toBe("+15550009999");
   });
 });

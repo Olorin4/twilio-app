@@ -1,3 +1,7 @@
+jest.mock("../src/legacyLine", () => ({
+  legacyMoved: jest.fn(async () => false),
+  movedLegacyNumbers: jest.fn(async () => []),
+}));
 jest.mock("../src/db", () => ({ query: jest.fn() }));
 jest.mock("../src/credentialEncryption", () => ({
   decryptCredentials: jest.fn(),
@@ -212,5 +216,17 @@ describe("checkSignInLimits", () => {
     expect(checkSignInLimits(1)).toBe(true);
     expect(checkSignInLimits("loopback, 172.16.0.0/12")).toBe(true);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("once the main number is moved into the connection", () => {
+  const { legacyMoved } = require("../src/legacyLine");
+  afterEach(() => legacyMoved.mockResolvedValue(false));
+  test("an owner with no active Iron Wing line gets no legacy fallback", async () => {
+    legacyMoved.mockResolvedValue(true);
+    pool.query.mockResolvedValueOnce({ rows: [] });
+    await expect(getProvider(iron)).rejects.toThrow(
+      "No phone number is selected for this workspace.",
+    );
   });
 });

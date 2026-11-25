@@ -2,6 +2,7 @@ const twilio = require("twilio");
 const pool = require("./db");
 const { decryptCredentials } = require("./credentialEncryption");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const { legacyMoved } = require("./legacyLine");
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,7 +52,13 @@ async function getProvider(workspaceId, requestedNumberId) {
     [workspaceId, requestedNumberId || null],
   );
   if (!result.rows.length) {
-    if (workspaceId === IRON_WING_WORKSPACE_ID && !requestedNumberId) {
+    // Once the main number is moved into the connection, a line must be
+    // chosen; there is no legacy fallback.
+    if (
+      workspaceId === IRON_WING_WORKSPACE_ID &&
+      !requestedNumberId &&
+      !(await legacyMoved())
+    ) {
       return legacyProvider(workspaceId);
     }
     throw new Error("No phone number is selected for this workspace.");
