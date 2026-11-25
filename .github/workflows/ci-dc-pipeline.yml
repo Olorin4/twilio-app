@@ -168,11 +168,12 @@ jobs:
 
           docker tag twilio-app:latest "twilio-app:release-$SHORT_SHA"
           printf '%s\n' "$FULL_SHA" > DEPLOYED_COMMIT
-          # Keep the five newest release- and before- images of each kind.
+          # Keep the two newest release- and before- images of each kind; the
+          # server's disk is shared with other apps.
           for kind in release before; do
             docker images twilio-app --format '{{.CreatedAt}}\t{{.Tag}}' |
               awk -F'\t' -v k="$kind-" 'index($2, k) == 1' | sort -r |
-              tail -n +6 | cut -f2 |
+              tail -n +3 | cut -f2 |
               while read -r tag; do docker rmi "twilio-app:$tag" >/dev/null || true; done
           done
           echo "Deployed $SHORT_SHA"
