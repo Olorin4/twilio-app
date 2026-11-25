@@ -249,3 +249,35 @@ test.each([
   );
   expect(params).toEqual([[], ["H"]]);
 });
+
+describe("a moved main number follows its line", () => {
+  const MAIN = "+12025550000";
+  test("a member does not see a moved legacy number on a softphone line they aren't assigned to", async () => {
+    pool.query.mockResolvedValue({ rows: [...lines(), line(MAIN)] });
+    const scope = await lineScope(member, IRON_WING);
+    expect(scope.visible).not.toContain(MAIN);
+    // The previous number is not moved, so it stays shared.
+    expect(scope.visible).toContain("+12025550009");
+  });
+  test("a member sees a moved legacy number an AI agent answers", async () => {
+    pool.query.mockResolvedValue({
+      rows: [...lines(), line(MAIN, { handler: "ai_agent" })],
+    });
+    expect((await lineScope(member, IRON_WING)).visible).toContain(MAIN);
+  });
+  test("a member assigned to the moved line sees it", async () => {
+    pool.query.mockResolvedValue({
+      rows: [...lines(), line(MAIN, { assignees: [MEMBER], staffed: true })],
+    });
+    expect((await lineScope(member, IRON_WING)).visible).toContain(MAIN);
+  });
+  test("an owner is hidden a moved main number that is another owner's personal line", async () => {
+    pool.query.mockResolvedValue({
+      rows: [
+        ...lines(),
+        line(MAIN, { personal: true, assignees: [OWNER2], staffed: true }),
+      ],
+    });
+    expect((await lineScope(owner, IRON_WING)).hidden).toContain(MAIN);
+  });
+});

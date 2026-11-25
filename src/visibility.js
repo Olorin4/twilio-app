@@ -67,7 +67,11 @@ async function lineScope(user, workspaceId) {
   const { rows } = await pool.query(SCOPE_SQL, [workspaceId]);
   const userId = user.bootstrap === true ? null : user.id || null;
   const mine = (row) => row.assignees.some((id) => same(id, userId));
-  const legacy = legacyNumbers(workspaceId);
+  // A legacy number that is a line here (moved into the connection, see
+  // legacyLine.js) follows that line's rules instead.
+  const legacy = legacyNumbers(workspaceId).filter(
+    (number) => !rows.some((row) => row.phone_number === number),
+  );
   // Every identity of this user starts u<id>_ (see identity.js).
   const prefix = userId
     ? `client:u${String(userId).replace(/-/g, "").toLowerCase()}_`
