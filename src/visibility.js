@@ -122,6 +122,29 @@ async function lineScope(user, workspaceId) {
   };
 }
 
+/* The lines whose history a person may see in a workspace, with their labels,
+for the history line filter: owners every line not hidden from them, members
+their visible lines. The legacy Iron Wing number has no label. Sorted by
+number. */
+async function historyLines(user, workspaceId) {
+  const scope = await lineScope(user, workspaceId);
+  const phones = scope.all
+    ? scope.numbers.filter((number) => !scope.hidden.includes(number))
+    : scope.visible;
+  if (!phones.length) return [];
+  const { rows } = await pool.query(
+    `SELECT n.phone_number, max(n.label) AS label
+     FROM connection_numbers n JOIN provider_connections c ON c.id = n.connection_id
+     WHERE c.workspace_id = $1::uuid AND n.phone_number = ANY($2::text[])
+     GROUP BY n.phone_number`,
+    [workspaceId, phones],
+  );
+  const labels = new Map(rows.map((row) => [row.phone_number, row.label]));
+  return [...new Set(phones)]
+    .sort()
+    .map((phone) => ({ phone, label: labels.get(phone) || null }));
+}
+
 // A user's softphone identity prefix (see lineScope), safe to embed in SQL.
 const OWN_PREFIX = /^client:u[0-9a-f]{32}_$/;
 
@@ -188,4 +211,10 @@ function lineCondition(
   };
 }
 
-module.exports = { lineScope, lineCondition, canSee, SCOPE_SQL };
+module.exports = {
+  historyLines,
+  lineScope,
+  lineCondition,
+  canSee,
+  SCOPE_SQL,
+};

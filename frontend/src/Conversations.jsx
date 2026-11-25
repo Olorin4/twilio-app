@@ -37,6 +37,7 @@ export default function Conversations({
   initialConversation = null,
   activeNumber = "",
   onHistory,
+  line = "",
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -219,12 +220,15 @@ export default function Conversations({
       inFlight.current = false;
     }
   };
-  const filtered = (list || []).filter((item) =>
-    `${nameFor(item.phone, contacts)} ${item.phone} ${item.body || ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
+  // line narrows the list to one of the workspace's lines ("" is every line).
+  const filtered = (list || []).filter(
+    (item) =>
+      (!line || item.local_number === line) &&
+      `${nameFor(item.phone, contacts)} ${item.phone} ${item.body || ""}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
   );
-  useEffect(() => setPage(1), [search]);
+  useEffect(() => setPage(1), [search, line]);
   const currentPage = Math.min(
     page,
     Math.max(1, Math.ceil(filtered.length / pageSize)),
@@ -244,7 +248,7 @@ export default function Conversations({
               <div className="empty">
                 <MessageSquare size={23} />
                 <strong>
-                  {search
+                  {search || line
                     ? "No matching conversations"
                     : "No conversations yet"}
                 </strong>

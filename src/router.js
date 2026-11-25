@@ -15,6 +15,7 @@ const {
 const { parseIdentity, isClientOf } = require("./identity");
 const { smsResponse } = require("./smsResponse");
 const { logCall, getCallLogs, getMessageLogs } = require("./logManager");
+const { historyLines } = require("./visibility");
 const { sendFax, getFaxStatus } = require("./sendFax");
 const { validateWebhook } = require("./security");
 const contactsRouter = require("./contacts");
@@ -204,6 +205,7 @@ router.use(
     "/contacts",
     "/call-logs",
     "/message-logs",
+    "/history-lines",
     "/conversations",
     "/conversation",
     "/activity-counts",
@@ -351,6 +353,17 @@ router.post("/sms", validateWebhook, smsResponse);
 
 // Webhook for fetching latest message logs from database
 router.get("/message-logs", getMessageLogs);
+// The lines the history can be narrowed to (see visibility.historyLines).
+router.get("/history-lines", async (req, res) => {
+  try {
+    res.json(
+      await historyLines(req.user, req.workspace?.id || IRON_WING_WORKSPACE_ID),
+    );
+  } catch (error) {
+    console.error("History lines failed:", error.message);
+    res.status(500).json({ error: "Could not load the lines." });
+  }
+});
 router.post("/messages", sendSms);
 router.post("/sms-status", validateWebhook, conversations.statusCallback);
 router.post("/call-status", validateWebhook, callEvents.callback);

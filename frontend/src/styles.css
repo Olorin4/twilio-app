@@ -327,6 +327,10 @@ nav {
   font-weight: 600;
   text-align: right;
 }
+.history-line-filter select {
+  max-width: 220px;
+  font-size: 12px;
+}
 .status-caller-id select {
   max-width: 60%;
   font-size: 11px;

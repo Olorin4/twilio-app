@@ -188,7 +188,7 @@ suite("Users schema and store against PostgreSQL", () => {
         CREATE TABLE provider_connections (id uuid PRIMARY KEY, workspace_id uuid);
         CREATE TABLE connection_numbers (
           id uuid PRIMARY KEY, connection_id uuid, phone_number text,
-          handler text NOT NULL DEFAULT 'softphone');
+          handler text NOT NULL DEFAULT 'softphone', label text);
         CREATE TABLE call_logs (
           id bigserial PRIMARY KEY, call_sid text, timestamp timestamp,
           from_number text, to_number text, status text, duration int,
@@ -341,6 +341,58 @@ suite("Users schema and store against PostgreSQL", () => {
         });
       } finally {
         await db.query("DELETE FROM call_logs WHERE id IN (20, 21)");
+      }
+    });
+
+    test("call and message history can be narrowed to one line", async () => {
+      const { getCallLogs, getMessageLogs } = require("../src/logManager");
+      const ids = async (handler, user, line) =>
+        (await run(handler, user, { line })).rows.map((r) => r.id).sort();
+      expect(await ids(getCallLogs, owner, SHARED)).toEqual(["1"]);
+      expect(await ids(getCallLogs, owner, PERSONAL)).toEqual(["2", "6"]);
+      expect(await ids(getMessageLogs, owner, PERSONAL)).toEqual(["2", "3"]);
+      // The filter narrows what the person may see; it never widens it.
+      expect(await ids(getCallLogs, member, PERSONAL)).toEqual([]);
+      expect(await ids(getMessageLogs, member, PERSONAL)).toEqual([]);
+    });
+
+    test("an invalid line filter is refused", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      const res = {
+        set: jest.fn(),
+        json: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+      };
+      await getCallLogs(
+        { user: owner, workspace: { id: W }, query: { line: "abc" } },
+        res,
+      );
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    test("history lines are the lines each person may see, with labels", async () => {
+      const { historyLines } = require("../src/visibility");
+      await db.query(
+        "UPDATE connection_numbers SET label = 'Dispatch' WHERE phone_number = $1",
+        [SHARED],
+      );
+      try {
+        expect(await historyLines(owner, W)).toEqual([
+          { phone: SHARED, label: "Dispatch" },
+          { phone: PERSONAL, label: null },
+        ]);
+        expect(await historyLines(member, W)).toEqual([
+          { phone: SHARED, label: "Dispatch" },
+        ]);
+        const other = {
+          id: "00000000-0000-4000-8000-0000000000e9",
+          role: "owner",
+        };
+        expect(await historyLines(other, W)).toEqual([
+          { phone: SHARED, label: "Dispatch" },
+        ]);
+      } finally {
+        await db.query("UPDATE connection_numbers SET label = NULL");
       }
     });
 

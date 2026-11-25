@@ -374,6 +374,36 @@ function App() {
     };
   }, [audioOpen]);
 
+  // The history line filter: "" shows every line; a choice is remembered per
+  // workspace in this browser.
+  const [historyLines, setHistoryLines] = useState([]);
+  const lineKey = `historyLine:${workspaceId}`;
+  const [historyLine, setHistoryLineState] = useState(
+    () => localStorage.getItem(lineKey) || "",
+  );
+  useEffect(() => {
+    setHistoryLineState(localStorage.getItem(lineKey) || "");
+    let cancelled = false;
+    apiFetch("/history-lines")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((lines) => {
+        if (cancelled) return;
+        setHistoryLines(lines);
+        // A remembered line that is gone or hidden now falls back to all.
+        if (!lines.some((item) => item.phone === localStorage.getItem(lineKey)))
+          setHistoryLineState("");
+      })
+      .catch(() => !cancelled && setHistoryLines([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [lineKey]);
+  const setHistoryLine = (value) => {
+    if (value) localStorage.setItem(lineKey, value);
+    else localStorage.removeItem(lineKey);
+    setPage(1);
+    setHistoryLineState(value);
+  };
   const refresh = useCallback(async () => {
     const requestId = ++activityRequest.current;
     try {
@@ -381,6 +411,7 @@ function App() {
         page: String(page),
         pageSize: String(pageSize),
         search,
+        ...(historyLine ? { line: historyLine } : {}),
       });
       const [callResponse, messageResponse] = await Promise.all([
         apiFetch(`/call-logs?${query}&grouped=true`),
@@ -405,7 +436,7 @@ function App() {
     } finally {
       if (requestId === activityRequest.current) setLoading(false);
     }
-  }, [page, pageSize, search, workspaceId]);
+  }, [page, pageSize, search, workspaceId, historyLine]);
   useEffect(() => {
     setLoading(true);
     refresh();
@@ -1348,27 +1379,50 @@ function App() {
                       : "Your latest sent and received messages."
                   }
                   headingAction={
-                    <button
-                      className="activity-icon activity-refresh"
-                      type="button"
-                      aria-label={
-                        syncing
-                          ? "Syncing with Twilio"
-                          : "Sync activity with Twilio"
-                      }
-                      title={
-                        syncing
-                          ? "Syncing with Twilio"
-                          : "Sync activity with Twilio"
-                      }
-                      disabled={syncing}
-                      onClick={syncActivity}
-                    >
-                      <RefreshCw
-                        size={19}
-                        className={syncing ? "sync-spinning" : ""}
-                      />
-                    </button>
+                    <>
+                      {historyLines.length > 1 && (
+                        <label className="history-line-filter">
+                          <span className="sr-only">Line</span>
+                          <select
+                            aria-label="Line"
+                            value={historyLine}
+                            onChange={(event) =>
+                              setHistoryLine(event.target.value)
+                            }
+                          >
+                            <option value="">All lines</option>
+                            {historyLines.map((item) => (
+                              <option key={item.phone} value={item.phone}>
+                                {item.label
+                                  ? `${item.label} · ${item.phone}`
+                                  : item.phone}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <button
+                        className="activity-icon activity-refresh"
+                        type="button"
+                        aria-label={
+                          syncing
+                            ? "Syncing with Twilio"
+                            : "Sync activity with Twilio"
+                        }
+                        title={
+                          syncing
+                            ? "Syncing with Twilio"
+                            : "Sync activity with Twilio"
+                        }
+                        disabled={syncing}
+                        onClick={syncActivity}
+                      >
+                        <RefreshCw
+                          size={19}
+                          className={syncing ? "sync-spinning" : ""}
+                        />
+                      </button>
+                    </>
                   }
                   headingNotice={
                     <>
@@ -1419,6 +1473,7 @@ function App() {
                       refreshRevision={refreshRevision}
                       onErrorChange={setConversationError}
                       onHistory={setTimelinePhone}
+                      line={historyLine}
                     />
                   ) : (
                     <>

@@ -133,14 +133,17 @@ function historyParams(req) {
     typeof req.query?.search === "string"
       ? req.query.search.trim().slice(0, 120).toLowerCase()
       : "";
+  // An optional line (E.164) narrows the history to that workspace line.
+  const line = typeof req.query?.line === "string" ? req.query.line : "";
   if (
     !Number.isSafeInteger(page) ||
     page < 1 ||
     page > 100000 ||
-    ![10, 20, 50].includes(pageSize)
+    ![10, 20, 50].includes(pageSize) ||
+    (line !== "" && !/^\+[1-9]\d{1,14}$/.test(line))
   )
     return null;
-  return { offset: (page - 1) * pageSize, pageSize, search };
+  return { offset: (page - 1) * pageSize, pageSize, search, line };
 }
 
 // Fetch Call Logs
@@ -160,6 +163,11 @@ exports.getCallLogs = async (req, res) => {
       clientLine("cl"),
     );
 
+    // Only a chosen line adds the line test; it can read the child leg, so the
+    // unfiltered history does not pay for it. $8 is always passed.
+    const lineFilter = params.line
+      ? `AND ${CALL_LOCAL_NUMBER} = $8`
+      : "AND $8::text = ''";
     const callResult = `(SELECT CASE WHEN s.summary_state = 'ready' THEN 'summary'
                 WHEN s.summary_state = 'pending' THEN 'processing'
                 WHEN s.notes <> '' OR s.outcome IS NOT NULL THEN 'result' END
@@ -205,6 +213,7 @@ exports.getCallLogs = async (req, res) => {
         AND ($2 = '' OR position($2 in lower(concat_ws(' ', cl.from_number, cl.to_number, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (cl.from_number, cl.to_number) AND position($2 in lower(pc.name)) > 0))
         AND ${visible.sql}
+        ${lineFilter}
     `;
     const grouped = req.query?.grouped === "true";
     const query = grouped
@@ -236,6 +245,7 @@ exports.getCallLogs = async (req, res) => {
       params.pageSize + 1,
       workspaceId,
       ...visible.params,
+      params.line,
     ];
 
     let result;
@@ -294,6 +304,7 @@ exports.getMessageLogs = async (req, res) => {
       WHERE m.workspace_id = $5 AND ($2 = '' OR position($2 in lower(concat_ws(' ', m.from_number, m.to_number, m.body, d.first_name, d.last_name, c.name))) > 0
          OR EXISTS (SELECT 1 FROM phone_contacts pc WHERE pc.workspace_id = $5 AND pc.phone IN (m.from_number, m.to_number) AND position($2 in lower(pc.name)) > 0))
         AND ${visible.sql}
+        AND ($9 = '' OR (CASE WHEN m.from_number = ANY($6::text[]) THEN m.from_number ELSE m.to_number END) = $9)
       ORDER BY m.timestamp DESC NULLS LAST, m.id DESC
       LIMIT $4 OFFSET $3;
     `,
@@ -305,6 +316,7 @@ exports.getMessageLogs = async (req, res) => {
         workspaceId,
         scope.numbers,
         ...visible.params,
+        params.line,
       ],
     );
 
