@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "./api";
+import { canMaskText, secretFieldProps } from "./secretField.mjs";
+
+// Password fields here are masked text where the browser allows it, so the
+// browser's password manager leaves them alone (see secretField.mjs).
+const SECRET = secretFieldProps(
+  canMaskText(typeof CSS === "undefined" ? undefined : CSS),
+);
 
 async function request(url, options) {
   const response = await apiFetch(url, options);
@@ -134,8 +141,7 @@ function UserRow({ user, workspaces, busy, onPatch, onPassword }) {
         <label>
           New password for {user.username}
           <input
-            type="password"
-            autoComplete="new-password"
+            {...SECRET}
             value={password}
             disabled={busy}
             onChange={(e) => setPassword(e.target.value)}
@@ -144,8 +150,7 @@ function UserRow({ user, workspaces, busy, onPatch, onPassword }) {
         <label>
           Confirm password
           <input
-            type="password"
-            autoComplete="new-password"
+            {...SECRET}
             value={confirm}
             disabled={busy}
             onChange={(e) => setConfirm(e.target.value)}
@@ -270,8 +275,7 @@ export default function Users({ workspaces, me }) {
         <label>
           Password (12 to 200 characters)
           <input
-            type="password"
-            autoComplete="new-password"
+            {...SECRET}
             value={form.password}
             disabled={busy}
             onChange={(e) => set({ password: e.target.value })}
@@ -280,8 +284,7 @@ export default function Users({ workspaces, me }) {
         <label>
           Confirm password
           <input
-            type="password"
-            autoComplete="new-password"
+            {...SECRET}
             value={form.confirm}
             disabled={busy}
             onChange={(e) => set({ confirm: e.target.value })}
