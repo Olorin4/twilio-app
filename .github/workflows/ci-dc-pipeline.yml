@@ -131,7 +131,10 @@ jobs:
           # Readiness gate, run in the new image with the server's .env:
           # migrations 013, 014 and 015, the Jack import, TRUST_PROXY and
           # TWILIO_IDENTITY. Read-only; migrations stay a manual step.
-          if ! docker compose run --rm --no-deps app node scripts/check-deploy.js; then
+          # -T and </dev/null: this script arrives on ssh's stdin, and
+          # `compose run` would otherwise read the rest of it as its own input,
+          # so nothing after the check would run.
+          if ! docker compose run -T --rm --no-deps app node scripts/check-deploy.js </dev/null; then
             echo "Deploy check failed; the running app is unchanged" >&2
             restore
             exit 1
