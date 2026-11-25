@@ -26,7 +26,12 @@ const FIELDS = [
   ["alertEmail", "alert_email", "alert_email"],
   ["dailyLimit", "daily_limit", "daily_limit"],
   ["enabled", "enabled", "enabled"],
+  ["aiDisclosure", "ai_disclosure", "ai_disclosure"],
 ];
+// How the agent tells callers it is an AI. It always says so when asked;
+// "in_greeting" also says so in the greeting. There is deliberately no
+// option to deny it.
+const DISCLOSURES = ["when_asked", "in_greeting"];
 const REQUIRED_ON_CREATE = ["name", "personaName", "companyName", "greeting"];
 const SHORT = { name: 120, personaName: 120, companyName: 120, voice: 64 };
 const LONG = { greeting: 500, instructions: 20000, knowledge: 60000 };
@@ -64,6 +69,10 @@ function validateFields(fields = {}) {
       if (email && !/^[^\s@]+@[^\s@]+$/.test(email))
         throw fail("alert email is not an email address");
       out.alertEmail = email || null;
+    } else if (camel === "aiDisclosure") {
+      if (!DISCLOSURES.includes(value))
+        throw fail("AI disclosure must be when_asked or in_greeting");
+      out.aiDisclosure = value;
     } else if (camel === "voice") {
       const voice = value === null ? "" : String(value).trim();
       if (voice.length > SHORT.voice) throw fail("voice is too long");
@@ -103,7 +112,16 @@ function toProfile(row) {
     dailyLimit: row.daily_limit,
     enabled: row.enabled,
     isDefault: row.is_default,
+    aiDisclosure: row.ai_disclosure || "when_asked",
   };
+}
+
+// An agent set to disclose in its greeting must actually say so there.
+function checkDisclosure({ aiDisclosure, greeting }) {
+  if (aiDisclosure === "in_greeting" && !/\bAI\b/i.test(greeting || ""))
+    throw fail(
+      "with disclosure in the greeting, the greeting must say the caller is talking to an AI assistant",
+    );
 }
 
 // What a revision records: every editable field, kind excluded (it is fixed).
@@ -116,7 +134,7 @@ function revisionFields(row) {
 
 const COLUMNS = `id, workspace_id, kind, name, persona_name, company_name,
   greeting, instructions, knowledge, voice, alert_email, daily_limit,
-  enabled, is_default`;
+  enabled, is_default, ai_disclosure`;
 
 function checkId(id, what = "Agent") {
   if (!uuidPattern.test(id || "")) throw new Error(`${what} does not exist.`);
@@ -169,8 +187,8 @@ async function insertProfile(client, workspaceId, clean, savedBy, isDefault) {
     `INSERT INTO agent_profiles
        (id, workspace_id, kind, name, persona_name, company_name, greeting,
         instructions, knowledge, voice, alert_email, daily_limit, enabled,
-        is_default)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        is_default, ai_disclosure)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
      RETURNING ${COLUMNS}`,
     [
       id,
@@ -187,6 +205,7 @@ async function insertProfile(client, workspaceId, clean, savedBy, isDefault) {
       clean.dailyLimit,
       clean.enabled ?? true,
       isDefault,
+      clean.aiDisclosure ?? "when_asked",
     ],
   );
   await addRevision(client, rows[0], savedBy);
@@ -201,6 +220,7 @@ async function createProfile(workspaceId, fields, savedBy) {
     if (clean[key] === undefined) throw fail(`${key} is required`);
   if (clean.dailyLimit === undefined)
     clean.dailyLimit = defaultDailyLimit(clean.kind, getConfig(process.env));
+  checkDisclosure(clean);
   return inTransaction((client) =>
     insertProfile(client, workspaceId, clean, savedBy, false),
   );
@@ -223,6 +243,9 @@ async function applyUpdate(client, workspaceId, id, clean, savedBy) {
     values,
   );
   if (!rows.length) throw new Error("Agent does not exist.");
+  // Checked on the stored result, so a change to either field is judged
+  // against the other; throwing here rolls the update back.
+  checkDisclosure(toProfile(rows[0]));
   await addRevision(client, rows[0], savedBy);
   return toProfile(rows[0]);
 }

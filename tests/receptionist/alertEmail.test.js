@@ -47,7 +47,8 @@ afterEach(() => {
 test("the email names the caller, the MC check and the promise", async () => {
   expect(await sendJack(row, config, { transport })).toBe(true);
   const mail = transport.sendMail.mock.calls[0][0];
-  expect(mail.from).toBe("Iron Wing Leads <alerts@example.test>");
+  // The sender name is the agent's company; the address is SMTP_FROM's.
+  expect(mail.from).toBe('"Iron Wing Dispatching" <alerts@example.test>');
   expect(mail.to).toBe("owner@example.test");
   expect(mail.subject).toBe("New lead: Mike Alvarez — Alvarez Hauling LLC");
   expect(mail.text).toMatch(/MC 1234567 \(verified\)/);
@@ -332,5 +333,42 @@ describe("emails per agent profile", () => {
         "Open the softphone: https://phone.example.test/",
       ].join("\n"),
     );
+  });
+});
+
+describe("the sender name is the agent's company", () => {
+  const kelevo = { ...JACK, kind: "support", companyName: "KelevoTMS" };
+  const send = (profile, cfg = config) =>
+    sendCallEmail({ ...row, outcome: "support_request" }, cfg, profile, {
+      transport,
+    });
+  const from = () => transport.sendMail.mock.calls[0][0].from;
+
+  test("uses the profile's company with the SMTP_FROM address", async () => {
+    await send(kelevo);
+    expect(from()).toBe('"KelevoTMS" <alerts@example.test>');
+  });
+  test("works when SMTP_FROM is a bare address", async () => {
+    const bare = getConfig({
+      RECEPTIONIST_ALERT_EMAIL: "owner@example.test",
+      SMTP_HOST: "smtp.example.test",
+      SMTP_FROM: "alerts@example.test",
+    });
+    await send(kelevo, bare);
+    expect(from()).toBe('"KelevoTMS" <alerts@example.test>');
+  });
+  test("Jack's emails come from Iron Wing Dispatching", async () => {
+    await sendJack(row, config, { transport });
+    expect(from()).toBe('"Iron Wing Dispatching" <alerts@example.test>');
+  });
+  test("with no profile the configured sender is used unchanged", async () => {
+    await sendCallEmail({ ...row, outcome: "failed" }, config, null, {
+      transport,
+    });
+    expect(from()).toBe("Iron Wing Leads <alerts@example.test>");
+  });
+  test("quotes and line breaks in a company name cannot forge headers", async () => {
+    await send({ ...kelevo, companyName: 'Evil"\r\nBcc: x@y.z' });
+    expect(from()).toBe('"Evil Bcc: x@y.z" <alerts@example.test>');
   });
 });
