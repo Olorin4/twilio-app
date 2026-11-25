@@ -308,10 +308,14 @@ router.patch(
       `INSERT INTO phone_call_sessions
        (id, workspace_id, provider_connection_id, account_sid, from_number, destination,
         call_sid, notes, outcome)
-     SELECT $1, cl.workspace_id, cl.provider_connection_id, '', COALESCE(cl.from_number, ''),
+     SELECT $1, cl.workspace_id, cl.provider_connection_id, '',
+       CASE WHEN cl.from_number LIKE 'client:%' THEN COALESCE(${clientLine("cl")}, cl.from_number)
+         ELSE COALESCE(cl.from_number, '') END,
        COALESCE(cl.to_number, ''), cl.call_sid, $4, $5 FROM call_logs cl
      WHERE cl.workspace_id = $2 AND cl.call_sid = $3 AND ${visible.sql}
      ON CONFLICT (call_sid) DO UPDATE SET notes = EXCLUDED.notes, outcome = EXCLUDED.outcome,
+       from_number = CASE WHEN phone_call_sessions.from_number LIKE 'client:%'
+         THEN EXCLUDED.from_number ELSE phone_call_sessions.from_number END,
        updated_at = now() WHERE phone_call_sessions.workspace_id = EXCLUDED.workspace_id
        AND phone_call_sessions.provider_connection_id IS NOT DISTINCT FROM EXCLUDED.provider_connection_id`,
       [
