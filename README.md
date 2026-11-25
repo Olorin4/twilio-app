@@ -453,15 +453,22 @@ On deploy day:
 - Watch `docker logs` for the app right after the deploy. An invalid
   `TRUST_PROXY` makes the server log the reason and exit, so the container
   restarts in a loop instead of serving.
-- Confirm nothing (for example a CDN) sits in front of the edge nginx. With
-  another proxy in front, `TRUST_PROXY=1` takes that proxy's address as every
-  client's.
+- Cloudflare sits in front of the edge nginx, and that is expected:
+  `conf.d/00-realip.conf` on the edge takes the client's address from
+  `CF-Connecting-IP`, trusting it only from Cloudflare's published ranges, so
+  the address nginx appends to `X-Forwarded-For` is the real client's and
+  `TRUST_PROXY=1` is correct (checked 2026-11-25; the ranges matched
+  cloudflare.com/ips-v4 and /ips-v6). Refresh those ranges when Cloudflare adds
+  one: a request through a missing range shows Cloudflare's address, so
+  everyone behind it shares one sign-in limit. Any other proxy added in front
+  needs the same treatment, or every client gets that proxy's address.
 - Expect everyone to sign in fresh after the restart: cached logins and the
   sign-in limits are kept in memory only.
 
 Before deploying, check:
 
-- `TWILIO_IDENTITY` is set in production. After cutover the `operator` login
+- `TWILIO_IDENTITY` is set in production (production uses
+  `TWILIO_IDENTITY=iron_wing_operator`). After cutover the `operator` login
   never mints a token again, so it is the only source of the legacy number's
   bootstrap identity: without it, the fallback ring (when the ring list can't
   be read) dials nobody and sync misses legacy softphone calls. The server
