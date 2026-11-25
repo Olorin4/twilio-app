@@ -29,6 +29,7 @@
     "migrate:workspace-archive": "node scripts/migrate-workspace-archive.js",
     "migrate:agent-profiles": "node scripts/migrate-agent-profiles.js",
     "migrate:users": "node scripts/migrate-users.js",
+    "migrate:session-lines": "node scripts/migrate-session-lines.js",
     "users": "node scripts/user-admin.js"
   },
   "repository": {

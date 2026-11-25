@@ -437,10 +437,13 @@ user's row on every cached login.
 1. Migration 013.
 2. The 013 seed, with production's `RECEPTIONIST_DAILY_LIMIT`.
 3. Migration 014.
-4. Set `TRUST_PROXY` and confirm `TWILIO_IDENTITY` (see the checks below).
-5. Deploy the code.
-6. The owner cutover (Settings -> Users, steps above).
-7. A test call.
+4. Migration 015: `DB_URL=<target> npm run migrate:session-lines`. It stores the
+   line a softphone call used on Live Assist notes saved by the current release,
+   which hold the softphone's identity instead. It is safe to rerun.
+5. Set `TRUST_PROXY` and confirm `TWILIO_IDENTITY` (see the checks below).
+6. Deploy the code.
+7. The owner cutover (Settings -> Users, steps above).
+8. A test call.
 
 Every production step needs the owner's go-ahead; deployment is on hold until
 Phase 2c has landed.

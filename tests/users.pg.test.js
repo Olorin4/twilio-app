@@ -880,6 +880,54 @@ suite("Users schema and store against PostgreSQL", () => {
           expect(
             (await call("get", member, IW, "CS13")).json.mock.calls[0][0],
           ).toMatchObject({ notes: "left a message" });
+          // Rows from release 58bedcf hold the softphone identity. With every
+          // one of owner A's lines on that connection hidden from owner B,
+          // the identity rule keeps owner B out; a raw from_number line test
+          // would let B in.
+          await db.query(`
+            DELETE FROM number_assignees WHERE user_id = '${OWNER}'
+              AND number_id IN (SELECT id FROM connection_numbers WHERE phone_number = '${SHARED}');
+            UPDATE phone_call_sessions SET from_number =
+              (SELECT from_number FROM call_logs WHERE call_sid = 'CS11')
+              WHERE call_sid = 'CS11';
+          `);
+          expect(
+            (await call("get", OTHER, W, "CS11")).sendStatus,
+          ).toHaveBeenCalledWith(404);
+          // The backfill (migration 015) stores the line the call used, once.
+          const {
+            backfillSessionLines,
+          } = require("../src/callAssist/sessionLines");
+          expect(await backfillSessionLines(db)).toBe(1);
+          expect(await backfillSessionLines(db)).toBe(0);
+          expect(
+            (
+              await db.query(
+                "SELECT from_number FROM phone_call_sessions WHERE call_sid = 'CS11'",
+              )
+            ).rows[0].from_number,
+          ).toBe(PERSONAL);
+          expect(
+            (await call("get", OTHER, W, "CS11")).sendStatus,
+          ).toHaveBeenCalledWith(404);
+          // A member saving notes on an old identity row repairs it, so the
+          // notes they saved are theirs to read.
+          await db.query(`
+            UPDATE phone_call_sessions SET from_number =
+              (SELECT from_number FROM call_logs WHERE call_sid = 'CS13'),
+              notes = 'old note'
+              WHERE call_sid = 'CS13';
+          `);
+          const before = await call("get", member, IW, "CS13");
+          expect(before.json.mock.calls[0][0]).toMatchObject({ notes: "" });
+          const repaired = await call("patch", member, IW, "CS13", {
+            notes: "new note",
+            outcome: null,
+          });
+          expect(repaired.sendStatus).toHaveBeenCalledWith(204);
+          expect(
+            (await call("get", member, IW, "CS13")).json.mock.calls[0][0],
+          ).toMatchObject({ notes: "new note" });
         } finally {
           await db.query(`
             DELETE FROM number_assignees WHERE user_id = '${OWNER}'

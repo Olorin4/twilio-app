@@ -4,6 +4,9 @@ legacy caller ID (TWILIO_CALLER_ID), whose calls count as outgoing. Kept apart
 from logManager.js so readers need not load the Twilio client. */
 const { lineCondition } = require("./visibility");
 
+// SQL literal matching an E.164 phone number.
+const E164_SQL = "'^[+][1-9][0-9]{1,14}$'";
+
 /* The line a softphone call (from client:<identity>) on call_logs row `alias`
 used: its newest child leg's E.164 from_number, or NULL. Every E.164 child leg
 of a softphone root carries the connection's single callerId today (the
@@ -17,7 +20,7 @@ const clientLine = (
                 AND child.workspace_id = ${alias}.workspace_id AND child.provider_connection_id IS NOT DISTINCT FROM ${alias}.provider_connection_id
                 WHERE leg.parent_call_sid = ${alias}.call_sid AND leg.workspace_id = ${alias}.workspace_id
                   AND leg.provider_connection_id IS NOT DISTINCT FROM ${alias}.provider_connection_id
-                  AND child.from_number ~ '^[+][1-9][0-9]{1,14}$'
+                  AND child.from_number ~ ${E164_SQL}
                 ORDER BY leg.updated_at DESC, leg.call_sid DESC LIMIT 1)`;
 
 // The call's line for visibility: its from_number when outbound, else its
@@ -65,11 +68,13 @@ visibility; one not yet bound to a call follows its line, which is its
 from_number. A softphone call (client: root) is judged by s.from_number when
 it is a phone number: bindIntent binds a session only when its from_number is
 the line the softphone dialed from, and the notes PATCH stores the line the
-call used. A session still holding a softphone identity (created before the
-PATCH stored the line, or before the call's child leg was logged) has no known
-line and keeps the identity rule. Kept to a column test: a child-leg lookup
+call used. A session still holding a softphone identity has no known line and
+keeps the identity rule. Production has such rows from before this rule
+(release 58bedcf stored the identity): migration 015 (backfillSessionLines)
+rewrites them, and the notes PATCH repairs any it touches, e.g. one written
+before the call's child leg was logged. Kept to a column test: a child-leg lookup
 here is repeated inside every visibility branch and makes the timeline slow. */
-const SESSION_CLIENT_LINE = `CASE WHEN s.from_number ~ '^[+][1-9][0-9]{1,14}$' THEN s.from_number END`;
+const SESSION_CLIENT_LINE = `CASE WHEN s.from_number ~ ${E164_SQL} THEN s.from_number END`;
 
 function sessionCondition(scope, firstParam) {
   const call = lineCondition(
@@ -93,6 +98,7 @@ function sessionCondition(scope, firstParam) {
 }
 
 module.exports = {
+  E164_SQL,
   clientLine,
   CALL_LINE,
   CALL_STATUS,
