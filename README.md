@@ -508,6 +508,34 @@ Before deploying, check:
   logs this at startup:
   `Per-client sign-in limits are off: set TRUST_PROXY to the number of proxies in front of the app. Only the per-username cap applies.`
 
+### Moving the main number
+
+The main number (`TWILIO_CALLER_ID`) starts on the server's legacy setup
+(`/voice` and `/sms`). It moves into Iron Wing's saved Twilio connection by
+adding it there as a line: from then on the legacy setup steps aside for it
+(the legacy sync skips it, members see it by its line's rules, and the legacy
+caller-ID entries disappear), and releasing it brings all of that back. The
+legacy routes and the legacy browser registration stay, so rollback rings at
+once. Design: `docs/superpowers/specs/2026-11-25-main-number-into-iron-wing-connection-design.md`.
+
+Cutover:
+
+1. Settings → the Iron Wing connection → Manage numbers: add the main number.
+2. On that line set the label ("Main"), Answered by (AI agent → Jack, or
+   Softphone) and hours.
+3. Top bar → Phone status → Call and text from: choose the main line. The
+   deploy check refuses a deploy while the main number is moved and no
+   Iron Wing line is chosen.
+4. In Twilio, point the number's voice and SMS webhooks at
+   `<base>/webhooks/<connection id>/voice` and `/sms`.
+5. Test: an inbound call, an outbound browser call, a text each way.
+6. After the next sync (15 minutes), check the new calls carry the
+   connection and appear once.
+
+Rollback: point the webhooks back at `<base>/voice` and `<base>/sms`, release
+the number from the connection in Settings, then choose the main (legacy)
+number under Call and text from. Fax only works on the legacy setup.
+
 ### Simulated callers
 
 `npm run receptionist:sim` explains what a run costs and stops. Adding `--yes`

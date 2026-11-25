@@ -3,6 +3,7 @@ code. Run by the deploy job inside the newly built image, before the running
 container is replaced (scripts/check-deploy.js). It only reads; migrations
 stay a manual, owner-approved step. Returns every problem at once. */
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
+const { legacyMoved } = require("./legacyLine");
 const { trustProxySetting } = require("./security");
 const { countRepairableSessionLines } = require("./callAssist/sessionLines");
 
@@ -71,6 +72,21 @@ async function databaseProblems(db) {
     problems.push(
       "Migration 014 has not run: connection_numbers.personal is missing (npm run migrate:users).",
     );
+  // Once the main number is a connection line there is no legacy caller ID,
+  // so Iron Wing must have a line chosen for calling (see legacyLine.js).
+  if (await legacyMoved(db)) {
+    const {
+      rows: [selection],
+    } = await db.query(
+      `SELECT EXISTS (SELECT 1 FROM workspace_active_numbers
+        WHERE workspace_id = $1) AS active`,
+      [IRON_WING_WORKSPACE_ID],
+    );
+    if (!selection.active)
+      problems.push(
+        "The main number is in a connection but no Iron Wing line is selected for calling.",
+      );
+  }
   const repairable = await countRepairableSessionLines(db);
   if (repairable > 0)
     problems.push(

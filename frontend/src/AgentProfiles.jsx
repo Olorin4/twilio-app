@@ -151,14 +151,15 @@ export default function AgentProfiles({ workspaceId, profiles, onChanged }) {
       }
     }, "Agent saved.");
   };
-  // In Iron Wing the default agent answers the customer line, switched on
-  // and off by the "AI assistant (Jack)" setting.
+  // In Iron Wing the default agent answers the main number while it uses the
+  // server's legacy setup, switched on and off by the "AI assistant (Jack)"
+  // setting. Numbers in a connection choose their own agent.
   const ironWing = workspaceId === IRON_WING_WORKSPACE_ID;
   const makeDefault = (profile) => {
     if (
       ironWing &&
       !window.confirm(
-        `Make ${profile.name} the default agent? In Iron Wing the default agent answers the customer line, so ${profile.name} will answer it instead of the current default whenever the "AI assistant (Jack)" setting is on.`,
+        `Make ${profile.name} the default agent? In Iron Wing the default agent answers the main number while it uses the server's legacy setup, so ${profile.name} will answer it instead of the current default whenever the "AI assistant (Jack)" setting is on. Numbers in a connection choose their agent under Settings → Twilio connections.`,
       )
     )
       return;
@@ -221,8 +222,10 @@ export default function AgentProfiles({ workspaceId, profiles, onChanged }) {
             {!profile.isDefault && ironWing && (
               <p>
                 <small>
-                  The default agent answers Iron Wing&apos;s customer line when
-                  the AI assistant (Jack) setting is on.
+                  The default agent answers the main number while it uses the
+                  server&apos;s legacy setup, when the AI assistant (Jack)
+                  setting is on. Numbers in a connection choose their agent
+                  under Settings → Twilio connections.
                 </small>
               </p>
             )}

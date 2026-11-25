@@ -10,6 +10,8 @@ function fakeDb({
   personal = true,
   repairable = 0,
   fail = false,
+  moved = false,
+  active = true,
 } = {}) {
   return {
     query: jest.fn(async (sql) => {
@@ -32,6 +34,10 @@ function fakeDb({
         return { rows: [{ jack_imported: jack }] };
       if (sql.includes("FROM phone_call_sessions"))
         return { rows: [{ repairable: String(repairable) }] };
+      if (sql.includes("FROM connection_numbers"))
+        return { rows: moved ? [{ phone_number: "+18178653016" }] : [] };
+      if (sql.includes("FROM workspace_active_numbers"))
+        return { rows: [{ active }] };
       throw new Error(`unexpected query: ${sql}`);
     }),
   };
@@ -122,5 +128,41 @@ test("a database that cannot be read is not ready, naming no host", async () => 
   expect(result).toEqual({
     ok: false,
     problems: ["Could not read the database (ECONNREFUSED)."],
+  });
+});
+
+describe("the main number moved into the connection", () => {
+  const saved = process.env.TWILIO_CALLER_ID;
+  beforeEach(() => (process.env.TWILIO_CALLER_ID = "+18178653016"));
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TWILIO_CALLER_ID;
+    else process.env.TWILIO_CALLER_ID = saved;
+  });
+  const PROBLEM =
+    "The main number is in a connection but no Iron Wing line is selected for calling.";
+
+  test("a moved main number with no active Iron Wing line is reported", async () => {
+    const result = await checkDeployReadiness(
+      fakeDb({ moved: true, active: false }),
+      goodEnv,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.problems).toContain(PROBLEM);
+  });
+  test("a moved main number with an active line is ready", async () => {
+    expect(
+      await checkDeployReadiness(
+        fakeDb({ moved: true, active: true }),
+        goodEnv,
+      ),
+    ).toEqual({ ok: true, problems: [] });
+  });
+  test("a main number that is not moved needs no active line", async () => {
+    expect(
+      await checkDeployReadiness(
+        fakeDb({ moved: false, active: false }),
+        goodEnv,
+      ),
+    ).toEqual({ ok: true, problems: [] });
   });
 });
