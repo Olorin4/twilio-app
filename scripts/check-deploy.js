@@ -19,7 +19,8 @@ async function main() {
 }
 main()
   .catch((error) => {
-    console.error("Deploy check failed:", error.message);
+    // The deploy job's output is public: print the error code only.
+    console.error("Deploy check failed:", error.code || "error");
     process.exitCode = 1;
   })
   .finally(() => pool.end());

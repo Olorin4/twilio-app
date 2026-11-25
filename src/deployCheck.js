@@ -86,7 +86,9 @@ async function checkDeployReadiness(db, env = process.env) {
   } catch (error) {
     return {
       ok: false,
-      problems: [`Could not read the database: ${error.message}`],
+      // Only the error code: this output reaches the public CI log, and a
+      // driver message can name the database host.
+      problems: [`Could not read the database (${error.code || "error"}).`],
     };
   }
   problems.push(...environmentProblems(env));

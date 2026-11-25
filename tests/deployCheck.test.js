@@ -13,7 +13,10 @@ function fakeDb({
 } = {}) {
   return {
     query: jest.fn(async (sql) => {
-      if (fail) throw new Error("connection refused");
+      if (fail)
+        throw Object.assign(new Error("connect ECONNREFUSED 10.0.0.5:5432"), {
+          code: "ECONNREFUSED",
+        });
       if (sql.includes("information_schema"))
         return {
           rows: [
@@ -113,10 +116,11 @@ test("lists every problem at once", async () => {
   expect(result.problems).toHaveLength(5);
 });
 
-test("a database that cannot be read is not ready", async () => {
+test("a database that cannot be read is not ready, naming no host", async () => {
   const result = await checkDeployReadiness(fakeDb({ fail: true }), goodEnv);
+  expect(JSON.stringify(result)).not.toContain("10.0.0.5");
   expect(result).toEqual({
     ok: false,
-    problems: ["Could not read the database: connection refused"],
+    problems: ["Could not read the database (ECONNREFUSED)."],
   });
 });
