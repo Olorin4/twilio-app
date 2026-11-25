@@ -25,6 +25,19 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: twilio_app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +50,21 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      # The Postgres suites (visibility, timeline, users, ringing, Live Assist)
+      # are skipped by `npm test`; run them against a throwaway database. They
+      # share the public schema, so they run one at a time.
+      - name: Run Postgres tests
+        env:
+          DB_SSL: "false"
+          DB_URL: postgresql://postgres:test@localhost:5432/twilio_app_test
+          TEST_DB_URL: postgresql://postgres:test@localhost:5432/twilio_app_test
+          AGENT_PROFILES_PG_TEST: "1"
+          USERS_PG_TEST: "1"
+          RINGING_PG_TEST: "1"
+          CALL_ASSIST_PG_TEST: "1"
+          OUTREACH_INTAKE_PG_TEST: "1"
+        run: npx jest --runInBand
 
       - name: Build frontend
         run: npm run build
@@ -64,41 +92,85 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
-      - name: Sync source (leaves the server .env untouched)
+      # --delete removes server files that are not in the repo, so every
+      # server-only file is protected: the .env and its backups, and the
+      # record of the deployed commit.
+      - name: Sync source (leaves the server .env and its backups untouched)
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           rsync -az --delete \
-            --exclude='/.env' \
-            --filter='P /.env.development' --filter='P /.env.test' \
+            --filter='P /.env*' --exclude='/.env*' \
+            --filter='P /DEPLOYED_COMMIT' --exclude='/DEPLOYED_COMMIT' \
             --exclude='.git' --exclude='node_modules' --exclude='dist' \
             -e "ssh -i ~/.ssh/deploy_key -o BatchMode=yes" \
             ./ "$DEPLOY_USER@$DEPLOY_HOST:$APP_DIR/"
 
-      - name: Build and restart twilio-app, roll back on failure
+      - name: Build, check readiness, restart twilio-app, roll back on failure
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "SHORT_SHA=$SHORT_SHA APP_DIR=$APP_DIR bash -s" <<'EOF'
+            "SHORT_SHA=$SHORT_SHA FULL_SHA=$GITHUB_SHA APP_DIR=$APP_DIR bash -s" <<'EOF'
           set -euo pipefail
           cd "$APP_DIR"
           # Keep the running image so a failed deploy can be undone.
           docker tag twilio-app:latest "twilio-app:before-$SHORT_SHA"
-          docker compose up -d --build
-          sleep 10
-          # Any HTTP response below 500 (401 without a login is expected)
-          # means the app is serving; a refused connection or 5xx is a failure.
-          if docker exec twilio-app node -e "require('http').get('http://127.0.0.1:3001/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"; then
-            docker tag twilio-app:latest "twilio-app:release-$SHORT_SHA"
-            echo "Deployed $SHORT_SHA"
-          else
-            echo "Health check failed; rolling back to the previous image" >&2
-            docker tag "twilio-app:before-$SHORT_SHA" twilio-app:latest
+          restore() { docker tag "twilio-app:before-$SHORT_SHA" twilio-app:latest; }
+
+          # Build the new image without touching the running container.
+          if ! docker compose build; then
+            echo "Build failed; the running app is unchanged" >&2
+            restore
+            exit 1
+          fi
+
+          # Readiness gate, run in the new image with the server's .env:
+          # migrations 013, 014 and 015, the Jack import, TRUST_PROXY and
+          # TWILIO_IDENTITY. Read-only; migrations stay a manual step.
+          if ! docker compose run --rm --no-deps app node scripts/check-deploy.js; then
+            echo "Deploy check failed; the running app is unchanged" >&2
+            restore
+            exit 1
+          fi
+
+          docker compose up -d --no-build
+
+          # Healthy = the container is running, has not restarted, and answers
+          # HTTP below 500 (401 without a login is expected). Up to 60 s.
+          healthy=false
+          for _ in $(seq 1 20); do
+            sleep 3
+            running=$(docker inspect -f '{{.State.Running}}' twilio-app 2>/dev/null || echo false)
+            restarts=$(docker inspect -f '{{.RestartCount}}' twilio-app 2>/dev/null || echo 1)
+            if [ "$running" = true ] && [ "$restarts" = 0 ] &&
+              docker exec twilio-app node -e "require('http').get('http://127.0.0.1:3001/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"; then
+              healthy=true
+              break
+            fi
+          done
+
+          if [ "$healthy" != true ]; then
+            # This repository is public, so its Actions logs are too: never print
+            # the app's logs here (they hold phone numbers and addresses). Read
+            # them on the server with `docker logs twilio-app`.
+            echo "Health check failed; rolling back to the previous image. See docker logs twilio-app on the server." >&2
+            restore
             docker compose up -d --no-build
             exit 1
           fi
+
+          docker tag twilio-app:latest "twilio-app:release-$SHORT_SHA"
+          printf '%s\n' "$FULL_SHA" > DEPLOYED_COMMIT
+          # Keep the five newest release- and before- images of each kind.
+          for kind in release before; do
+            docker images twilio-app --format '{{.CreatedAt}}\t{{.Tag}}' |
+              awk -F'\t' -v k="$kind-" 'index($2, k) == 1' | sort -r |
+              tail -n +6 | cut -f2 |
+              while read -r tag; do docker rmi "twilio-app:$tag" >/dev/null || true; done
+          done
+          echo "Deployed $SHORT_SHA"
           EOF
