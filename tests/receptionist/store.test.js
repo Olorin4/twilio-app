@@ -194,6 +194,7 @@ test("new outcomes are accepted", async () => {
     "urgent",
     "support_request",
     "not_support",
+    "prospect",
   ]) {
     expect(store.OUTCOMES).toContain(outcome);
     await expect(store.finishCall(sid, { outcome })).resolves.toEqual({
@@ -221,7 +222,7 @@ test("countNew counts the new kinds' messages too", async () => {
   pool.query.mockResolvedValue({ rows: [{ count: "0" }] });
   await store.countNew(ws);
   const sql = pool.query.mock.calls[0][0];
-  for (const outcome of ["message", "urgent", "support_request"])
+  for (const outcome of ["message", "urgent", "support_request", "prospect"])
     expect(sql).toContain(`'${outcome}'`);
   expect(sql).not.toContain("'not_support'");
 });

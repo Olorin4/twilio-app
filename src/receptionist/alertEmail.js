@@ -15,6 +15,7 @@ const LABELS = {
   message: "Message",
   urgent: "URGENT",
   support_request: "Support request",
+  prospect: "Sales prospect",
   failed: "Agent failed, call back",
 };
 

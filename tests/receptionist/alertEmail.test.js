@@ -215,6 +215,7 @@ describe("emails per agent profile", () => {
   test.each([
     ["message", "Message: Dana Lee — Lee Freight"],
     ["support_request", "Support request: Dana Lee — Lee Freight"],
+    ["prospect", "Sales prospect: Dana Lee — Lee Freight"],
   ])("a %s is labelled for what it is", async (outcome, subject) => {
     await sendCallEmail({ ...message, outcome }, config, ava, { transport });
     expect(sent().subject).toBe(subject);

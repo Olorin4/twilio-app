@@ -53,6 +53,7 @@ const OUTCOME_LABELS = {
   message: "Message",
   urgent: "Urgent",
   support_request: "Support request",
+  prospect: "Sales prospect",
   not_support: "Not support",
   spam: "Spam",
   abandoned: "Hung up",

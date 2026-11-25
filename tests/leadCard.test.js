@@ -122,10 +122,16 @@ test("new outcomes have labels", () => {
   expect(badge({ outcome: "message" })).toBe("MESSAGE");
   expect(badge({ outcome: "support_request" })).toBe("SUPPORT");
   expect(badge({ outcome: "not_support" })).toBe("NOT SUPPORT");
+  expect(badge({ outcome: "prospect" })).toBe("PROSPECT");
 });
 test("urgent is owed a callback", () => {
   expect(OWED).toEqual(
-    expect.arrayContaining(["message", "urgent", "support_request"]),
+    expect.arrayContaining([
+      "message",
+      "urgent",
+      "support_request",
+      "prospect",
+    ]),
   );
   expect(unread({ status: "new", outcome: "urgent" })).toBe(true);
 });

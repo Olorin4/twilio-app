@@ -19,6 +19,7 @@ test("each kind has its outcomes", () => {
   expect(outcomesFor("support")).toEqual([
     "support_request",
     "not_support",
+    "prospect",
     "spam",
   ]);
 });
@@ -83,6 +84,7 @@ test("emailed outcomes", () => {
     "message",
     "urgent",
     "support_request",
+    "prospect",
   ]);
 });
 

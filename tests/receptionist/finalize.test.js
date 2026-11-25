@@ -490,6 +490,7 @@ describe("calls taken by other kinds of agent", () => {
     [sam, "urgent", true],
     [ava, "support_request", true],
     [ava, "not_support", false],
+    [ava, "prospect", true],
     [sam, "spam", false],
   ])(
     "emails go out for the five emailed outcomes (%#: %s)",
@@ -514,7 +515,11 @@ describe("calls taken by other kinds of agent", () => {
   test("every outcome a dispatcher or support call stores is one the store accepts", async () => {
     for (const [profile, first, outcomes] of [
       [sam, "message", ["message", "urgent", "spam"]],
-      [ava, "support_request", ["support_request", "not_support", "spam"]],
+      [
+        ava,
+        "support_request",
+        ["support_request", "not_support", "prospect", "spam"],
+      ],
     ]) {
       for (const outcome of outcomes) {
         jest.clearAllMocks();

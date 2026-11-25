@@ -77,6 +77,6 @@ ALTER TABLE receptionist_calls
 ALTER TABLE receptionist_calls
   ADD CONSTRAINT receptionist_calls_outcome_check
   CHECK (outcome IN ('lead', 'not_a_lead', 'spam', 'abandoned', 'failed',
-    'message', 'urgent', 'support_request', 'not_support'));
+    'message', 'urgent', 'support_request', 'not_support', 'prospect'));
 
 COMMIT;

@@ -75,7 +75,7 @@ function messageInstructions({ kind, personaName: persona, companyName }) {
   const support = kind === "support";
   const [first, other] = outcomesFor(kind);
   const outcome = support
-    ? `"${first}" for a customer or user who needs help with the product or their account, "${other}" for anyone else with a genuine reason to call, "spam" for sales calls and robocalls.`
+    ? `"${first}" for a customer or user who needs help with the product or their account, "prospect" for someone who wants to buy or try the product (a company asking what it does or what it costs), "${other}" for anyone else with a genuine reason to call, "spam" for sales calls and robocalls.`
     : `"${first}" for a caller with a genuine reason to call whose matter can wait for the callback, "${other}" for a problem that cannot wait (trouble on a load that is moving now, a breakdown, a missed pickup), "spam" for sales calls and robocalls.`;
   const record = support
     ? ""

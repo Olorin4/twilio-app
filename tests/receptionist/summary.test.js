@@ -211,6 +211,7 @@ The dispatcher reads this in the minute before calling back, so be specific and 
     expect(outcome(await request(support))).toEqual([
       "support_request",
       "not_support",
+      "prospect",
       "spam",
     ]);
     expect(outcome(await request(JACK))).toEqual([
@@ -235,6 +236,10 @@ The dispatcher reads this in the minute before calling back, so be specific and 
     expect(user).not.toMatch(/Jack|FMCSA/);
     // A message card, not a sales script.
     expect(req.system[0].text).not.toMatch(/sales pitch|lead card/);
+  });
+  test("a support summary is told what a sales prospect is", async () => {
+    const text = (await request(support)).system[0].text;
+    expect(text).toContain('"prospect" for someone who wants to buy or try');
   });
 
   test("a dispatcher's prompt names its own company and persona", async () => {
