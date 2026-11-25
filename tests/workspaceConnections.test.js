@@ -15,6 +15,7 @@ const {
   updateNumberSettings,
   listAllConnections,
   setNumberAssignees,
+  addConnectionNumbers,
 } = require("../src/workspaceConnections");
 const { encryptCredentials } = require("../src/credentialEncryption");
 const workspaceId = "00000000-0000-4000-8000-000000000001";
@@ -94,6 +95,70 @@ test("the existing Iron Wing number cannot be claimed by another workspace", asy
   expect(pool.connect).not.toHaveBeenCalled();
   if (originalCaller === undefined) delete process.env.TWILIO_CALLER_ID;
   else process.env.TWILIO_CALLER_ID = originalCaller;
+});
+describe("adding the legacy number to a connection", () => {
+  const connectionId = "00000000-0000-4000-8000-0000000000c1";
+  const saved = {};
+  beforeEach(() => {
+    for (const key of ["TWILIO_CALLER_ID", "TWILIO_ACCOUNT_SID"])
+      saved[key] = process.env[key];
+    process.env.TWILIO_CALLER_ID = "+15550000001";
+    process.env.TWILIO_ACCOUNT_SID = credentials.accountSid;
+  });
+  afterEach(() => {
+    for (const [key, value] of Object.entries(saved))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    // Unused queued answers must not leak into later tests.
+    pool.query.mockReset();
+    pool.connect.mockReset();
+  });
+  // The connection row readConnectionCredentials loads.
+  const connectionRow = (accountSid) => ({
+    rows: [
+      {
+        id: connectionId,
+        account_sid: accountSid,
+        encrypted_credentials: encryptCredentials(connectionId, {
+          authToken: "a",
+          apiKeySid: credentials.apiKeySid,
+          apiKeySecret: "s",
+          twimlAppSid: credentials.twimlAppSid,
+        }),
+      },
+    ],
+  });
+  const add = (workspace) =>
+    addConnectionNumbers(workspace, connectionId, ["PN1"], {
+      validate: async () => ({ numbers: owned }),
+    });
+
+  test("Iron Wing's own connection on the legacy account may take the legacy number", async () => {
+    pool.query.mockResolvedValueOnce(connectionRow(credentials.accountSid));
+    const query = jest.fn().mockResolvedValue({ rows: [] });
+    query
+      .mockResolvedValueOnce({}) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: connectionId }] }); // lock
+    pool.connect.mockResolvedValueOnce({ query, release: jest.fn() });
+    await expect(add(workspaceId)).resolves.toEqual({ added: 1 });
+    expect(query).toHaveBeenLastCalledWith("COMMIT");
+  });
+
+  test("another workspace's connection still cannot take it", async () => {
+    pool.query.mockResolvedValueOnce(connectionRow(credentials.accountSid));
+    await expect(add("00000000-0000-4000-8000-000000000002")).rejects.toThrow(
+      "The current Iron Wing number is already assigned to the environment connection.",
+    );
+    expect(pool.connect).not.toHaveBeenCalled();
+  });
+
+  test("an Iron Wing connection on another Twilio account still cannot take it", async () => {
+    pool.query.mockResolvedValueOnce(connectionRow("AC" + "9".repeat(32)));
+    await expect(add(workspaceId)).rejects.toThrow(
+      "The current Iron Wing number is already assigned to the environment connection.",
+    );
+    expect(pool.connect).not.toHaveBeenCalled();
+  });
 });
 test("rejects overlapping ownership and rolls back", async () => {
   const query = jest.fn().mockResolvedValue({ rows: [] });

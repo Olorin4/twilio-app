@@ -589,7 +589,15 @@ async function addConnectionNumbers(
   ]
     .map((number) => (number || "").trim())
     .filter(Boolean);
-  if (selected.some((number) => legacyNumbers.includes(number.phoneNumber)))
+  // Only Iron Wing's own connection on the legacy account may take a legacy
+  // number (moving it there; see legacyLine.js).
+  const ownLegacyAccount =
+    workspaceId === IRON_WING_WORKSPACE_ID &&
+    row.account_sid === process.env.TWILIO_ACCOUNT_SID;
+  if (
+    !ownLegacyAccount &&
+    selected.some((number) => legacyNumbers.includes(number.phoneNumber))
+  )
     throw new Error(
       "The current Iron Wing number is already assigned to the environment connection.",
     );
