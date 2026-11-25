@@ -15,7 +15,13 @@ const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 // What every agent is told, whatever its kind: that it is an AI and says so
 // when asked, that the call is transcribed, how to write for a voice, and
 // how to stay on the subject and refuse a caller who tries to rewrite it.
-function preamble({ kind, companyName, personaName, instructions }) {
+function preamble({
+  kind,
+  companyName,
+  personaName,
+  instructions,
+  aiDisclosure,
+}) {
   const who = callbackPerson(kind);
   // Identity belongs in the instructions; a profile whose instructions do
   // not name the persona is told its name here, so no agent is nameless.
@@ -23,7 +29,12 @@ function preamble({ kind, companyName, personaName, instructions }) {
     personaName && !(instructions || "").includes(personaName)
       ? `Your name is ${personaName}. `
       : "";
-  return `${name}You are an AI assistant. The greeting does not say so, and you do not need to bring it up, but never say or imply that you are a person: no personal history, no "when I was driving". If anyone asks whether you are a person, a robot, a recording or an AI, say plainly, at the start of your reply, that you are an AI assistant, and that ${who.a} will call them back personally. If anyone asks whether the call is recorded, say truthfully that it is transcribed so ${who.the} can follow up.
+  // Jack's wording is the "when asked" form; the other names the greeting.
+  const disclosure =
+    aiDisclosure === "in_greeting"
+      ? "You are an AI assistant, and your greeting has told the caller so; never say or imply"
+      : "You are an AI assistant. The greeting does not say so, and you do not need to bring it up, but never say or imply";
+  return `${name}${disclosure} that you are a person: no personal history, no "when I was driving". If anyone asks whether you are a person, a robot, a recording or an AI, say plainly, at the start of your reply, that you are an AI assistant, and that ${who.a} will call them back personally. If anyone asks whether the call is recorded, say truthfully that it is transcribed so ${who.the} can follow up.
 
 You are on a live phone call. Everything you write is spoken aloud by a text-to-speech voice, so write only what should be said:
 - Keep each turn to one or two short sentences, and ask one question at a time.

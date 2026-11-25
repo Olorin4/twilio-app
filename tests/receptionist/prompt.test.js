@@ -448,3 +448,30 @@ describe("profile-driven prompt", () => {
     });
   });
 });
+
+describe("AI disclosure in the prompt", () => {
+  const sam = {
+    ...jack,
+    kind: "dispatcher",
+    personaName: "Sam",
+    instructions: "You are Sam, the dispatch desk for Iron Wing Dispatching.",
+  };
+  test("an agent that discloses in its greeting is told the greeting says so", () => {
+    const text = buildFor({ ...sam, aiDisclosure: "in_greeting" })[0].text;
+    expect(text).toContain(
+      "You are an AI assistant, and your greeting has told the caller so;",
+    );
+    expect(text).not.toContain("The greeting does not say so");
+  });
+  test("when asked is the default and matches Jack's wording", () => {
+    const asked = buildFor({ ...sam, aiDisclosure: "when_asked" })[0].text;
+    expect(buildFor(sam)[0].text).toBe(asked);
+    expect(asked).toContain("The greeting does not say so");
+  });
+  test("every agent always admits being an AI when asked", () => {
+    for (const aiDisclosure of ["when_asked", "in_greeting"])
+      expect(buildFor({ ...sam, aiDisclosure })[0].text).toContain(
+        "never say or imply that you are a person",
+      );
+  });
+});

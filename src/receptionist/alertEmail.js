@@ -102,6 +102,21 @@ function body(row, profile) {
   return lines.join("\n");
 }
 
+// The From header: the agent's company as the display name, with the
+// configured sender's address (SMTP_FROM may be "Name <address>" or a bare
+// address). Quotes and line breaks are removed so a company name cannot forge
+// headers. Without a profile the configured sender is used unchanged.
+function senderFor(config, profile, fallback) {
+  const configured = config.smtp.from || config.smtp.user || fallback;
+  const company = String(profile?.companyName || "")
+    .replace(/["\\\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!company) return configured;
+  const address = (/<([^>]+)>/.exec(configured) || [])[1] || configured;
+  return `"${company}" <${address.trim()}>`;
+}
+
 // Resolves true when the email was handed to the mail server. Never throws.
 // `profile` is the call's agent profile, or null when it could not be loaded.
 async function sendCallEmail(row, config, profile, { transport } = {}) {
@@ -121,7 +136,7 @@ async function sendCallEmail(row, config, profile, { transport } = {}) {
     const who =
       oneLine(row.caller_name) || callbackNumber(row) || "unknown caller";
     await mailer.sendMail({
-      from: config.smtp.from || config.smtp.user || to,
+      from: senderFor(config, profile, to),
       to,
       subject: `${subjectLabel(row.outcome, profile)}: ${who} — ${oneLine(row.company) || "unknown company"}`,
       text: body(row, profile),

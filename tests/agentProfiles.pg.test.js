@@ -209,4 +209,23 @@ suite("Agent profiles schema against PostgreSQL", () => {
       ),
     ).toBe("23514");
   });
+
+  test("AI disclosure defaults to when asked and cannot be anything else", async () => {
+    const id = "00000000-0000-4000-8000-000000000009";
+    await insertProfile(id, workspace);
+    const { rows } = await pool.query(
+      "SELECT ai_disclosure FROM agent_profiles WHERE id = $1",
+      [id],
+    );
+    expect(rows[0].ai_disclosure).toBe("when_asked");
+    expect(
+      await code(
+        pool.query(
+          "UPDATE agent_profiles SET ai_disclosure = 'never' WHERE id = $1",
+          [id],
+        ),
+      ),
+    ).toBe("23514");
+    await pool.query("DELETE FROM agent_profiles WHERE id = $1", [id]);
+  });
 });

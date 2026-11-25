@@ -19,6 +19,7 @@ const emptyForm = {
   alertEmail: "",
   dailyLimit: "",
   enabled: true,
+  aiDisclosure: "when_asked",
 };
 
 async function request(url, options) {
@@ -39,6 +40,7 @@ const toForm = (profile) => ({
     Object.keys(emptyForm).map((key) => [key, profile[key] ?? ""]),
   ),
   enabled: profile.enabled !== false,
+  aiDisclosure: profile.aiDisclosure || "when_asked",
 });
 
 function Counter({ value, cap }) {
@@ -309,6 +311,20 @@ export default function AgentProfiles({ workspaceId, profiles, onChanged }) {
               rows={8}
             />
             <Counter value={form.knowledge} cap={CAPS.knowledge} />
+          </label>
+          <label>
+            Says it is an AI
+            <select value={form.aiDisclosure} onChange={set("aiDisclosure")}>
+              <option value="when_asked">When asked</option>
+              <option value="in_greeting">
+                In the greeting, and when asked
+              </option>
+            </select>
+            <small>
+              The agent never claims to be a person. With &quot;In the
+              greeting&quot;, the greeting must say the caller is talking to an
+              AI assistant.
+            </small>
           </label>
           <label>
             Voice

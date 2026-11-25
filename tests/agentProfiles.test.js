@@ -117,6 +117,7 @@ test("every save writes a revision in the same transaction", async () => {
       "alertEmail",
       "dailyLimit",
       "enabled",
+      "aiDisclosure",
     ].sort(),
   );
   expect(query.mock.calls[2][1][2]).toBe("operator");
@@ -217,5 +218,72 @@ describe("seedJack", () => {
       sql.includes("INSERT INTO agent_profile_revisions"),
     );
     expect(revision[1][2]).toBe("import");
+  });
+});
+
+describe("AI disclosure", () => {
+  test("defaults to when asked and accepts in greeting", () => {
+    expect(validateFields({ aiDisclosure: "in_greeting" })).toEqual({
+      aiDisclosure: "in_greeting",
+    });
+    expect(validateFields({ ai_disclosure: "when_asked" })).toEqual({
+      aiDisclosure: "when_asked",
+    });
+  });
+  test("rejects any other value, including never", () => {
+    for (const value of ["never", "", "IN_GREETING", true])
+      expect(() => validateFields({ aiDisclosure: value })).toThrow(
+        "Enter valid agent settings: AI disclosure must be when_asked or in_greeting.",
+      );
+  });
+  test("a greeting that discloses must say AI", async () => {
+    await expect(
+      createProfile(
+        ws,
+        { ...base, aiDisclosure: "in_greeting", greeting: "Hi, this is Sam." },
+        "owner",
+      ),
+    ).rejects.toThrow(
+      "Enter valid agent settings: with disclosure in the greeting, the greeting must say the caller is talking to an AI assistant.",
+    );
+    expect(pool.connect).not.toHaveBeenCalled();
+  });
+  test("switching to in greeting checks the stored greeting and rolls back", async () => {
+    const query = client((sql) =>
+      sql.includes("UPDATE agent_profiles SET")
+        ? { rows: [row({ ai_disclosure: "in_greeting", greeting: "Hello" })] }
+        : null,
+    );
+    await expect(
+      updateProfile(ws, id, { aiDisclosure: "in_greeting" }, "owner"),
+    ).rejects.toThrow("the greeting must say the caller is talking to an AI");
+    expect(sqls(query)).toContain("ROLLBACK");
+    expect(sqls(query).some((s) => s.includes("agent_profile_revisions"))).toBe(
+      false,
+    );
+  });
+  test("a disclosing greeting passes", async () => {
+    client((sql) =>
+      sql.includes("INSERT INTO agent_profiles")
+        ? {
+            rows: [
+              row({
+                ai_disclosure: "in_greeting",
+                greeting: "Hi, I'm Sam, Iron Wing's AI assistant.",
+              }),
+            ],
+          }
+        : null,
+    );
+    const created = await createProfile(
+      ws,
+      {
+        ...base,
+        aiDisclosure: "in_greeting",
+        greeting: "Hi, I'm Sam, Iron Wing's AI assistant.",
+      },
+      "owner",
+    );
+    expect(created.aiDisclosure).toBe("in_greeting");
   });
 });

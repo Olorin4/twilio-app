@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
 CREATE UNIQUE INDEX IF NOT EXISTS agent_profiles_one_default
   ON agent_profiles (workspace_id) WHERE is_default;
 
+-- How the agent tells callers it is an AI: always when asked, and with
+-- 'in_greeting' also in its greeting. There is no option to deny it.
+ALTER TABLE agent_profiles
+  ADD COLUMN IF NOT EXISTS ai_disclosure text NOT NULL DEFAULT 'when_asked';
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'agent_profiles_ai_disclosure_check') THEN
+    ALTER TABLE agent_profiles ADD CONSTRAINT agent_profiles_ai_disclosure_check
+      CHECK (ai_disclosure IN ('when_asked', 'in_greeting'));
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS agent_profile_revisions (
   id bigserial PRIMARY KEY,
   profile_id uuid NOT NULL REFERENCES agent_profiles(id) ON DELETE CASCADE,
