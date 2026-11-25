@@ -6,3 +6,7 @@ npm-debug.log
 .tool-versions
 twilio-app.code-workspace
 
+
+# Internal research, kept local (the repository is public).
+/reports/
+/research_notes/
