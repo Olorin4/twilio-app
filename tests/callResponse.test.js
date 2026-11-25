@@ -3,6 +3,16 @@ const originalCaller = process.env.TWILIO_CALLER_ID;
 const originalIdentity = process.env.TWILIO_IDENTITY;
 process.env.TWILIO_CALLER_ID = "+15550002222";
 process.env.TWILIO_IDENTITY = "iron_wing_desk";
+// token.js throws at load without these; use synthetic values so the test
+// never depends on (or reads credentials from) a local .env.
+for (const [key, value] of Object.entries({
+  TWILIO_ACCOUNT_SID: "AC" + "0".repeat(32),
+  TWILIO_AUTH_TOKEN: "test-auth-token",
+  TWILIO_TWIML_APP_SID: "AP" + "0".repeat(32),
+  TWILIO_API_KEY: "SK" + "0".repeat(32),
+  TWILIO_API_SECRET: "test-api-secret",
+}))
+  process.env[key] = value;
 jest.mock("../src/receptionist/config", () => ({
   getConfig: jest.fn(() => ({ hours: {} })),
   isOpen: jest.fn(() => false),

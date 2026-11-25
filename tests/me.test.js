@@ -1,3 +1,14 @@
+// token.js throws at load without these; use synthetic values so the test
+// never depends on (or reads credentials from) a local .env.
+for (const [key, value] of Object.entries({
+  TWILIO_ACCOUNT_SID: "AC" + "0".repeat(32),
+  TWILIO_AUTH_TOKEN: "test-auth-token",
+  TWILIO_TWIML_APP_SID: "AP" + "0".repeat(32),
+  TWILIO_API_KEY: "SK" + "0".repeat(32),
+  TWILIO_API_SECRET: "test-api-secret",
+}))
+  process.env[key] = value;
+process.env.TWILIO_CALLER_ID = process.env.TWILIO_CALLER_ID || "+15550002222";
 jest.mock("../src/db", () => ({ query: jest.fn(), connect: jest.fn() }));
 const router = require("../src/router");
 
