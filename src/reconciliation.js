@@ -2,6 +2,7 @@ const { client } = require("./token");
 const pool = require("./db");
 const { saveLeg } = require("./callEvents");
 const { saveStatus, numbers } = require("./conversations");
+const { movedLegacyNumbers } = require("./legacyLine");
 const { publish } = require("./messageEvents");
 const { IRON_WING_WORKSPACE_ID } = require("./workspaceContext");
 const { getProvider } = require("./providerContext");
@@ -189,6 +190,12 @@ async function callBelongsToOwner(sid, owner) {
   );
   return result.rows.length > 0;
 }
+// The legacy sync owns the legacy numbers that are not moved into an Iron
+// Wing connection; a moved number's calls belong to that connection's sync.
+async function legacyOwnedNumbers() {
+  const moved = new Set(await movedLegacyNumbers());
+  return numbers().filter((number) => !moved.has(number));
+}
 function reconcileOne(owner) {
   const key = owner.id || "legacy";
   if (!running.has(key)) {
@@ -200,7 +207,7 @@ function reconcileOne(owner) {
               [owner.id],
             )
           ).rows.map((row) => row.phone_number)
-        : numbers();
+        : await legacyOwnedNumbers();
       // The line whose softphone identities own the calls they place.
       const line = owner.id ? owner : { ...owner, legacy: true };
       const pendingChildren = [];

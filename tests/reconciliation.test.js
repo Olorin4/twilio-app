@@ -6,7 +6,10 @@ jest.mock("../src/token", () => ({
 jest.mock("../src/callEvents", () => ({ saveLeg: jest.fn() }));
 jest.mock("../src/conversations", () => ({
   saveStatus: jest.fn(),
-  numbers: () => [],
+  numbers: jest.fn(() => []),
+}));
+jest.mock("../src/legacyLine", () => ({
+  movedLegacyNumbers: jest.fn(async () => []),
 }));
 jest.mock("../src/messageEvents", () => ({ publish: jest.fn() }));
 const pool = require("../src/db");
@@ -213,5 +216,68 @@ describe("softphone identities in the sync", () => {
       },
     ]);
     expect(saved).toEqual(["CA3", "CA4"]);
+  });
+});
+
+describe("the legacy sync and a moved main number", () => {
+  const MAIN = "+18178653016";
+  const conversations = require("../src/conversations");
+  const { movedLegacyNumbers } = require("../src/legacyLine");
+  const workspaceId = "00000000-0000-4000-8000-000000000001";
+  const inbound = [
+    { sid: "CA6", direction: "inbound", from: "+15550000009", to: MAIN },
+  ];
+  const stream = (instances) => ({
+    page: jest.fn().mockResolvedValue({
+      instances,
+      nextPage: jest.fn().mockResolvedValue(undefined),
+    }),
+  });
+  async function legacySync() {
+    pool.query.mockImplementation(async (sql) => {
+      if (sql.includes("synced_through FROM"))
+        return { rows: [{ synced_through: new Date() }] };
+      return { rows: [], rowCount: 1 };
+    });
+    await reconcileOne({
+      workspaceId,
+      id: null,
+      client: { calls: stream(inbound), messages: stream([]) },
+    });
+    return pool.query.mock.calls
+      .filter(([sql]) => sql.includes("INSERT INTO call_logs"))
+      .map(([, params]) => params[0]);
+  }
+  beforeEach(() => conversations.numbers.mockReturnValue([MAIN]));
+  afterEach(() => {
+    conversations.numbers.mockReturnValue([]);
+    movedLegacyNumbers.mockResolvedValue([]);
+  });
+
+  test("the legacy sync does not own a moved number", async () => {
+    movedLegacyNumbers.mockResolvedValue([MAIN]);
+    expect(await legacySync()).toEqual([]);
+  });
+
+  test("after release the legacy sync owns it again", async () => {
+    movedLegacyNumbers.mockResolvedValue([]);
+    expect(await legacySync()).toEqual(["CA6"]);
+  });
+
+  test("the connection sync does not re-attribute a call the /voice webhook logged", async () => {
+    pool.query.mockResolvedValue({ rows: [], rowCount: 0 });
+    await saveCall(inbound[0], {
+      workspaceId,
+      id: "64d9ad54-3d96-4d4b-a227-e1bc7870784a",
+    });
+    const [sql, params] = pool.query.mock.calls.find(([text]) =>
+      text.includes("INSERT INTO call_logs"),
+    );
+    // The upsert only updates a row already owned by the same connection, so a
+    // NULL-connection row from /voice keeps its owner.
+    expect(sql).toContain(
+      "WHERE call_logs.workspace_id = EXCLUDED.workspace_id AND call_logs.provider_connection_id IS NOT DISTINCT FROM EXCLUDED.provider_connection_id",
+    );
+    expect(params[8]).toBe("64d9ad54-3d96-4d4b-a227-e1bc7870784a");
   });
 });
