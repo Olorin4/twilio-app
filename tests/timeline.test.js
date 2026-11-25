@@ -266,6 +266,7 @@ describe("each kind's summary text", () => {
     ["urgent", "Urgent"],
     ["support_request", "Support request"],
     ["not_support", "Not support"],
+    ["prospect", "Sales prospect"],
     ["spam", "Spam"],
     ["abandoned", "Hung up"],
     ["failed", "Agent failed"],

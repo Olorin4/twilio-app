@@ -19,6 +19,7 @@ export const OWED = [
   "message",
   "urgent",
   "support_request",
+  "prospect",
   "failed",
 ];
 const BADGES = {
@@ -30,6 +31,7 @@ const BADGES = {
   urgent: "URGENT",
   support_request: "SUPPORT",
   not_support: "NOT SUPPORT",
+  prospect: "PROSPECT",
   spam: "SPAM",
 };
 

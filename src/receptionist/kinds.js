@@ -19,18 +19,20 @@ const OUTCOMES = {
     description: `message: a caller with a genuine reason to call whose matter can wait for the callback. urgent: a problem that cannot wait, such as trouble on a load that is moving now. ${SPAM}`,
   },
   support: {
-    list: ["support_request", "not_support", "spam"],
-    description: `support_request: a customer or user who needs help with the product or their account. not_support: anyone else with a genuine reason to call. ${SPAM}`,
+    list: ["support_request", "not_support", "prospect", "spam"],
+    description: `support_request: a customer or user who needs help with the product or their account. not_support: anyone else with a genuine reason to call. prospect: someone who wants to buy or try the product, such as a company asking what it does or what it costs. ${SPAM}`,
   },
 };
 
 // Outcomes that send the alert email; spam and not_support send nothing.
+// A support line's sales prospect is emailed so sales can follow up.
 const EMAILED_OUTCOMES = [
   "lead",
   "not_a_lead",
   "message",
   "urgent",
   "support_request",
+  "prospect",
 ];
 
 // Who calls the caller back, as the prompt and the fixed lines say it.

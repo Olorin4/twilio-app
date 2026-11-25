@@ -33,6 +33,7 @@ const OUTCOMES = [
   "urgent",
   "support_request",
   "not_support",
+  "prospect",
   "spam",
   "abandoned",
   "failed",
@@ -186,7 +187,7 @@ async function countNew(workspaceId, scope) {
     `SELECT count(*) FROM receptionist_calls c
      WHERE c.workspace_id = $1 AND c.status = 'new'
        AND (c.outcome IN ('lead', 'not_a_lead', 'message', 'urgent',
-                          'support_request', 'failed')
+                          'support_request', 'prospect', 'failed')
          OR (c.outcome IS NULL AND c.started_at < now() - interval '15 minutes'))
        AND ${visible.sql}`,
     [workspaceId, ...visible.params],

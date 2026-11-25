@@ -138,6 +138,7 @@ suite("Agent profiles schema against PostgreSQL", () => {
       "urgent",
       "support_request",
       "not_support",
+      "prospect",
     ]) {
       await insert("CA" + outcome, outcome);
     }
