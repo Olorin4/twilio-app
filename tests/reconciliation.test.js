@@ -20,6 +20,7 @@ const {
   saveCall,
   refreshPrices,
   reconcileOne,
+  handleRequest,
 } = require("../src/reconciliation");
 beforeEach(() => jest.clearAllMocks());
 test("processes every page and advances checkpoint only after successful processing", async () => {
@@ -280,4 +281,14 @@ describe("the legacy sync and a moved main number", () => {
     );
     expect(params[8]).toBe("64d9ad54-3d96-4d4b-a227-e1bc7870784a");
   });
+});
+
+test("a failed sync request is a 503, which Cloudflare passes through", async () => {
+  pool.query.mockRejectedValue(new Error("connect ETIMEDOUT"));
+  const res = { json: jest.fn(), status: jest.fn().mockReturnThis() };
+  await handleRequest(
+    { workspace: { id: "00000000-0000-4000-8000-000000000002" } },
+    res,
+  );
+  expect(res.status).toHaveBeenCalledWith(503);
 });

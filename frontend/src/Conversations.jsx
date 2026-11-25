@@ -9,6 +9,7 @@ import {
 import Pagination from "./Pagination";
 import { apiFetch } from "./api";
 import { isTimelinePhone } from "./timeline.mjs";
+import { readSendResult } from "./sendResult.mjs";
 
 function nameFor(phone, contacts) {
   const matches = contacts.filter((contact) => contact.phone === phone);
@@ -203,9 +204,7 @@ export default function Conversations({
           "Could not confirm whether the message was sent. Check Twilio before retrying.",
         );
       }
-      const data = await response.json();
-      if (!response.ok)
-        throw new Error(data.error || "Could not send message.");
+      const data = await readSendResult(response);
       setBody("");
       setFeedback(
         data.saved

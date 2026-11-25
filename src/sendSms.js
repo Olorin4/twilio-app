@@ -87,11 +87,13 @@ async function sendSms(req, res) {
     });
   } catch (error) {
     console.error("SMS send failed:", error.code || error.message);
-    return res.status(502).json({
-      error:
-        error.status >= 400 && error.status < 500 && error.code
-          ? `Twilio rejected the message (error ${error.code}).`
-          : "Could not confirm whether Twilio accepted the message. Check Twilio before retrying.",
+    // Not 502 or 504: Cloudflare replaces those with its own HTML page, and
+    // the browser would never see this explanation.
+    const rejected = error.status >= 400 && error.status < 500 && error.code;
+    return res.status(rejected ? 422 : 503).json({
+      error: rejected
+        ? `Twilio rejected the message (error ${error.code}).`
+        : "Could not confirm whether Twilio accepted the message. Check Twilio before retrying.",
     });
   }
   let saved = true;

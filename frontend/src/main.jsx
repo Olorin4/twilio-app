@@ -59,6 +59,7 @@ import WorkspaceSettings from "./WorkspaceSettings";
 import Users from "./Users";
 import { callerLines } from "./callerLines.mjs";
 import "./styles.css";
+import { readSendResult } from "./sendResult.mjs";
 
 const keypad = [
   ["1", ""],
@@ -607,9 +608,7 @@ function App() {
           "Could not confirm if the message was sent. Check Twilio before retrying.",
         );
       }
-      const data = await response.json();
-      if (!response.ok)
-        throw new Error(data.error || "Could not send the message.");
+      const data = await readSendResult(response);
       setSmsBody("");
       setSmsFeedback({
         success: true,

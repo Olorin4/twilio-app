@@ -313,7 +313,8 @@ async function handleRequest(req, res) {
     await reconcileWorkspace(req.workspace?.id || IRON_WING_WORKSPACE_ID);
     res.json({ ok: true });
   } catch (error) {
-    res.status(502).json({ error: error.message });
+    // Not 502: Cloudflare would replace it with its own HTML page.
+    res.status(503).json({ error: error.message });
   }
 }
 module.exports = {

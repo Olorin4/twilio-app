@@ -80,6 +80,29 @@ test.each([
   expect(client.messages.create).not.toHaveBeenCalled();
 });
 
+// Cloudflare replaces a 502 or 504 from the app with its own HTML page, so a
+// failed send must use another status for its JSON error to reach the browser.
+test("a message Twilio refuses is a 422 with Twilio's code", async () => {
+  client.messages.create.mockRejectedValue(
+    Object.assign(new Error("unreachable"), { status: 400, code: 21612 }),
+  );
+  const { req, res } = request({ to: "+306980221006", body: "Hi" });
+  await sendSms(req, res);
+  expect(res.status).toHaveBeenCalledWith(422);
+  expect(res.json).toHaveBeenCalledWith({
+    error: "Twilio rejected the message (error 21612).",
+  });
+});
+test("a send Twilio did not confirm is a 503", async () => {
+  client.messages.create.mockRejectedValue(new Error("socket hang up"));
+  const { req, res } = request({ to: "+15552223333", body: "Hi" });
+  await sendSms(req, res);
+  expect(res.status).toHaveBeenCalledWith(503);
+  expect(res.json).toHaveBeenCalledWith({
+    error:
+      "Could not confirm whether Twilio accepted the message. Check Twilio before retrying.",
+  });
+});
 test("reports acceptance even if saving fails, avoiding duplicate sends", async () => {
   client.messages.create.mockResolvedValue({ sid: "SM123", status: "queued" });
   pool.query.mockRejectedValue(new Error("database unavailable"));
