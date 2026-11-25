@@ -318,6 +318,32 @@ suite("Users schema and store against PostgreSQL", () => {
       ).not.toContain("3");
     });
 
+    test("a call from the legacy number to a connection line shows as incoming there", async () => {
+      const { getCallLogs } = require("../src/logManager");
+      // 20: the legacy number dialled the line; the line's own connection
+      // logged the incoming side. 21: a legacy row from the legacy number is
+      // still that number's own outgoing call.
+      await db.query(
+        `INSERT INTO call_logs (id, call_sid, timestamp, from_number, to_number, direction, workspace_id, provider_connection_id) VALUES
+          (20, 'CA20', now(), '+12025550000', '${SHARED}', 'inbound', '${W}', '${C}'),
+          (21, 'CA21', now(), '+12025550000', '${EXTERNAL}', 'inbound', '${W}', NULL)`,
+      );
+      try {
+        const { rows } = await run(getCallLogs, owner);
+        const byId = (id) => rows.find((row) => row.id === id);
+        expect(byId("20")).toMatchObject({
+          outgoing: false,
+          local_number: SHARED,
+        });
+        expect(byId("21")).toMatchObject({
+          outgoing: true,
+          local_number: "+12025550000",
+        });
+      } finally {
+        await db.query("DELETE FROM call_logs WHERE id IN (20, 21)");
+      }
+    });
+
     test("another owner does not see a personal line or calls placed from it", async () => {
       const { getCallLogs } = require("../src/logManager");
       const other = "00000000-0000-4000-8000-0000000000e5";

@@ -57,6 +57,7 @@ import {
 } from "./api";
 import WorkspaceSettings from "./WorkspaceSettings";
 import Users from "./Users";
+import { callerLines } from "./callerLines.mjs";
 import "./styles.css";
 
 const keypad = [
@@ -621,6 +622,63 @@ function App() {
   useEffect(() => {
     loadWorkspaces().catch(() => {});
   }, [loadWorkspaces]);
+  // Owners choose the workspace's caller ID from the phone status menu.
+  const [callerOptions, setCallerOptions] = useState([]);
+  const [callerBusy, setCallerBusy] = useState(false);
+  const [callerError, setCallerError] = useState("");
+  const loadCallerOptions = useCallback(async () => {
+    if (!isOwner) return setCallerOptions([]);
+    const [connections, config] = await Promise.all(
+      [
+        `/settings/workspaces/${workspaceId}/connections`,
+        "/settings/config",
+      ].map(async (url) => {
+        const response = await apiFetch(url);
+        if (!response.ok) throw new Error("Could not load the lines.");
+        return response.json();
+      }),
+    );
+    setCallerOptions(
+      callerLines({
+        workspaceId,
+        ironWingId: IRON_WING_WORKSPACE_ID,
+        legacyPhone: config.legacyPhoneNumber,
+        connections,
+      }),
+    );
+  }, [isOwner, workspaceId]);
+  useEffect(() => {
+    if (!statusOpen) return;
+    setCallerError("");
+    loadCallerOptions().catch((error) => setCallerError(error.message));
+  }, [statusOpen, loadCallerOptions]);
+  const chooseCallerId = async (value) => {
+    setCallerBusy(true);
+    setCallerError("");
+    try {
+      const response = await apiFetch(
+        value === "legacy"
+          ? `/settings/workspaces/${workspaceId}/legacy-number`
+          : `/settings/workspaces/${workspaceId}/active-number`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(value === "legacy" ? {} : { numberId: value }),
+        },
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not change the line.");
+      }
+      // The workspace's active line drives which registered phone dials.
+      await loadWorkspaces();
+      await loadCallerOptions();
+    } catch (error) {
+      setCallerError(error.message);
+    } finally {
+      setCallerBusy(false);
+    }
+  };
   const switchWorkspace = (id) => {
     if (!id || id === workspaceId || !voice.canSwitch()) return;
     activityRequest.current++;
@@ -783,24 +841,12 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
+          {/* The company brand; the dropdown below names the workspace. */}
           <div className="brand-mark">
-            <span>
-              {(
-                workspaces.find((item) => item.id === workspaceId)?.name ||
-                "Iron Wing"
-              )
-                .split(/\s+/)
-                .slice(0, 2)
-                .map((word) => word[0])
-                .join("")
-                .toUpperCase()}
-            </span>
+            <span>IW</span>
           </div>
           <div>
-            <strong>
-              {workspaces.find((item) => item.id === workspaceId)?.name ||
-                "Iron Wing"}
-            </strong>
+            <strong>Iron Wing</strong>
             <label className="workspace-select">
               <span className="sr-only">Workspace</span>
               <select
@@ -1034,10 +1080,43 @@ function App() {
                           : "Offline"}
                     </span>
                   </div>
-                  <div className="status-detail">
-                    <span>Phone number</span>
-                    <strong>{voice.phoneNumber || "—"}</strong>
-                  </div>
+                  {isOwner && callerOptions.length > 1 ? (
+                    <label className="status-detail status-caller-id">
+                      <span>Call and text from</span>
+                      <select
+                        value={
+                          callerOptions.find((line) => line.active)?.value || ""
+                        }
+                        disabled={
+                          callerBusy ||
+                          !!voice.call ||
+                          preparing ||
+                          smsSending ||
+                          voice.connection === "connecting"
+                        }
+                        onChange={(event) => chooseCallerId(event.target.value)}
+                      >
+                        {!callerOptions.some((line) => line.active) && (
+                          <option value="">Choose a line…</option>
+                        )}
+                        {callerOptions.map((line) => (
+                          <option key={line.value} value={line.value}>
+                            {line.text}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <div className="status-detail">
+                      <span>Phone number</span>
+                      <strong>{voice.phoneNumber || "—"}</strong>
+                    </div>
+                  )}
+                  {callerError && (
+                    <p className="settings-error" role="alert">
+                      {callerError}
+                    </p>
+                  )}
                   <div className="status-detail">
                     <span>Access token</span>
                     <strong>{tokenLabel}</strong>
@@ -1644,9 +1723,7 @@ function App() {
             </div>
             <strong>{voice.call.number}</strong>
             {voice.call.callerContext && (
-              <span className="caller-context">
-                {voice.call.callerContext}
-              </span>
+              <span className="caller-context">{voice.call.callerContext}</span>
             )}
             {[
               voice.call.workspaceName,

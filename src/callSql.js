@@ -23,12 +23,17 @@ const clientLine = (
                   AND child.from_number ~ ${E164_SQL}
                 ORDER BY leg.updated_at DESC, leg.call_sid DESC LIMIT 1)`;
 
+// $1 is the legacy Iron Wing number. A legacy row from it is that number's own
+// outgoing call. A connection's row from it is a call the legacy number placed
+// to one of that connection's lines, so it is incoming there.
+const FROM_LEGACY =
+  "(cl.provider_connection_id IS NULL AND cl.from_number = $1)";
+
 // The call's line for visibility: its from_number when outbound, else its
 // to_number.
-const CALL_LINE =
-  "CASE WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number ELSE cl.to_number END";
+const CALL_LINE = `CASE WHEN cl.direction LIKE 'outbound%' OR ${FROM_LEGACY} THEN cl.from_number ELSE cl.to_number END`;
 
-const CALL_STATUS = `COALESCE((SELECT leg.status FROM twilio_call_legs leg WHERE (cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id ORDER BY leg.updated_at DESC LIMIT 1), cl.status)`;
+const CALL_STATUS = `COALESCE((SELECT leg.status FROM twilio_call_legs leg WHERE (${FROM_LEGACY} OR cl.from_number LIKE 'client:%') AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id ORDER BY leg.updated_at DESC LIMIT 1), cl.status)`;
 
 const CALL_MISSED = `(cl.direction = 'inbound' AND cl.from_number NOT LIKE 'client:%' AND EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.status IN ('busy', 'failed', 'no-answer', 'canceled') AND NOT leg.answered) AND NOT EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND leg.answered))`;
 
@@ -36,14 +41,14 @@ const CALL_ANSWERED = `EXISTS (SELECT 1 FROM twilio_call_legs leg WHERE leg.pare
 
 const CALL_ANNOUNCEMENT = `(SELECT json_build_object('kind', a.kind, 'initiated', a.initiated_at IS NOT NULL, 'completed', a.completed_at IS NOT NULL) FROM call_announcements a WHERE a.call_sid = cl.call_sid AND a.workspace_id = cl.workspace_id AND a.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id)`;
 
-const CALL_DURATION = `COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND (leg.answered OR cl.from_number = $1 OR cl.from_number LIKE 'client:%') AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration)`;
+const CALL_DURATION = `COALESCE((SELECT leg.duration FROM twilio_call_legs leg WHERE cl.direction = 'inbound' AND leg.parent_call_sid = cl.call_sid AND leg.workspace_id = cl.workspace_id AND leg.provider_connection_id IS NOT DISTINCT FROM cl.provider_connection_id AND (leg.answered OR ${FROM_LEGACY} OR cl.from_number LIKE 'client:%') AND leg.duration IS NOT NULL ORDER BY leg.updated_at DESC LIMIT 1), cl.duration)`;
 
-const CALL_OUTGOING = `(cl.from_number = $1 OR cl.from_number LIKE 'client:%')`;
+const CALL_OUTGOING = `(${FROM_LEGACY} OR cl.from_number LIKE 'client:%')`;
 
 // The workspace number the call used, as call history shows it.
 const CALL_LOCAL_NUMBER = `CASE WHEN cl.from_number LIKE 'client:%' THEN
                ${clientLine("cl")}
-             WHEN cl.direction LIKE 'outbound%' OR cl.from_number = $1 THEN cl.from_number
+             WHEN cl.direction LIKE 'outbound%' OR ${FROM_LEGACY} THEN cl.from_number
              ELSE cl.to_number END`;
 
 // A root row: not a child leg of another logged call.
