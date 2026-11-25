@@ -6,14 +6,14 @@ Status: draft for approval. Date: 2026-11-24. Phase 1 (number release/move, arch
 
 Iron Wing Logistics LLC runs two businesses from one Twilio account and one app: Iron Wing Dispatching and KelevoTMS. Each business needs several phone lines that behave differently:
 
-| Workspace | Line | Answered by |
-|---|---|---|
-| KelevoTMS | Support | AI agent (support persona) |
-| KelevoTMS | Lead dev (the owner) | The owner, in the softphone |
-| Iron Wing | Customer line | AI agent "Jack" (today's receptionist) |
-| Iron Wing | Dispatcher 1 | AI agent (dispatcher persona, carriers and drivers) |
-| Iron Wing | Dispatcher 2 | Human dispatcher, in the softphone |
-| Iron Wing | Manager (the owner) | The owner, in the softphone |
+| Workspace | Line                 | Answered by                                                  |
+| --------- | -------------------- | ------------------------------------------------------------ |
+| KelevoTMS | Support              | AI agent (support persona)                                   |
+| KelevoTMS | Lead dev (the owner) | The owner, in the softphone                                  |
+| Iron Wing | Customer line        | AI agent "Jack" (today's receptionist)                       |
+| Iron Wing | Dispatcher 1         | AI agent (dispatcher persona, brokers, carriers and drivers) |
+| Iron Wing | Dispatcher 2         | Human dispatcher, in the softphone                           |
+| Iron Wing | Manager (the owner)  | The owner, in the softphone                                  |
 
 Today a workspace has one "active number", every non-AI call rings the one browser softphone, and the AI receptionist is hard-wired to Iron Wing: persona, greeting and knowledge are code, and routing checks `IRON_WING_WORKSPACE_ID`. Phase 2 makes the handler a property of the dialed number, makes AI personas data that belongs to a workspace, gives each person their own login and softphone ring, limits what each person sees, and gives every caller one timeline.
 
@@ -56,7 +56,7 @@ Order (owner's decision): 2a, then 2b, then 2c. The human dispatcher starts in a
 
 - Jack's behaviour for Iron Wing callers changes in any way.
 - An inbound call gets an error or silence because of this feature. Any failure falls back to today's softphone path, as `receptionist/twiml.js` does now.
-- An agent claims or implies it is a person.
+
 
 ## Constraints
 
