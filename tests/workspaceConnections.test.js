@@ -446,7 +446,7 @@ const moveHandlers = (overrides = {}) => [
       rows: [
         {
           id: numberId,
-          phone_number: "+15550000009",
+          phone_number: overrides.phone || "+15550000009",
           connection_id: sourceConnection,
           account_sid: "AC" + "1".repeat(32),
         },
@@ -459,7 +459,7 @@ const moveHandlers = (overrides = {}) => [
       rows: [
         {
           id: targetConnection,
-          workspace_id: otherId,
+          workspace_id: overrides.targetWorkspace || otherId,
           account_sid: overrides.targetAccount || "AC" + "1".repeat(32),
         },
       ],
@@ -482,6 +482,28 @@ test("moving re-points the number to a connection on the same Twilio account", a
   );
   expect(update[1]).toEqual([numberId, targetConnection]);
   expect(client.query).toHaveBeenLastCalledWith("COMMIT");
+});
+test("the legacy main number cannot be moved to another workspace's connection", async () => {
+  const saved = process.env.TWILIO_CALLER_ID;
+  process.env.TWILIO_CALLER_ID = "+15550000009";
+  try {
+    const client = fakeClient(moveHandlers());
+    await expect(
+      moveNumber(workspaceId, numberId, targetConnection),
+    ).rejects.toThrow(
+      "The current Iron Wing number is already assigned to the environment connection.",
+    );
+    expect(ran(client, "UPDATE connection_numbers")).toBe(false);
+    expect(client.query).toHaveBeenLastCalledWith("ROLLBACK");
+    // Within Iron Wing it may still move.
+    fakeClient(moveHandlers({ targetWorkspace: workspaceId }));
+    await expect(
+      moveNumber(workspaceId, numberId, targetConnection),
+    ).resolves.toMatchObject({ moved: true });
+  } finally {
+    if (saved === undefined) delete process.env.TWILIO_CALLER_ID;
+    else process.env.TWILIO_CALLER_ID = saved;
+  }
 });
 test("moving to a connection on a different Twilio account is refused", async () => {
   const client = fakeClient(
@@ -857,6 +879,14 @@ describe("once the main number is moved into the connection", () => {
     pool.query.mockResolvedValue({ rows: [] });
     await listWorkspaces(listOwner);
     expect(pool.query.mock.calls[0][1][1]).toBeNull();
+  });
+  test("Iron Wing reports that the main number is moved", async () => {
+    legacyMoved.mockResolvedValue(true);
+    pool.query.mockResolvedValue({
+      rows: [{ id: workspaceId }, { id: otherId }],
+    });
+    const rows = await listWorkspaces(listOwner);
+    expect(rows.map((row) => row.legacy_moved)).toEqual([true, false]);
   });
   test("before the move, the legacy number is the active-phone fallback", async () => {
     process.env.TWILIO_CALLER_ID = "+15550009999";

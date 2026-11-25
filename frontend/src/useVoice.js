@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Device } from "@twilio/voice-sdk";
 import { apiFetch, IRON_WING_WORKSPACE_ID } from "./api";
 import { popLine, shouldFetch, isCurrent } from "./screenPop.mjs";
+import { ownerVoiceKey } from "./voiceSelection.mjs";
 
 const NO_LINE_MESSAGE = "No line is assigned to you in this workspace.";
 async function getToken(target) {
@@ -87,10 +88,7 @@ export function useVoice(workspace) {
       : undefined;
     const key = linesRef.current
       ? memberLine?.connectionId || null
-      : current?.active_connection_id && current.active_voice_enabled === false
-        ? null
-        : current?.active_connection_id ||
-          (current?.id === IRON_WING_WORKSPACE_ID ? "legacy" : null);
+      : ownerVoiceKey(current, IRON_WING_WORKSPACE_ID);
     const entry = key ? entries.current.get(key) : undefined;
     deviceRef.current = entry?.device || null;
     phoneNumberRef.current = linesRef.current

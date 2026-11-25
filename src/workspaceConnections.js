@@ -25,9 +25,8 @@ function listScope(user) {
 async function listWorkspaces(user) {
   const memberId = listScope(user);
   // Once moved into the connection, the main number is an ordinary line.
-  const legacyPhone = (await legacyMoved())
-    ? null
-    : process.env.TWILIO_CALLER_ID || null;
+  const moved = await legacyMoved();
+  const legacyPhone = moved ? null : process.env.TWILIO_CALLER_ID || null;
   const params = [IRON_WING_WORKSPACE_ID, legacyPhone];
   if (memberId) params.push(memberId);
   const result = await pool.query(
@@ -46,6 +45,9 @@ async function listWorkspaces(user) {
   // The active number may be someone's personal line; members get theirs
   // from /me/lines instead.
   if (memberId) for (const row of result.rows) row.active_phone = null;
+  // Tells the phone not to fall back to the legacy line (voiceSelection.mjs).
+  for (const row of result.rows)
+    row.legacy_moved = moved && row.id === IRON_WING_WORKSPACE_ID;
   return result.rows;
 }
 /* One softphone target per connection. Owners get the workspace's active
@@ -217,6 +219,16 @@ async function moveNumber(workspaceId, numberId, targetConnectionId) {
     if (target.rows[0].account_sid !== number.account_sid)
       throw new Error(
         "To move a number to another Twilio account, transfer it in Twilio first, then add it to a connection on that account.",
+      );
+    // A legacy number may only be a line of an Iron Wing connection; elsewhere
+    // the legacy setup would take it back while Twilio still posts to the
+    // Iron Wing connection (see legacyLine.js).
+    if (
+      target.rows[0].workspace_id !== IRON_WING_WORKSPACE_ID &&
+      require("./conversations").numbers().includes(number.phone_number)
+    )
+      throw new Error(
+        "The current Iron Wing number is already assigned to the environment connection.",
       );
     await client.query(
       "DELETE FROM workspace_active_numbers WHERE connection_number_id = $1",
