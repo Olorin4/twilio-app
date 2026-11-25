@@ -849,6 +849,37 @@ suite("Users schema and store against PostgreSQL", () => {
             { call_sid: "CS11", notes: "secret note" },
             { call_sid: "CS13", notes: "called back" },
           ]);
+          // A session the notes PATCH creates on a softphone call with no
+          // session stores the line the call used, so it is judged by it.
+          await db.query(
+            "DELETE FROM phone_call_sessions WHERE call_sid IN ('CS11', 'CS13')",
+          );
+          const ownerNotes = await call("patch", owner, W, "CS11", {
+            notes: "private follow-up",
+            outcome: null,
+          });
+          expect(ownerNotes.sendStatus).toHaveBeenCalledWith(204);
+          const created = await db.query(
+            "SELECT from_number FROM phone_call_sessions WHERE call_sid = 'CS11'",
+          );
+          expect(created.rows[0].from_number).toBe(PERSONAL);
+          expect(
+            (await call("get", OTHER, W, "CS11")).sendStatus,
+          ).toHaveBeenCalledWith(404);
+          expect(JSON.stringify(await fetch(OTHER, EXTERNAL))).not.toContain(
+            "private follow-up",
+          );
+          expect(
+            (await call("get", owner, W, "CS11")).json.mock.calls[0][0],
+          ).toMatchObject({ notes: "private follow-up" });
+          const memberNotes = await call("patch", member, IW, "CS13", {
+            notes: "left a message",
+            outcome: null,
+          });
+          expect(memberNotes.sendStatus).toHaveBeenCalledWith(204);
+          expect(
+            (await call("get", member, IW, "CS13")).json.mock.calls[0][0],
+          ).toMatchObject({ notes: "left a message" });
         } finally {
           await db.query(`
             DELETE FROM number_assignees WHERE user_id = '${OWNER}'

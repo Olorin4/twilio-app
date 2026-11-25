@@ -62,16 +62,22 @@ const callLine = (alias) =>
 /* Whether the person may see a Live Assist session (alias s), with params
 numbered from firstParam. A session on a logged call follows that call's
 visibility; one not yet bound to a call follows its line, which is its
-from_number. A softphone call (client: root) is judged by s.from_number:
-bindIntent binds a session to the root only when its from_number is the line
-the softphone dialed from. */
+from_number. A softphone call (client: root) is judged by s.from_number when
+it is a phone number: bindIntent binds a session only when its from_number is
+the line the softphone dialed from, and the notes PATCH stores the line the
+call used. A session still holding a softphone identity (created before the
+PATCH stored the line, or before the call's child leg was logged) has no known
+line and keeps the identity rule. Kept to a column test: a child-leg lookup
+here is repeated inside every visibility branch and makes the timeline slow. */
+const SESSION_CLIENT_LINE = `CASE WHEN s.from_number ~ '^[+][1-9][0-9]{1,14}$' THEN s.from_number END`;
+
 function sessionCondition(scope, firstParam) {
   const call = lineCondition(
     scope,
     callLine("vc"),
     "vc.from_number",
     firstParam,
-    "s.from_number",
+    SESSION_CLIENT_LINE,
   );
   const line = lineCondition(
     scope,
