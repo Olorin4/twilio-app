@@ -81,7 +81,7 @@ const GOODBYE_EXAMPLE = {
     '"Thanks, Mike. Someone from our team will call you back shortly. Have a good day."',
 };
 
-function endCall(kind) {
+function endCall(kind, offerIntake) {
   return {
     name: "end_call",
     description:
@@ -100,22 +100,41 @@ function endCall(kind) {
           description:
             'What you told the caller about the callback, for example "in the next few minutes" or "tomorrow between 9 and 11 AM Eastern". Empty if no callback was promised.',
         },
+        ...(offerIntake && {
+          offer_callback_requested: {
+            type: "boolean",
+            description:
+              "True only for an explicit callback request about the Iron Wing Black Friday offer.",
+          },
+          offer_callback_number: {
+            type: "string",
+            description:
+              "The caller's chosen callback number, or empty to use caller ID.",
+          },
+        }),
         goodbye: {
           type: "string",
           description: `Your closing words, spoken to the caller exactly as written. One or two short sentences, for example ${GOODBYE_EXAMPLE[kind]}`,
         },
       },
-      required: ["outcome", "callback_promise", "goodbye"],
+      required: [
+        "outcome",
+        "callback_promise",
+        ...(offerIntake
+          ? ["offer_callback_requested", "offer_callback_number"]
+          : []),
+        "goodbye",
+      ],
       additionalProperties: false,
     },
   };
 }
 
 // Fresh objects on every call, so no caller can change another's tools.
-function toolsFor(kind) {
+function toolsFor(kind, offerIntake = false) {
   check(kind);
   const tools = kind === "support" ? [] : [structuredClone(LOOKUP_CARRIER)];
-  return [...tools, endCall(kind)];
+  return [...tools, endCall(kind, kind === "receptionist" && offerIntake)];
 }
 
 // Receptionists keep RECEPTIONIST_DAILY_LIMIT (config.dailyLimit, default 3);

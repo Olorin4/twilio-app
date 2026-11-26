@@ -7,6 +7,12 @@ over the agent, keyed-in digits, silence, a maximum length, and the caller
 hanging up at any moment. Whatever happens, onFinished is called exactly once
 with the record of the call. */
 
+const {
+  OFFER,
+  usesIronWingOffer,
+  enrollmentOpen,
+  closedForHoliday,
+} = require("./dispatchOffer");
 const { isOpen } = require("./config");
 const { callContext, fixedLines, NO_PROFILE_LINES } = require("./prompt");
 const { outcomesFor, KINDS } = require("./kinds");
@@ -72,6 +78,8 @@ function createSession({
   let finished = false;
   let current = null; // the running turn's AbortController
   let queue = Promise.resolve();
+  const ironWingOffer = usesIronWingOffer(profile);
+  let firstOfferCallback;
   let pendingEnd = null; // { outcome, callbackPromise } while the goodbye plays
   let endInterrupted = false;
   let wrapUp = false;
@@ -120,6 +128,8 @@ function createSession({
         callSid: context.callSid,
         outcome,
         callbackPromise: callbackPromise || null,
+        ...(outcome === "lead" &&
+          firstOfferCallback && { offerCallback: firstOfferCallback }),
         carrier,
         transcript,
         callerSpoke,
@@ -180,6 +190,7 @@ function createSession({
       pendingEnd = null;
     }
     endInterrupted = false;
+    if (ironWingOffer) history[0].content = currentCallContext(new Date(now()));
     history.push({
       role: "user",
       content: continued ? `${STILL_LIVE_NOTE} ${text}` : text,
@@ -221,13 +232,32 @@ function createSession({
       return;
     }
     safeSend({ type: "text", token: "", last: true });
-    if (result.end)
+    if (result.end) {
+      const requestedAt = new Date(now());
+      const callbackNumber =
+        callableNumber(result.end.offerCallbackNumber) ||
+        callableNumber(context.from);
+      if (
+        ironWingOffer &&
+        !firstOfferCallback &&
+        result.end.outcome === "lead" &&
+        result.end.callbackPromise &&
+        result.end.offerCallbackNumber !== undefined &&
+        callbackNumber
+      ) {
+        firstOfferCallback = {
+          offer: OFFER,
+          received_at: requestedAt.toISOString(),
+          status: enrollmentOpen(requestedAt) ? "pending_review" : "closed",
+          callbackNumber,
+        };
+      }
       scheduleEnd(
         result.end.outcome,
         result.spoken,
         result.end.callbackPromise,
       );
-    else startSilenceTimer(result.spoken);
+    } else startSilenceTimer(result.spoken);
   }
 
   // Rewrites the last thing the agent said to what the caller actually heard.
@@ -293,21 +323,23 @@ function createSession({
     return queue;
   }
 
+  function currentCallContext(at) {
+    const holiday =
+      ironWingOffer && closedForHoliday(at, config.hours.timeZone);
+    return callContext({
+      fromKnown: Boolean(callableNumber(context.from)),
+      open: !holiday && isOpen(at, config.hours),
+      holiday,
+      hours: config.hours,
+      now: at,
+      kind,
+      offerEnrollmentOpen: ironWingOffer ? enrollmentOpen(at) : undefined,
+    });
+  }
+
   function onSetup() {
     if (history || finished) return queue;
-    const at = new Date(now());
-    history = [
-      {
-        role: "user",
-        content: callContext({
-          fromKnown: Boolean(callableNumber(context.from)),
-          open: isOpen(at, config.hours),
-          hours: config.hours,
-          now: at,
-          kind,
-        }),
-      },
-    ];
+    history = [{ role: "user", content: currentCallContext(new Date(now())) }];
     if (greeting) {
       history.push({ role: "assistant", content: greeting });
       greetingEntry = { role: "agent", text: greeting };

@@ -151,7 +151,7 @@ test("the request uses the configured model at low effort with the cached system
     max_tokens: 4096,
     output_config: { effort: "low" },
     system: buildSystem(JACK),
-    tools: toolsFor("receptionist"),
+    tools: toolsFor("receptionist", true),
     messages: history,
   });
   expect(client.requests[0].tool_choice).toBeUndefined();
@@ -509,7 +509,7 @@ test("prewarm sends one zero-token request with the same prefix and never throws
     max_tokens: 0,
     output_config: { effort: "low" },
     system: buildSystem(JACK),
-    tools: toolsFor("receptionist"),
+    tools: toolsFor("receptionist", true),
   });
   expect(client.created[0].fallbacks).toBeUndefined();
   client.messages.create.mockRejectedValueOnce(new Error("offline"));

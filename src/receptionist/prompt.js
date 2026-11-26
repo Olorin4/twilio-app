@@ -84,7 +84,15 @@ function clock(hour) {
 // The per-call facts, sent as the first user message so the cached system
 // prompt never changes. `kind` names who calls back; a missing or unknown
 // kind reads as a receptionist's, which is what Jack has always said.
-function callContext({ fromKnown, open, hours, now = new Date(), kind }) {
+function callContext({
+  fromKnown,
+  open,
+  hours,
+  now = new Date(),
+  kind,
+  offerEnrollmentOpen,
+  holiday,
+}) {
   const who = callbackPerson(kind);
   const zone =
     new Intl.DateTimeFormat("en-US", {
@@ -109,12 +117,20 @@ function callContext({ fromKnown, open, hours, now = new Date(), kind }) {
     "<call_context>",
     `It is ${time} on ${today} (${zone}).`,
     `Calling hours are ${clock(hours.start)} to ${clock(hours.end)}, ${zone}, every day.`,
+    ...(holiday ? ["The office is observing a holiday closure today."] : []),
     open
       ? `The office is open now: ${who.a} can call back in the next few minutes.`
       : `The office is closed now: ${who.a} will call back on the next day it is open, in a time window the caller chooses.`,
     fromKnown
       ? `The caller's phone number is known, so ${who.the} can call back on the number they are calling from.`
       : "The caller's phone number is not known (caller ID is blocked), so ask for the best callback number.",
+    ...(offerEnrollmentOpen === undefined
+      ? []
+      : [
+          offerEnrollmentOpen
+            ? "Black Friday enrollment is open."
+            : "Black Friday enrollment is closed.",
+        ]),
     "The caller has just heard your greeting. Their first words follow.",
     "</call_context>",
   ].join("\n");

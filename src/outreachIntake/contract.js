@@ -50,6 +50,13 @@ const jackCallV1 = z
       interest: z.enum(["high", "medium", "low", "unknown"]),
       callback_promise: text(LIMITS.callback_promise),
       fleet_size: text(LIMITS.fleet_size),
+      offer_callback: z
+        .strictObject({
+          offer: z.literal("black-friday-2026"),
+          received_at: isoTime,
+          status: z.enum(["pending_review", "closed"]),
+        })
+        .optional(),
       summary: text(LIMITS.summary),
       summary_status: z.enum(["PENDING", "READY", "UNAVAILABLE"]),
     }),

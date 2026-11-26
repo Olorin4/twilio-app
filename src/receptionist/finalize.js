@@ -143,6 +143,10 @@ async function finalize(result, context, deps = {}) {
     usdot: carrier?.usdot || null,
     mcVerified: Boolean(carrier),
     callbackPromise: result.callbackPromise || null,
+    ...(result.offerCallback && {
+      callbackNumber: result.offerCallback.callbackNumber,
+      details: { offerCallback: result.offerCallback },
+    }),
     carrier,
     transcript,
   };
@@ -204,19 +208,24 @@ async function finalize(result, context, deps = {}) {
     mcNumber: confirmed?.mc || summary?.mc_number || null,
     usdot: confirmed?.usdot || summary?.usdot || null,
     mcVerified: Boolean(confirmed),
-    callbackNumber: summary?.callback_number || null,
+    callbackNumber:
+      result.offerCallback?.callbackNumber || summary?.callback_number || null,
     callbackPromise:
       summary?.callback_promise || result.callbackPromise || null,
-    details: summary
-      ? {
-          fleetSize: summary.fleet_size,
-          equipment: summary.equipment,
-          situation: summary.situation,
-          questions: summary.questions,
-          unanswered: summary.unanswered,
-          interest: summary.interest,
-        }
-      : null,
+    details:
+      summary || result.offerCallback
+        ? {
+            ...(result.offerCallback && {
+              offerCallback: result.offerCallback,
+            }),
+            fleetSize: summary?.fleet_size,
+            equipment: summary?.equipment,
+            situation: summary?.situation,
+            questions: summary?.questions,
+            unanswered: summary?.unanswered,
+            interest: summary?.interest,
+          }
+        : null,
     summary: summary?.summary || NO_SUMMARY,
     script: summary?.script || null,
   };

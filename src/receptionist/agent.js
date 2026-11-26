@@ -10,6 +10,7 @@ Two things here exist because of how current Claude models behave:
   session trims history when a caller interrupts, so thinking blocks are kept
   only while a tool round is in flight and dropped from the history we keep. */
 
+const { usesIronWingOffer } = require("./dispatchOffer");
 const { buildSystem } = require("./prompt");
 const { toolsFor, outcomesFor } = require("./kinds");
 const { lookupCarrier, parseDocket, speakDigits } = require("./carrierLookup");
@@ -52,7 +53,7 @@ function requestParams(config, profile) {
     max_tokens: 4096,
     output_config: { effort: config.liveEffort },
     system: buildSystem(profile),
-    tools: toolsFor(profile.kind),
+    tools: toolsFor(profile.kind, usesIronWingOffer(profile)),
   };
   if (config.liveThinking === "off") {
     // Opus cannot run without thinking; lower effort is its only control.
@@ -189,7 +190,13 @@ function createAgent({ client, config, profile, lookup = lookupCarrier }) {
       return { ...result, spoken_number: speakDigits(docket.digits) };
     }
     if (tool.name === "end_call") {
-      const { outcome, callback_promise, goodbye } = tool.input || {};
+      const {
+        outcome,
+        callback_promise,
+        goodbye,
+        offer_callback_requested,
+        offer_callback_number,
+      } = tool.input || {};
       if (!outcomes.includes(outcome))
         return { error: `outcome must be one of ${outcomes.join(", ")}` };
       if (
@@ -200,6 +207,12 @@ function createAgent({ client, config, profile, lookup = lookupCarrier }) {
         say(goodbye.trim());
       state.end = {
         outcome,
+        ...(offer_callback_requested === true && {
+          offerCallbackNumber:
+            typeof offer_callback_number === "string"
+              ? offer_callback_number
+              : "",
+        }),
         callbackPromise:
           typeof callback_promise === "string" ? callback_promise : "",
       };

@@ -74,6 +74,13 @@ function buildPayload(row, { revision, occurredAt, sourceBaseUrl } = {}) {
         : "unknown",
       callback_promise: clamp(row.callback_promise, "callback_promise"),
       fleet_size: clamp(details.fleetSize, "fleet_size"),
+      ...(details.offerCallback && {
+        offer_callback: {
+          offer: details.offerCallback.offer,
+          received_at: details.offerCallback.received_at,
+          status: details.offerCallback.status,
+        },
+      }),
       ...summaryFields(row, revision),
     },
     source_link: sourceBaseUrl
