@@ -44,7 +44,7 @@ test("the knowledge document has every agreed section and the published prices",
     expect(text).toContain(heading);
   expect(text).toContain("5%");
   expect(text).toContain("10%");
-  expect(text).toContain("linehaul");
+  expect(text).toContain("rate confirmation");
 });
 
 test("rules carry the non-negotiables", () => {
